@@ -17,6 +17,7 @@ used here.
 - [x] Same-GPU frame generation (OpaqueFd)
 - [x] Cross-GPU frame generation (DMA-BUF)
 - [x] 2x, 3x and 4x frame insertion
+- [x] Adaptive target FPS and performance mode
 - [x] `~/.config/openfg/conf.toml` configuration and `openfg-cli`
 - [x] Process include/exclude matching (native and Wine/Proton `.exe` names)
 - [x] GUI and per-user install scripts
@@ -68,6 +69,13 @@ cross_gpu = false
 # Generated frames per real frame: 2, 3 or 4.
 multiplier = 2
 
+# Stop generating while the measured frame rate is above this value.
+# 0 = always generate. Set near the refresh rate to preserve native latency.
+target_fps = 0
+
+# Skip the full-resolution flow refinement: ~14% faster, slightly softer edges.
+performance_mode = false
+
 # Per-frame logging to stderr.
 debug = false
 
@@ -80,8 +88,9 @@ include = []
 exclude = []
 ```
 
-`OPENFG_ENABLE`, `OPENFG_GPU`, `OPENFG_CROSS_GPU`, `OPENFG_MULTIPLIER` and
-`OPENFG_DEBUG` override individual settings for ad-hoc tests.
+`OPENFG_ENABLE`, `OPENFG_GPU`, `OPENFG_CROSS_GPU`, `OPENFG_MULTIPLIER`,
+`OPENFG_TARGET_FPS`, `OPENFG_PERFORMANCE_MODE` and `OPENFG_DEBUG` override
+individual settings for ad-hoc tests.
 
 The layer is inactive unless `enabled = true` or `OPENFG_ENABLE=1`, and the
 process matches the include/exclude lists. The file is read once per process,
@@ -162,6 +171,28 @@ openfg-gui
 The GUI edits the same config and can validate it through `openfg-cli`. It
 needs PySide6 (CachyOS: `sudo pacman -S pyside6`).
 
+## Latency
+
+Frame generation has an inherent cost: the generated frame must be shown
+**before** the current real frame, so the real frame is delayed by at least one
+display refresh. The practical options are:
+
+- `target_fps`: stop generating when the game is already near the refresh
+  rate. This is the biggest win for latency at high fps. The value is compared
+  against the measured present rate with generation active and uses a 5%
+  hysteresis plus a one-second dwell to avoid flapping. On a 165 Hz display,
+  `target_fps = 120` keeps native latency above ~126 fps and only interpolates
+  when the game is slower.
+- `performance_mode`: skip the full-resolution flow refinement. It measured
+  ~14% faster (1.70 → 1.46 ms at 1440p) with a 0.08 dB PSNR change on the pan
+  scene and 0.01 dB on the ghost scene.
+- `multiplier = 2` has the lowest added delay; 3x/4x insert more frames before
+  the real one.
+- `cross_gpu` moves interpolation to the second card. It removes GPU work from
+  the render card but adds two DMA-BUF copies and cross-device semaphore
+  round-trips. On the dual RX 7900 XT test system it was slower than same-GPU
+  (119 vs 134 measured fps in Helldivers 2), so test it per game.
+
 For a system-wide install, use CMake directly:
 
 ```sh
@@ -194,6 +225,14 @@ Run the interpolator:
 
 The backend reproduces the reference implementation used during development
 byte-for-byte on the same inputs (31.5095 dB on the 1440p pan scene).
+
+Performance mode with `--performance` at 1440p:
+
+```
+scene    normal ms   perf ms   normal dB   perf dB
+pan         1.70       1.46      31.5095    31.4298
+ghost       1.69       1.46      25.9564    25.9445
+```
 
 ## Benchmarks
 

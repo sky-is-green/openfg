@@ -124,6 +124,8 @@ def load_config() -> dict:
         "gpu": "auto",
         "cross_gpu": False,
         "multiplier": 2,
+        "target_fps": 0,
+        "performance_mode": False,
         "debug": False,
         "include": [],
         "exclude": [],
@@ -142,10 +144,13 @@ def load_config() -> dict:
         config["enabled"] = bool(section.get("enabled", config["enabled"]))
         config["gpu"] = str(section.get("gpu", config["gpu"]))
         config["cross_gpu"] = bool(section.get("cross_gpu", config["cross_gpu"]))
-        try:
-            config["multiplier"] = int(section.get("multiplier", config["multiplier"]))
-        except (TypeError, ValueError):
-            pass
+        for key in ("multiplier", "target_fps"):
+            try:
+                config[key] = int(section.get(key, config[key]))
+            except (TypeError, ValueError):
+                pass
+        config["performance_mode"] = bool(
+            section.get("performance_mode", config["performance_mode"]))
         config["debug"] = bool(section.get("debug", config["debug"]))
     processes = data.get("processes", {})
     if isinstance(processes, dict):
@@ -176,6 +181,8 @@ enabled = {'true' if config['enabled'] else 'false'}
 gpu = {quote(config['gpu'])}
 cross_gpu = {'true' if config['cross_gpu'] else 'false'}
 multiplier = {config['multiplier']}
+target_fps = {config['target_fps']}
+performance_mode = {'true' if config['performance_mode'] else 'false'}
 debug = {'true' if config['debug'] else 'false'}
 
 [processes]
@@ -271,6 +278,23 @@ class MainWindow(QtWidgets.QMainWindow):
         self.multiplier.setCurrentIndex(index if index >= 0 else 0)
         form.addRow("Multiplier:", self.multiplier)
 
+        self.target_fps = QtWidgets.QSpinBox()
+        self.target_fps.setRange(0, 1000)
+        self.target_fps.setSpecialValueText("Always generate")
+        self.target_fps.setSuffix(" fps")
+        self.target_fps.setValue(self.config["target_fps"])
+        self.target_fps.setToolTip(
+            "Generate only while the application is below this rate. Set to "
+            "'Always generate' (0) to insert frames regardless of native fps. "
+            "Stopping near the refresh rate keeps native input latency."
+        )
+        form.addRow("Target FPS:", self.target_fps)
+
+        self.performance = QtWidgets.QCheckBox(
+            "Performance mode (half-resolution flow, softer edges)")
+        self.performance.setChecked(self.config["performance_mode"])
+        form.addRow("", self.performance)
+
         self.debug = QtWidgets.QCheckBox("Log generated frames to stderr")
         self.debug.setChecked(self.config["debug"])
         form.addRow("", self.debug)
@@ -348,6 +372,8 @@ class MainWindow(QtWidgets.QMainWindow):
             "gpu": gpu or "auto",
             "cross_gpu": self.cross_gpu.isChecked(),
             "multiplier": int(self.multiplier.currentData()),
+            "target_fps": int(self.target_fps.value()),
+            "performance_mode": self.performance.isChecked(),
             "debug": self.debug.isChecked(),
             "include": [line.strip() for line in self.include.toPlainText().splitlines()
                         if line.strip()],
@@ -401,6 +427,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self._select_gpu(self.config["gpu"])
         index = self.multiplier.findData(self.config["multiplier"])
         self.multiplier.setCurrentIndex(index if index >= 0 else 0)
+        self.target_fps.setValue(self.config["target_fps"])
+        self.performance.setChecked(self.config["performance_mode"])
         self.debug.setChecked(self.config["debug"])
         self.include.setPlainText("\n".join(self.config["include"]))
         self.exclude.setPlainText("\n".join(self.config["exclude"]))

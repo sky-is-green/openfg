@@ -17,6 +17,12 @@ cross_gpu = false
 # Generated frames per real frame: 2, 3 or 4.
 multiplier = 2
 
+# Only generate while the application is below this rate. 0 = always.
+target_fps = 0
+
+# Skip the full-resolution flow refinement: faster, softer silhouettes.
+performance_mode = false
+
 # Log generated frames and present results to stderr.
 debug = false
 

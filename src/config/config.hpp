@@ -19,6 +19,10 @@ struct Config {
     std::string gpu{"auto"};
     bool crossGpu{false};
     unsigned multiplier{2};
+    /// Generate only while the application is below this rate. 0 = always.
+    unsigned targetFps{0};
+    /// Skip the full-resolution flow refinement (faster, softer edges).
+    bool performanceMode{false};
     bool debug{false};
 
     /// Process names (basenames, `*` and `?` wildcards) the layer may run in.

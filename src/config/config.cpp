@@ -421,6 +421,10 @@ bool validate(const Config& config, std::string& error) {
         error = "openfg.multiplier must be 2, 3 or 4";
         return false;
     }
+    if (config.targetFps != 0 && (config.targetFps < 20 || config.targetFps > 1000)) {
+        error = "openfg.target_fps must be 0 (always generate) or between 20 and 1000";
+        return false;
+    }
     if (config.gpu.empty()) {
         error = "openfg.gpu must not be empty (use \"auto\" for the default device)";
         return false;
@@ -550,7 +554,8 @@ LoadResult parse(const std::string& text, const std::filesystem::path& path) {
         // ignored. This also catches keys outside any section.
         static const std::set<std::string> known{
             "openfg.enabled", "openfg.gpu", "openfg.cross_gpu",
-            "openfg.multiplier", "openfg.debug",
+            "openfg.multiplier", "openfg.target_fps", "openfg.performance_mode",
+            "openfg.debug",
             "processes.include", "processes.exclude"
         };
         for (const auto& [key, value] : values) {
@@ -565,6 +570,8 @@ LoadResult parse(const std::string& text, const std::filesystem::path& path) {
             !getString(values, "openfg", "gpu", config.gpu, error) ||
             !getBool(values, "openfg", "cross_gpu", config.crossGpu, error) ||
             !getUnsigned(values, "openfg", "multiplier", config.multiplier, error) ||
+            !getUnsigned(values, "openfg", "target_fps", config.targetFps, error) ||
+            !getBool(values, "openfg", "performance_mode", config.performanceMode, error) ||
             !getBool(values, "openfg", "debug", config.debug, error) ||
             !getStringArray(values, "processes", "include", config.include, error) ||
             !getStringArray(values, "processes", "exclude", config.exclude, error))
@@ -614,6 +621,14 @@ LoadResult load(const std::filesystem::path& path) {
         else
             result.warnings.push_back("OPENFG_MULTIPLIER must be 2, 3 or 4; ignored");
     }
+    if (const auto value = envInt("OPENFG_TARGET_FPS"); value) {
+        if (*value >= 0 && *value <= 1000)
+            config.targetFps = static_cast<unsigned>(*value);
+        else
+            result.warnings.push_back("OPENFG_TARGET_FPS must be between 0 and 1000; ignored");
+    }
+    if (const auto value = envBool("OPENFG_PERFORMANCE_MODE"); value)
+        config.performanceMode = *value;
     if (const auto value = envBool("OPENFG_DEBUG"); value)
         config.debug = *value;
 
@@ -719,6 +734,12 @@ cross_gpu = false
 # Generated frames per real frame: 2, 3 or 4.
 multiplier = 2
 
+# Only generate while the application is below this rate. 0 = always.
+target_fps = 0
+
+# Skip the full-resolution flow refinement: faster, softer silhouettes.
+performance_mode = false
+
 # Log generated frames and present results to stderr.
 debug = false
 
@@ -765,6 +786,9 @@ std::string toToml(const Config& config) {
     result += "gpu = " + quote(config.gpu) + "\n";
     result += std::string("cross_gpu = ") + (config.crossGpu ? "true" : "false") + "\n";
     result += "multiplier = " + std::to_string(config.multiplier) + "\n";
+    result += "target_fps = " + std::to_string(config.targetFps) + "\n";
+    result += std::string("performance_mode = ") +
+        (config.performanceMode ? "true" : "false") + "\n";
     result += std::string("debug = ") + (config.debug ? "true" : "false") + "\n\n";
     result += "[processes]\n";
     result += "include = " + list(config.include) + "\n";

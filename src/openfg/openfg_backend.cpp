@@ -112,7 +112,7 @@ namespace {
             dld, device, physdev,
             requirements.size,
             requirements.memoryTypeBits,
-            crossGpu,
+            false,
             &dedicatedInfo
         )};
         device.bindImageMemory(*image, *memory, 0, dld);
@@ -209,7 +209,6 @@ Context::Context(
     bool performanceMode
 ) {
     (void)flowScale;
-    (void)performanceMode;
 
     const auto& vk{instance.m_impl->vk};
     const vk::Extent2D extent{width, height};
@@ -243,7 +242,8 @@ Context::Context(
                 throw std::runtime_error(
                     "openfg: missing embedded shader '" + std::string(name) + "'");
             return std::vector<uint32_t>(shader.begin(), shader.end());
-        }
+        },
+        performanceMode
     )};
 
     auto pool{vkutil::createCommandPool(*vk.dld, *vk.device, vk.qfi, true)};

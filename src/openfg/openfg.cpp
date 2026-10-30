@@ -59,7 +59,8 @@ Interpolator::Interpolator(
     vk::Extent2D extent,
     vk::Image source,
     vk::Image destination,
-    const ShaderLoader& loader
+    const ShaderLoader& loader,
+    bool performanceMode
 ) : m_dld(dld), m_physdev(physdev), m_device(device),
     m_extent(extent), m_loader(loader) {
     if (extent.width == 0 || extent.height == 0)
@@ -72,6 +73,7 @@ Interpolator::Interpolator(
     this->m_bidirectional = std::getenv("OPENFG_BIDIRECTIONAL") != nullptr;
     this->m_occlusionFlow = std::getenv("OPENFG_OCCLUSION") != nullptr;
     this->m_tileMaskEnabled = std::getenv("OPENFG_NO_TILE_MASK") == nullptr;
+    this->m_performanceMode = performanceMode;
 
     constexpr vk::ImageUsageFlags INTERNAL_USAGE{
         vk::ImageUsageFlagBits::eStorage |
@@ -492,7 +494,9 @@ void Interpolator::createDescriptors() {
                 ? *this->m_flowBASmooth.at(2).view
                 : *this->m_dummyRg16f.view),
         *this->m_dummyR8.view,
-        *this->m_flowFull.view,
+        this->m_performanceMode
+            ? *this->m_flowSmooth.at(1).view
+            : *this->m_flowFull.view,
         *this->m_dummyR8.view, // replaced by the tile mask in makeSet
         *this->m_srcView
     }};
@@ -618,11 +622,13 @@ void Interpolator::analyze(const vk::CommandBuffer& cmdbuf, uint32_t layerA, uin
         this->barrier(cmdbuf);
     }
 
-    pc.width = this->m_extent.width;
-    pc.height = this->m_extent.height;
-    pc.level = 0;
-    this->dispatch(cmdbuf, "refine_full", this->m_setRefineFull, this->m_extent, pc);
-    this->barrier(cmdbuf);
+    if (!this->m_performanceMode) {
+        pc.width = this->m_extent.width;
+        pc.height = this->m_extent.height;
+        pc.level = 0;
+        this->dispatch(cmdbuf, "refine_full", this->m_setRefineFull, this->m_extent, pc);
+        this->barrier(cmdbuf);
+    }
 
     if (!this->m_bidirectional && !this->m_occlusionFlow)
         return;
@@ -674,7 +680,7 @@ void Interpolator::generate(
     pc.width = this->m_extent.width;
     pc.height = this->m_extent.height;
     pc.t = t;
-    pc.flowScale = 1.0F; // flow has been refined at full resolution
+    pc.flowScale = this->m_performanceMode ? 2.0F : 1.0F;
     pc.level = 1;
     pc.flags = static_cast<int32_t>(flags);
     pc.layerA = layerA;

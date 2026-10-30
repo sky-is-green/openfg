@@ -53,7 +53,8 @@ public:
         vk::Extent2D extent,
         vk::Image source,
         vk::Image destination,
-        const ShaderLoader& loader
+        const ShaderLoader& loader,
+        bool performanceMode = false
     );
     ~Interpolator();
 
@@ -122,6 +123,7 @@ private:
     bool m_bidirectional{false};
     bool m_occlusionFlow{true};
     bool m_tileMaskEnabled{true};
+    bool m_performanceMode{false};
 
     std::array<vk::Extent2D, 6> m_levels{};
     std::array<Image, 6> m_lumaA{};

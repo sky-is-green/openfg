@@ -48,6 +48,7 @@ namespace {
         uint32_t height{0};
         uint32_t iterations{20};
         uint32_t debugFlags{0};
+        bool performance{false};
         float t{0.5F};
     };
 
@@ -399,6 +400,7 @@ OPTIONS:
         --dump-flow <PATH>  Write the half-resolution RG16F flow field
         --debug-source      Output the current source layer (sanity check)
         --dump-luma <LVL>   Write R8 luma pyramids at this level to PATH.a/.b
+        --performance       Half-resolution flow (faster, softer silhouettes)
 )";
     }
 }
@@ -406,7 +408,7 @@ OPTIONS:
 int main(int argc, char** argv) {
     Options opts{};
 
-    const std::array<option, 18> GETOPT{{
+    const std::array<option, 19> GETOPT{{
         { "a", required_argument, nullptr, 'a' },
         { "b", required_argument, nullptr, 'b' },
         { "out", required_argument, nullptr, 'o' },
@@ -424,6 +426,7 @@ int main(int argc, char** argv) {
         { "flow-raw", no_argument, nullptr, 7 },
         { "debug-warp", required_argument, nullptr, 8 },
         { "flow-reverse", no_argument, nullptr, 9 },
+        { "performance", no_argument, nullptr, 10 },
         { nullptr, 0, nullptr, 0 }
     }};
 
@@ -450,6 +453,7 @@ int main(int argc, char** argv) {
             case 7: opts.dumpFlowRaw = true; break;
             case 8: opts.debugFlags |= static_cast<uint32_t>(std::stoul(optarg)); break;
             case 9: opts.dumpFlowReverse = true; break;
+            case 10: opts.performance = true; break;
             default:
                 usage(argv[0]);
                 return EXIT_FAILURE;
@@ -524,7 +528,8 @@ int main(int argc, char** argv) {
             *source.image, *dest.image,
             [&opts](std::string_view name) {
                 return loadSpirv(opts.shaders, name);
-            });
+            },
+            opts.performance);
 
         cmdbuf->begin({ .flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit }, dld);
         auto stagingA{uploadImage(dld, physdev, *device, *cmdbuf, *source.image,

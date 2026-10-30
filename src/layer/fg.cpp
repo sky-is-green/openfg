@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -143,6 +144,15 @@ namespace {
         SemaphoreArray copyDone{};
     };
 
+    struct AdaptiveState {
+        std::chrono::steady_clock::time_point lastPresent{};
+        std::chrono::steady_clock::time_point aboveSince{};
+        std::chrono::steady_clock::time_point belowSince{};
+        double intervalMs{};
+        bool generating{true};
+        bool resetPending{false};
+    };
+
     struct FgState {
         const LayerDeviceFns* fns{};
         VkSwapchainKHR swapchain{};
@@ -171,6 +181,7 @@ namespace {
         bool ready{};
         bool failed{};
         std::string error;
+        AdaptiveState adaptive;
     };
 
     std::mutex g_mutex;
@@ -243,9 +254,82 @@ namespace {
     /// unless the device itself is going away.
     void resetState(FgState& state, bool keepInstance) {
         auto instance = keepInstance ? std::move(state.instance) : nullptr;
+        auto adaptive = state.adaptive;
         destroyState(state);
         state = FgState{};
         state.instance = std::move(instance);
+        state.adaptive = adaptive;
+    }
+
+    bool shouldGenerate(FgState& state, const openfg::config::Config& config) {
+        using namespace std::chrono;
+        const auto now = steady_clock::now();
+        auto& adaptive = state.adaptive;
+
+        if (config.targetFps == 0) {
+            adaptive.generating = true;
+            adaptive.lastPresent = now;
+            return true;
+        }
+
+        if (adaptive.lastPresent != steady_clock::time_point{}) {
+            const double dt = duration<double, std::milli>(now - adaptive.lastPresent).count();
+            if (dt > 500.0) {
+                // Loading screen or a long stall: start over instead of
+                // concluding that the game suddenly runs at 2 fps.
+                adaptive.intervalMs = 0.0;
+                adaptive.aboveSince = {};
+                adaptive.belowSince = {};
+                adaptive.lastPresent = now;
+                return adaptive.generating;
+            }
+            adaptive.intervalMs = adaptive.intervalMs <= 0.0
+                ? dt
+                : adaptive.intervalMs * 0.9 + dt * 0.1;
+        }
+        adaptive.lastPresent = now;
+
+        if (adaptive.intervalMs <= 0.0)
+            return adaptive.generating;
+
+        const double fps = 1000.0 / adaptive.intervalMs;
+        const double target = static_cast<double>(config.targetFps);
+
+        if (adaptive.generating) {
+            if (fps > target * 1.05) {
+                if (adaptive.aboveSince == steady_clock::time_point{})
+                    adaptive.aboveSince = now;
+                if (now - adaptive.aboveSince >= seconds(1)) {
+                    adaptive.generating = false;
+                    adaptive.aboveSince = {};
+                    adaptive.belowSince = {};
+                    if (config.debug)
+                        std::fprintf(stderr,
+                            "%s adaptive: stop generating (%.1f fps, target %u)\n",
+                            TAG, fps, config.targetFps);
+                }
+            } else {
+                adaptive.aboveSince = {};
+            }
+        } else {
+            if (fps < target * 0.95) {
+                if (adaptive.belowSince == steady_clock::time_point{})
+                    adaptive.belowSince = now;
+                if (now - adaptive.belowSince >= seconds(1)) {
+                    adaptive.generating = true;
+                    adaptive.resetPending = true;
+                    adaptive.aboveSince = {};
+                    adaptive.belowSince = {};
+                    if (config.debug)
+                        std::fprintf(stderr,
+                            "%s adaptive: start generating (%.1f fps, target %u)\n",
+                            TAG, fps, config.targetFps);
+                }
+            } else {
+                adaptive.belowSince = {};
+            }
+        }
+        return adaptive.generating;
     }
 
     bool importImage(
@@ -321,7 +405,9 @@ namespace {
         alloc.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         alloc.pNext = &import;
         alloc.allocationSize = requirements.size;
-        alloc.memoryTypeIndex = findMemoryType(fns, requirements.memoryTypeBits, state.crossGpu);
+        // The image is only accessed by the GPU. Prefer device-local memory;
+        // for DMA-BUF the fd properties above already removed invalid types.
+        alloc.memoryTypeIndex = findMemoryType(fns, requirements.memoryTypeBits, false);
 
         VkDeviceMemory memory{};
         if (fns.allocateMemory(fns.device, &alloc, nullptr, &memory) != VK_SUCCESS) {
@@ -425,7 +511,7 @@ namespace {
             swapchain.extent.width,
             swapchain.extent.height,
             1.0F,
-            false
+            activeConfig().performanceMode
         );
 
         const auto fds = state.context->exportFds();
@@ -671,6 +757,15 @@ VkResult present(
 
     if (state->failed)
         return nextPresent(queue, presentInfo);
+
+    if (!shouldGenerate(*state, activeConfig()))
+        return nextPresent(queue, presentInfo);
+
+    if (state->adaptive.resetPending) {
+        resetState(*state, true);
+        state->fns = &fns;
+        state->adaptive.resetPending = false;
+    }
 
     if (state->ready && state->swapchain != swapchain) {
         resetState(*state, true);
