@@ -44,8 +44,8 @@ namespace {
         bool storage
     ) {
         const auto properties = physdev.getFormatProperties(format, dld);
-        const auto features = properties.optimalTilingFeatures |
-            properties.linearTilingFeatures;
+        // The backend's internal images are optimal-tiled.
+        const auto features = properties.optimalTilingFeatures;
         if (!(features & vk::FormatFeatureFlagBits::eSampledImage))
             return false;
         if (storage && !(features & vk::FormatFeatureFlagBits::eStorageImage))
