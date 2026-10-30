@@ -22,6 +22,23 @@ openfg-gpu-probe
 
 The GUI is optional (`pyside6`); the layer and CLI work without it.
 
-To publish it on the AUR, create an `openfg-git` repository, copy `PKGBUILD`
-and `.SRCINFO` into it, check the maintainer line, then push. Re-run
-`makepkg --printsrcinfo > .SRCINFO` after every PKGBUILD change.
+## Publishing to the AUR
+
+The `openfg-git` name is currently free. Publishing needs the maintainer's
+AUR account and an SSH key registered at <https://aur.archlinux.org>:
+
+```sh
+ssh-keygen -t ed25519 -f ~/.ssh/aur -C "your AUR email"
+# add ~/.ssh/aur.pub at https://aur.archlinux.org/account/
+git clone ssh://aur@aur.archlinux.org/openfg-git.git
+cp PKGBUILD .SRCINFO openfg-git/
+cd openfg-git
+git add PKGBUILD .SRCINFO
+git commit -m "Initial import"
+git push
+```
+
+Check the `# Maintainer:` line in `PKGBUILD` first. Re-run
+`makepkg --printsrcinfo > .SRCINFO` after every PKGBUILD change. The package
+installs the layer, CLI, probe, fg-lab, GUI and docs from the current git
+tree; it is not a tagged-release package.
