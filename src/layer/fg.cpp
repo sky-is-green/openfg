@@ -149,6 +149,7 @@ namespace {
         std::chrono::steady_clock::time_point aboveSince{};
         std::chrono::steady_clock::time_point belowSince{};
         double intervalMs{};
+        double overheadMs{};
         bool generating{false};
         bool resetPending{false};
     };
@@ -292,7 +293,17 @@ namespace {
         if (adaptive.intervalMs <= 0.0)
             return adaptive.generating;
 
-        const double fps = 1000.0 / adaptive.intervalMs;
+        // When generation is active, the measured interval includes the
+        // layer's own copy/generate/present work. Subtract the previous
+        // frame's overhead to estimate the application's native frame rate.
+        double sampleMs = adaptive.intervalMs;
+        if (adaptive.generating && adaptive.overheadMs > 0.0 &&
+            adaptive.overheadMs < sampleMs * 0.9)
+            sampleMs -= adaptive.overheadMs;
+        if (sampleMs < 1.0)
+            sampleMs = 1.0;
+
+        const double fps = 1000.0 / sampleMs;
         const double target = static_cast<double>(config.targetFps);
 
         if (adaptive.generating) {
@@ -758,8 +769,12 @@ VkResult present(
     if (state->failed)
         return nextPresent(queue, presentInfo);
 
-    if (!shouldGenerate(*state, activeConfig()))
+    const auto layerStart = std::chrono::steady_clock::now();
+
+    if (!shouldGenerate(*state, activeConfig())) {
+        state->adaptive.overheadMs = 0.0;
         return nextPresent(queue, presentInfo);
+    }
 
     if (state->adaptive.resetPending) {
         resetState(*state, true);
@@ -922,6 +937,9 @@ VkResult present(
                 if (activeConfig().debug)
                     std::fprintf(stderr, "%s frame %u: generated present failed (%d)\n",
                         TAG, state->iteration, generatedResult);
+                state->adaptive.overheadMs =
+                    std::chrono::duration<double, std::milli>(
+                        std::chrono::steady_clock::now() - layerStart).count();
                 VkPresentInfoKHR originalPresent = *presentInfo;
                 originalPresent.waitSemaphoreCount = 1;
                 originalPresent.pWaitSemaphores = &imageSync.sourceDone;
@@ -932,6 +950,9 @@ VkResult present(
     } catch (const std::exception& exception) {
         setError(*state, std::string("frame generation failed: ") + exception.what());
     }
+
+    state->adaptive.overheadMs = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - layerStart).count();
 
     VkPresentInfoKHR originalPresent = *presentInfo;
     originalPresent.waitSemaphoreCount = 1;
