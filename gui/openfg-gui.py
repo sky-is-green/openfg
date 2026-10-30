@@ -47,6 +47,19 @@ def cli_path():
     return None
 
 
+def probe_path():
+    candidates = [
+        os.environ.get("OPENFG_PROBE"),
+        str(repo_root() / "build" / "openfg-gpu-probe"),
+        str(Path.home() / ".local" / "bin" / "openfg-gpu-probe"),
+        shutil.which("openfg-gpu-probe"),
+    ]
+    for candidate in candidates:
+        if candidate and Path(candidate).is_file():
+            return str(candidate)
+    return None
+
+
 def vendor_name(vendor_id: str) -> str:
     names = {
         "1002": "AMD",
@@ -109,6 +122,41 @@ def enumerate_gpus() -> list[dict]:
             "vendor_device": vendor_device,
             "pci": pci,
             "display": pci in displays,
+        })
+    if gpus:
+        return gpus
+    return enumerate_gpus_from_probe()
+
+
+def enumerate_gpus_from_probe() -> list[dict]:
+    """Fallback for systems without vulkaninfo."""
+    probe = probe_path()
+    if not probe:
+        return []
+    try:
+        proc = subprocess.run(
+            [probe], capture_output=True, text=True, timeout=60)
+    except Exception:
+        return []
+    text = (proc.stdout or "") + "\n" + (proc.stderr or "")
+    displays = connected_pci()
+    gpus = []
+    for block in re.split(r'^GPU\s+\d+\s*$', text, flags=re.MULTILINE):
+        name = re.search(r'^\s*name\s+:\s*(.+?)\s*$', block, re.MULTILINE)
+        pci = re.search(r'^\s*pci\s+:\s*([0-9a-fA-F:.]+)\s*$', block, re.MULTILINE)
+        vendor_device = re.search(
+            r'^\s*vendor:device\s+:\s*([0-9a-fA-F]{4}:[0-9a-fA-F]{4})',
+            block, re.MULTILINE)
+        if not (name and vendor_device):
+            continue
+        pci_text = pci.group(1) if pci else ""
+        gpus.append({
+            "index": len(gpus),
+            "name": name.group(1),
+            "vendor": vendor_name(vendor_device.group(1).split(":")[0]),
+            "vendor_device": vendor_device.group(1),
+            "pci": pci_text,
+            "display": pci_text in displays,
         })
     return gpus
 
@@ -297,12 +345,12 @@ class MainWindow(QtWidgets.QMainWindow):
         preset_layout.addWidget(preset(
             "Always generate · performance",
             "2x, generate on every real frame with the half-resolution flow. "
-            "About 14% faster interpolation, slightly softer silhouettes.",
+            "About 15% faster interpolation, slightly softer silhouettes.",
             lambda: self._apply_preset("performance")))
         preset_layout.addWidget(preset(
             "Video · 4x",
             "4x, always generate, quality flow. Use this with a Vulkan video "
-            "player; add the player to the process include list.",
+            "player (mpv/gpu-next); the preset adds mpv to the video profile.",
             lambda: self._apply_preset("video")))
         root.addWidget(presets)
 
@@ -323,7 +371,15 @@ class MainWindow(QtWidgets.QMainWindow):
             "address (usually the one with no display attached)."
         )
         self._select_gpu(self.config["gpu"])
-        form.addRow("Frame-generation GPU:", self.gpu)
+        gpu_row = QtWidgets.QHBoxLayout()
+        gpu_row.addWidget(self.gpu, 1)
+        probe_button = QtWidgets.QPushButton("Probe…")
+        probe_button.setToolTip(
+            "Run openfg-gpu-probe and show the Vulkan capabilities and "
+            "same-GPU/cross-GPU backend result for this machine.")
+        probe_button.clicked.connect(self.run_gpu_probe)
+        gpu_row.addWidget(probe_button)
+        form.addRow("Frame-generation GPU:", gpu_row)
 
         self.cross_gpu = QtWidgets.QCheckBox("Generate on a second GPU (DMA-BUF)")
         self.cross_gpu.setChecked(self.config["cross_gpu"])
@@ -386,8 +442,8 @@ class MainWindow(QtWidgets.QMainWindow):
             "Performance mode (half-resolution flow, softer silhouettes)")
         self.performance.setChecked(self.config["performance_mode"])
         self.performance.setToolTip(
-            "Skips the full-resolution flow refinement. About 14% faster at "
-            "1440p with a 0.08 dB pan / 0.01 dB ghost PSNR change. Only matters "
+            "Skips the full-resolution flow refinement. About 15% faster at "
+            "1440p with a 0.04 dB pan / 0.02 dB ghost PSNR change. Only matters "
             "while frames are being generated."
         )
         latency_form.addRow("", self.performance)
@@ -402,7 +458,7 @@ class MainWindow(QtWidgets.QMainWindow):
         latency_layout.addWidget(self.target_note)
         latency_layout.addWidget(hint(
             "Performance mode skips the full-resolution flow refinement: about "
-            "14% faster at 1440p with a 0.08 dB pan / 0.01 dB ghost PSNR change. "
+            "15% faster at 1440p with a 0.04 dB pan / 0.02 dB ghost PSNR change. "
             "The target comparison subtracts the layer's copy/generate/present "
             "time, so it approximates the game's native rate."
         ))
@@ -678,6 +734,35 @@ class MainWindow(QtWidgets.QMainWindow):
             self._set_status(f"Saved {config_path()}. {message}", False)
         else:
             self._set_status(message, True)
+
+    def run_gpu_probe(self) -> None:
+        probe = probe_path()
+        if not probe:
+            self._set_status(
+                "openfg-gpu-probe not found; build or install it first.", True)
+            return
+        try:
+            proc = subprocess.run(
+                [probe], capture_output=True, text=True, timeout=60)
+        except Exception as error:
+            self._set_status(f"Cannot run {probe}: {error}", True)
+            return
+        text = (proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("openfg GPU probe")
+        dialog.resize(820, 520)
+        layout = QtWidgets.QVBoxLayout(dialog)
+        edit = QtWidgets.QPlainTextEdit(text)
+        edit.setReadOnly(True)
+        layout.addWidget(edit)
+        buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Close)
+        copy = QtWidgets.QPushButton("Copy")
+        copy.clicked.connect(
+            lambda: QtWidgets.QApplication.clipboard().setText(text))
+        buttons.addButton(copy, QtWidgets.QDialogButtonBox.ActionRole)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        dialog.exec()
 
     def validate(self) -> None:
         config = self._collect()
