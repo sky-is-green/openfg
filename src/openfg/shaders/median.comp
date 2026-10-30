@@ -45,8 +45,11 @@ void main() {
         }
     }
 
-    // Only replace genuine outliers; keep detail at motion boundaries.
-    if (length(center - best) > 1.5)
+    // Replace vectors that differ from the local median by more than a
+    // quarter pixel. The threshold used to be 1.5 px, but the refinement
+    // pyramid is subpixel: a 1.5 px deviation is already a visible outlier on
+    // a moving edge.
+    if (length(center - best) > 0.25)
         center = best;
 
     imageStore(uOut, p, vec4(center, 0.0, 1.0));

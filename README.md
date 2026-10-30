@@ -238,7 +238,7 @@ OpenGL/VAAPI and has no Vulkan output, so the layer cannot see it.
 residual over the whole frame and shows the current frame when two frames are
 unrelated, instead of blending them. On a real video cut this moved PSNR from
 12.21 dB (blend) to 99 dB (current frame) while normal motion stayed at
-49.21 dB. The guard costs about 0.08 ms per frame pair at 1440p. See
+49.85 dB. The guard costs about 0.08 ms per frame pair at 1440p. See
 [docs/VIDEO.md](docs/VIDEO.md) for the mpv command, measured results and the
 remaining video limitations (PTS/cadence, HDR/10-bit, subtitles).
 
@@ -283,14 +283,14 @@ Run the interpolator:
 ```
 
 The backend reproduces the reference implementation used during development
-byte-for-byte on the same inputs (32.7076 dB on the 1440p pan scene).
+byte-for-byte on the same inputs (32.8252 dB on the 1440p pan scene).
 
 Performance mode with `--performance` at 1440p:
 
 ```
 scene    normal ms   perf ms   normal dB   perf dB
-pan         1.56       1.31      32.7076    32.6571
-ghost       1.55       1.31      26.4529    26.4348
+pan         1.56       1.32      32.8252    32.7843
+ghost       1.56       1.31      26.4850    26.4693
 ```
 
 ## Benchmarks
@@ -306,7 +306,7 @@ python3 tools/ghost_bench.py --scene ghost --width 2560 --height 1440
 
 ```
 backend   full dB  edge dB  edge MAD   ghost  moving dB     ms
-openfg      26.45    26.64     2.273   1.949      26.30   1.45
+openfg      26.48    26.67     2.238   1.925      26.33   1.46
 ```
 
 Tile-mask early-out:
@@ -317,10 +317,10 @@ python3 tools/tile_bench.py --width 2560 --height 1440
 
 ```
 scene        off ms    on ms  speedup   off dB    on dB
-pan           1.895    1.799    1.05x    32.71    32.71
-zoom          1.759    1.735    1.01x    28.41    28.41
-occlude       1.787    1.717    1.04x    21.29    21.29
-static        1.747    0.458    3.81x    43.74    43.74
+pan           1.800    1.719    1.05x    32.83    32.83
+zoom          1.795    1.746    1.03x    28.49    28.49
+occlude       1.746    1.700    1.03x    21.30    21.30
+static        1.742    0.477    3.65x    43.72    43.72
 ```
 
 Pan/zoom/occlude are within run-to-run GPU clock noise; the real early-out
@@ -331,8 +331,10 @@ error against the other frame (RGB and luma, ratio-clamped to keep a real
 blend). The refinement pyramid now seeds each level from the filtered flow
 instead of the raw field, so the median and guided-smooth passes actually
 reach the interpolator. Together these moved the 1440p pan scene from 31.51
-to 32.71 dB and the ghost excess from 2.380 to 1.949, while the static scene
-improved to 43.74 dB.
+to 32.83 dB and the ghost excess from 2.380 to 1.925, while the static scene
+improved to 43.72 dB. The 3x3 vector median now replaces vectors that differ
+by more than 0.25 px from the local median; at 1.5 px it was leaving visible
+outliers on subpixel motion.
 
 `ghost` (extra edges in the ground-truth edge band) is the acceptance gate for
 any detail-restoration or sharpening pass: it must not increase.
