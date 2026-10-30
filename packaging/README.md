@@ -20,5 +20,8 @@ openfg-cli validate
 openfg-gpu-probe
 ```
 
-The GUI is optional (`pyside6`); the layer and CLI work without it. This is not
-on the AUR yet.
+The GUI is optional (`pyside6`); the layer and CLI work without it.
+
+To publish it on the AUR, create an `openfg-git` repository, copy `PKGBUILD`
+and `.SRCINFO` into it, check the maintainer line, then push. Re-run
+`makepkg --printsrcinfo > .SRCINFO` after every PKGBUILD change.
