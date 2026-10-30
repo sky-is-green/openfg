@@ -612,6 +612,13 @@ LoadResult load(const std::filesystem::path& path) {
         config.debug = *value;
 
     if (result.error.empty()) {
+        if (config.crossGpu && config.gpu == "auto")
+            result.warnings.push_back(
+                "cross_gpu needs an explicit gpu (for example 0000:07:00.0); "
+                "\"auto\" selects the application's GPU");
+    }
+
+    if (result.error.empty()) {
         std::string error;
         if (!validate(config, error))
             result.error = resolved.string() + ": " + error;

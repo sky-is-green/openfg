@@ -82,8 +82,9 @@ exclude = []
 `OPENFG_ENABLE`, `OPENFG_GPU`, `OPENFG_CROSS_GPU`, `OPENFG_MULTIPLIER` and
 `OPENFG_DEBUG` override individual settings for ad-hoc tests.
 
-The layer is inactive unless `enabled = true` or `OPENFG_ENABLE=1`. The file is
-read once per process, early in device startup.
+The layer is inactive unless `enabled = true` or `OPENFG_ENABLE=1`, and the
+process matches the include/exclude lists. The file is read once per process,
+early in device startup.
 
 ## Layer
 

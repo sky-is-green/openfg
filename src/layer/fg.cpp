@@ -763,6 +763,9 @@ VkResult present(
                 state->fencePending = true;
 
             VkPresentInfoKHR generatedPresent = *presentInfo;
+            // The application's pNext chains describe its own present (IDs,
+            // damage regions, modes); they do not apply to inserted frames.
+            generatedPresent.pNext = nullptr;
             generatedPresent.waitSemaphoreCount = 1;
             generatedPresent.pWaitSemaphores = &imageSync.copyDone[i];
             generatedPresent.swapchainCount = 1;
