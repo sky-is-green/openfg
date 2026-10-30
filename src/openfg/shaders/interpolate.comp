@@ -71,19 +71,16 @@ void main() {
         return;
     }
 
-    // Temporal consistency: how well each warp agrees with the other frame.
-    vec4 bAtA = texture(sampler2DArray(uTexArray0, uSampler),
-        vec3(clamp(uva + duv, vec2(0.0), vec2(1.0)), float(pc.layerB)));
-    vec4 aAtB = texture(sampler2DArray(uTexArray0, uSampler),
-        vec3(clamp(uvb - duv, vec2(0.0), vec2(1.0)), float(pc.layerA)));
-
-    float ea = length(ca.rgb - bAtA.rgb);
-    float eb = length(cb.rgb - aAtB.rgb);
-
     // Unwarped samples, used both for static detail and as a fallback where
     // the flow is not trustworthy.
     vec4 a0 = texture(sampler2DArray(uTexArray0, uSampler), vec3(uv, float(pc.layerA)));
     vec4 b0 = texture(sampler2DArray(uTexArray0, uSampler), vec3(uv, float(pc.layerB)));
+
+    // Per-side photo-consistency: compare each warped sample with the other
+    // frame at the output position. The two errors differ where one side is
+    // occluded, which is what makes the visibility weights meaningful.
+    float ea = length(ca.rgb - b0.rgb);
+    float eb = length(cb.rgb - a0.rgb);
 
     // Video-safe fallback. The cut score is the mean flow-compensated
     // residual over the whole frame, so a hard cut switches the entire frame
@@ -98,9 +95,10 @@ void main() {
         return;
     }
 
-    // Soft visibility. A warp is trusted when it agrees across frames (low ea
-    // or eb) and the reverse flow maps back to it (low consistency). There is
-    // no hard switch: a bad side simply loses weight.
+    // Soft visibility. Each side is compared with the other frame at the
+    // output position, so the two errors differ at occlusions and the blend
+    // leans toward the side that is consistent. The reverse-flow term is
+    // optional (it costs a second flow field for very little gain).
     if ((pc.flags & 2048) != 0) {
         imageStore(uOut, ivec3(p, int(pc.dstLayer)), vec4(vec3(clamp(consistency / 20.0, 0.0, 1.0)), 1.0));
         return;
@@ -111,7 +109,21 @@ void main() {
 
     float wa = (1.0 - t) / (ea + 0.02) * (0.05 + confA);
     float wb = t / (eb + 0.02) * (0.05 + confB);
-    vec4 c = (ca * wa + cb * wb) / max(wa + wb, 1e-5);
+    // Limit how far the photo-consistency term can pull the blend. Letting a
+    // single side win outright doubles edges in the ghost scene.
+    float ratio = clamp(wa / max(wb, 1e-6), 0.5, 2.0);
+
+    // A second weighting uses luma only, which follows edges more closely.
+    // Averaging the two blend ratios keeps colour detail without bringing the
+    // doubled edges back.
+    float la = abs(luma(ca.rgb) - luma(b0.rgb));
+    float lb = abs(luma(cb.rgb) - luma(a0.rgb));
+    float waL = (1.0 - t) / (la + 0.02);
+    float wbL = t / (lb + 0.02);
+    float ratioL = clamp(waL / max(wbL, 1e-6), 0.5, 2.0);
+
+    float blend = 0.5 * (1.0 / (1.0 + ratio) + 1.0 / (1.0 + ratioL));
+    vec4 c = mix(ca, cb, blend);
 
     float err = min(ea, eb);
     if ((pc.flags & 32) != 0) {

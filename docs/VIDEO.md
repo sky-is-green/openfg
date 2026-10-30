@@ -61,7 +61,7 @@ Measured on real video frames:
 | pair | cut score | normal blend | safe |
 |---|---:|---:|---:|
 | hard cut (different scenes) | 0.184 | 12.21 dB | **99 dB** |
-| consecutive frames, normal motion | 0.004 | 41.94 dB | 41.94 dB |
+| consecutive frames, normal motion | 0.004 | 43.41 dB | 43.41 dB |
 
 The comparison is against the current real frame, which is the correct output
 for a cut. The threshold is 0.08. In a sample of live-action and animation content scored at 360p–480p, normal

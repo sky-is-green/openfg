@@ -236,7 +236,7 @@ OpenGL/VAAPI and has no Vulkan output, so the layer cannot see it.
 residual over the whole frame and shows the current frame when two frames are
 unrelated, instead of blending them. On a real video cut this moved PSNR from
 12.21 dB (blend) to 99 dB (current frame) while normal motion stayed at
-41.94 dB. The guard costs about 0.08 ms per frame pair at 1440p. See
+43.41 dB. The guard costs about 0.08 ms per frame pair at 1440p. See
 [docs/VIDEO.md](docs/VIDEO.md) for the mpv command, measured results and the
 remaining video limitations (PTS/cadence, HDR/10-bit, subtitles).
 
@@ -281,14 +281,14 @@ Run the interpolator:
 ```
 
 The backend reproduces the reference implementation used during development
-byte-for-byte on the same inputs (31.5095 dB on the 1440p pan scene).
+byte-for-byte on the same inputs (32.1005 dB on the 1440p pan scene).
 
 Performance mode with `--performance` at 1440p:
 
 ```
 scene    normal ms   perf ms   normal dB   perf dB
-pan         1.58       1.32      31.5095    31.4298
-ghost       1.57       1.33      25.9564    25.9445
+pan         1.59       1.32      32.1005    32.0374
+ghost       1.57       1.33      26.1007    26.0901
 ```
 
 ## Benchmarks
@@ -304,7 +304,7 @@ python3 tools/ghost_bench.py --scene ghost --width 2560 --height 1440
 
 ```
 backend   full dB  edge dB  edge MAD   ghost  moving dB     ms
-openfg      25.96    26.12     2.653   2.380      25.81   1.82
+openfg      26.10    26.27     2.586   2.304      25.95   1.45
 ```
 
 Tile-mask early-out:
@@ -315,14 +315,19 @@ python3 tools/tile_bench.py --width 2560 --height 1440
 
 ```
 scene        off ms    on ms  speedup   off dB    on dB
-pan           1.724    1.745    0.99x    31.51    31.51
-zoom          1.838    1.754    1.05x    27.75    27.75
-occlude       1.618    1.819    0.89x    21.16    21.16
-static        1.592    0.465    3.42x    43.14    43.14
+pan           1.903    1.815    1.05x    32.10    32.10
+zoom          1.749    1.730    1.01x    28.05    28.05
+occlude       1.910    1.552    1.23x    21.20    21.20
+static        1.874    0.459    4.08x    43.14    43.14
 ```
 
 Pan/zoom/occlude are within run-to-run GPU clock noise; the real early-out
 win is the static scene, where whole 16x16 tiles are skipped.
+
+The interpolate pass now weights each warp by its own photo-consistency
+error against the other frame (RGB and luma, ratio-clamped to keep a real
+blend). This moved the 1440p pan scene from 31.51 to 32.10 dB and kept the
+ghost excess at or below the previous 2.380.
 
 `ghost` (extra edges in the ground-truth edge band) is the acceptance gate for
 any detail-restoration or sharpening pass: it must not increase.
