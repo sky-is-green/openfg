@@ -82,6 +82,30 @@ between them:
 7. **10-bit/HDR** — if available, play a 10-bit/HDR file with mpv; the log
    should say `half-float interpolation path`.
 
+## Synthetic present benchmark
+
+`vkmark` is a quick, deterministic check that frames are actually being
+inserted. Install it (`sudo pacman -S vkmark`) and run:
+
+```sh
+vkmark -b cube:duration=8 -s 2560x1440 --present-mode immediate
+```
+
+With `debug = true`, the layer log reports app fps, presented fps (real plus
+generated), overhead and the generation state. Reference RX 7900 XT numbers:
+
+| mode | app fps | presented fps | overhead |
+|---|---:|---:|---:|
+| off | 22,708 | 22,708 | — |
+| 2x | 1,149 | 2,306 | 0.85 ms |
+| 2x performance | 1,264 | 2,536 | 0.74 ms |
+| 3x | 970 | 2,883 | 1.00 ms |
+| 4x | 815 | 3,265 | 1.16 ms |
+
+The absolute app rate is present-bound at this resolution; use a real game for
+frame-time impact. The value of the table is that presented/app is 2.00, 2.97
+and 4.01, so the inserted frames reach the compositor.
+
 ## What to report
 
 Open an issue with:
