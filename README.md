@@ -254,6 +254,13 @@ backend context for same-GPU and cross-GPU. See
 [docs/GPU-SUPPORT.md](docs/GPU-SUPPORT.md) for the RDNA2/RDNA3/NVIDIA/Intel
 matrix and the mixed-vendor limitation.
 
+## Testing
+
+See [docs/TESTING.md](docs/TESTING.md) for the install commands, the modes to
+compare, the probe/log output to include, and the current known limitations.
+The most useful reports include a before/after frame rate, the GPU/driver/kernel
+and a clip of any ghosting or seam.
+
 ## Harness
 
 Generate the synthetic frames once:
