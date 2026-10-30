@@ -677,8 +677,16 @@ VkResult present(
         state->fns = &fns;
     }
 
-    if (!state->ready && !initializeState(*state, fns, swapInfo))
-        return nextPresent(queue, presentInfo);
+    if (!state->ready) {
+        bool initialized{false};
+        try {
+            initialized = initializeState(*state, fns, swapInfo);
+        } catch (const std::exception& exception) {
+            setError(*state, std::string("backend initialization failed: ") + exception.what());
+        }
+        if (!initialized)
+            return nextPresent(queue, presentInfo);
+    }
 
     if (state->fencePending) {
         if (fns.waitForFences(fns.device, 1, &state->fence, VK_TRUE, UINT64_MAX) != VK_SUCCESS)
