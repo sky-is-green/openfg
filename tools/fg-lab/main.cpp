@@ -9,6 +9,7 @@
 // GPU and optionally reports PSNR against a ground-truth frame.
 
 #include "openfg.hpp"
+#include "openfg_shaders.hpp"
 
 #include "vkutil/vkutil.hpp"
 
@@ -43,7 +44,7 @@ namespace {
         std::filesystem::path dumpLuma;
         int dumpLumaLevel{-1};
         std::string gpu;
-        std::filesystem::path shaders{OPENFG_SHADER_DIR};
+        std::filesystem::path shaders;
         uint32_t width{0};
         uint32_t height{0};
         uint32_t iterations{20};
@@ -78,14 +79,24 @@ namespace {
     }
 
     std::vector<uint32_t> loadSpirv(const std::filesystem::path& dir, std::string_view name) {
-        const auto path{dir / (std::string(name) + ".spv")};
-        auto bytes{readFile(path, 0)};
-        if (bytes.size() % sizeof(uint32_t) != 0)
-            throw std::runtime_error(path.string() + ": not valid SPIR-V");
+        if (!dir.empty()) {
+            const auto path{dir / (std::string(name) + ".spv")};
+            std::error_code ec;
+            if (std::filesystem::exists(path, ec)) {
+                auto bytes{readFile(path, 0)};
+                if (bytes.size() % sizeof(uint32_t) != 0)
+                    throw std::runtime_error(path.string() + ": not valid SPIR-V");
 
-        std::vector<uint32_t> words(bytes.size() / sizeof(uint32_t));
-        std::memcpy(words.data(), bytes.data(), bytes.size());
-        return words;
+                std::vector<uint32_t> words(bytes.size() / sizeof(uint32_t));
+                std::memcpy(words.data(), bytes.data(), bytes.size());
+                return words;
+            }
+        }
+
+        const auto shader{openfg::embeddedShader(name)};
+        if (shader.empty())
+            throw std::runtime_error("cannot find shader '" + std::string(name) + "'");
+        return std::vector<uint32_t>(shader.begin(), shader.end());
     }
 
     struct LabImage {
@@ -397,7 +408,7 @@ OPTIONS:
     -t, --time <FLOAT>      Interpolation time (default 0.5)
     -n, --iterations <INT>  Timed iterations (default 20)
         --gpu <STRING>      Physical device (name, vendor:device, PCI id)
-        --shaders <PATH>    Directory containing compiled .spv files
+        --shaders <PATH>    Load .spv files from PATH (default: embedded)
         --dump-flow <PATH>  Write the half-resolution RG16F flow field
         --debug-source      Output the current source layer (sanity check)
         --dump-luma <LVL>   Write R8 luma pyramids at this level to PATH.a/.b

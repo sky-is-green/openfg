@@ -1,0 +1,59 @@
+# Maintainer: openfg contributors
+pkgname=openfg-git
+pkgver=r0.0000000
+pkgrel=1
+pkgdesc="Clean-room optical-flow frame generation for Vulkan on Linux"
+arch=('x86_64')
+url="https://github.com/sky-is-green/openfg"
+license=('MIT')
+depends=('gcc-libs' 'vulkan-icd-loader')
+makedepends=('git' 'cmake' 'ninja' 'shaderc' 'python')
+optdepends=('pyside6: openfg Control GUI')
+provides=('openfg')
+conflicts=('openfg')
+source=("openfg::git+$url.git")
+sha256sums=('SKIP')
+
+pkgver() {
+    cd openfg
+    printf 'r%s.%s' "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+}
+
+build() {
+    cmake -S openfg -B build -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr
+    cmake --build build
+}
+
+package() {
+    DESTDIR="$pkgdir" cmake --install build --prefix /usr
+
+    install -Dm755 openfg/gui/openfg-gui.py \
+        "$pkgdir/usr/lib/openfg/openfg-gui.py"
+    install -Dm644 openfg/gui/openfg.svg \
+        "$pkgdir/usr/share/icons/hicolor/scalable/apps/openfg.svg"
+
+    install -d "$pkgdir/usr/bin"
+    cat > "$pkgdir/usr/bin/openfg-gui" <<'EOF'
+#!/bin/sh
+exec python3 /usr/lib/openfg/openfg-gui.py "$@"
+EOF
+    chmod 0755 "$pkgdir/usr/bin/openfg-gui"
+
+    install -Dm644 /dev/stdin \
+        "$pkgdir/usr/share/applications/openfg-gui.desktop" <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=openfg Control
+GenericName=Frame Generation Control
+Comment=Configure openfg frame generation (GPU, multiplier, processes)
+Exec=openfg-gui
+Icon=openfg
+Terminal=false
+Categories=Settings;
+Keywords=openfg;frame;generation;gpu;vulkan;
+StartupNotify=true
+StartupWMClass=openfg-gui
+EOF
+}

@@ -57,8 +57,6 @@ target_include_directories(openfg PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(openfg PRIVATE vkutil)
 set_target_properties(vkutil openfg PROPERTIES POSITION_INDEPENDENT_CODE ON)
-target_compile_definitions(openfg PRIVATE
-  OPENFG_SHADER_DIR="${SHADER_BIN}")
 
 add_executable(fg-lab
   "tools/fg-lab/main.cpp")
@@ -66,8 +64,6 @@ target_include_directories(fg-lab PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/src/openfg"
   "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(fg-lab PRIVATE openfg vkutil)
-target_compile_definitions(fg-lab PRIVATE
-  OPENFG_SHADER_DIR="${SHADER_BIN}")
 
 add_executable(openfg-cli
   "tools/openfg-cli/main.cpp")
