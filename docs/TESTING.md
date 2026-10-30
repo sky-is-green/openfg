@@ -118,8 +118,9 @@ and:
   use the half-float path; HDR10 PQ is interpolated in code values, not
   linear light. Test HDR with an HDR display and an HDR file. PTS-aware
   cadence is not implemented; scene cuts are guarded by `safe = true`.
-- The layer currently assumes one swapchain per device and a graphics-capable
-  present queue. Report the application if it breaks that assumption.
+- Multiple swapchains on one device are supported (state is keyed by
+  swapchain). A present queue that is not graphics/transfer-capable is still
+  untested; report the application if it breaks that assumption.
 
 ## Privacy
 

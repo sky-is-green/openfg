@@ -161,10 +161,11 @@ namespace {
 
     struct FgState {
         const LayerDeviceFns* fns{};
+        VkDevice device{};
         VkSwapchainKHR swapchain{};
         VkExtent2D extent{};
         uint32_t queueFamily{};
-        std::unique_ptr<openfg::Instance> instance;
+        std::shared_ptr<openfg::Instance> instance;
         std::unique_ptr<openfg::Context> context;
 
         VkImage source{};
@@ -192,7 +193,11 @@ namespace {
     };
 
     std::mutex g_mutex;
-    std::map<VkDevice, std::unique_ptr<FgState>> g_states;
+    // A backend instance is per application device; frame-generation state is
+    // per swapchain so applications with more than one swapchain do not
+    // destroy and recreate the context on every present.
+    std::map<VkDevice, std::shared_ptr<openfg::Instance>> g_instances;
+    std::map<VkSwapchainKHR, std::unique_ptr<FgState>> g_states;
     std::map<VkSwapchainKHR, SwapchainInfo> g_swapchains;
 
     void closeFd(int fd) {
@@ -257,14 +262,12 @@ namespace {
         state.context.reset();
     }
 
-    /// Tears down per-swapchain resources. The backend instance survives
-    /// unless the device itself is going away.
-    void resetState(FgState& state, bool keepInstance) {
-        auto instance = keepInstance ? std::move(state.instance) : nullptr;
+    /// Tears down per-swapchain resources. The backend instance is owned by
+    /// g_instances and survives for the lifetime of the application device.
+    void resetState(FgState& state) {
         auto adaptive = state.adaptive;
         destroyState(state);
         state = FgState{};
-        state.instance = std::move(instance);
         state.adaptive = adaptive;
     }
 
@@ -534,8 +537,9 @@ namespace {
             deviceId.c_str(), state.crossGpu ? "cross-GPU" : "same-GPU",
             state.multiplier, activeConfig().videoSafe ? ", video-safe" : "");
 
-        if (!state.instance) {
-            state.instance = std::make_unique<openfg::Instance>(
+        auto& instance = g_instances[fns.device];
+        if (!instance) {
+            instance = std::make_shared<openfg::Instance>(
                 deviceId,
                 std::filesystem::path{},
                 state.crossGpu,
@@ -549,8 +553,9 @@ namespace {
                 }
             );
         }
+        state.instance = instance;
         state.context = std::make_unique<openfg::Context>(
-            *state.instance,
+            *instance,
             swapchain.extent.width,
             swapchain.extent.height,
             1.0F,
@@ -744,20 +749,27 @@ void addSwapchain(const LayerDeviceFns&, const SwapchainInfo& info) {
 }
 
 void removeSwapchain(VkDevice device, VkSwapchainKHR swapchain) {
+    (void)device;
     std::lock_guard lock(g_mutex);
-    auto it = g_states.find(device);
-    if (it != g_states.end() && it->second->swapchain == swapchain)
-        resetState(*it->second, true);
+    auto it = g_states.find(swapchain);
+    if (it != g_states.end()) {
+        resetState(*it->second);
+        g_states.erase(it);
+    }
     g_swapchains.erase(swapchain);
 }
 
 void destroyDevice(VkDevice device) {
     std::lock_guard lock(g_mutex);
-    auto it = g_states.find(device);
-    if (it != g_states.end()) {
-        resetState(*it->second, false);
-        g_states.erase(it);
+    for (auto it = g_states.begin(); it != g_states.end();) {
+        if (it->second->device == device) {
+            resetState(*it->second);
+            it = g_states.erase(it);
+        } else {
+            ++it;
+        }
     }
+    g_instances.erase(device);
     for (auto swapIt = g_swapchains.begin(); swapIt != g_swapchains.end();) {
         if (swapIt->second.device == device)
             swapIt = g_swapchains.erase(swapIt);
@@ -789,15 +801,16 @@ VkResult present(
         return nextPresent(queue, presentInfo);
 
     FgState* state{};
-    auto stateIt = g_states.find(fns.device);
+    auto stateIt = g_states.find(swapchain);
     if (stateIt == g_states.end()) {
         auto newState = std::make_unique<FgState>();
         state = newState.get();
-        g_states[fns.device] = std::move(newState);
+        g_states[swapchain] = std::move(newState);
     } else {
         state = stateIt->second.get();
     }
 
+    state->device = fns.device;
     state->fns = &fns;
 
     if (state->failed)
@@ -811,14 +824,10 @@ VkResult present(
     }
 
     if (state->adaptive.resetPending) {
-        resetState(*state, true);
+        resetState(*state);
+        state->device = fns.device;
         state->fns = &fns;
         state->adaptive.resetPending = false;
-    }
-
-    if (state->ready && state->swapchain != swapchain) {
-        resetState(*state, true);
-        state->fns = &fns;
     }
 
     if (!state->ready) {
