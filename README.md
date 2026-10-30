@@ -1,4 +1,4 @@
-# openfg
+# OpenFG
 
 Open frame generation for Linux. This is the clean-room, MIT-licensed tree:
 an original optical-flow interpolator, a standalone harness, and a Vulkan layer.
