@@ -73,7 +73,14 @@ add_executable(openfg-cli
   "tools/openfg-cli/main.cpp")
 target_link_libraries(openfg-cli PRIVATE openfg-config)
 
-install(TARGETS fg-lab openfg-cli RUNTIME DESTINATION bin)
+add_executable(openfg-gpu-probe
+  "tools/gpu-probe/main.cpp")
+target_include_directories(openfg-gpu-probe PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/src"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/openfg")
+target_link_libraries(openfg-gpu-probe PRIVATE openfg vkutil)
+
+install(TARGETS fg-lab openfg-cli openfg-gpu-probe RUNTIME DESTINATION bin)
 
 add_library(openfg-layer SHARED
   "src/layer/layer.cpp"
@@ -102,4 +109,6 @@ install(TARGETS openfg-layer
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/install/VkLayer_OPENFG_frame_generation.json"
   DESTINATION share/vulkan/implicit_layer.d)
 install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/config/conf.toml"
+  DESTINATION share/doc/openfg)
+install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/docs"
   DESTINATION share/doc/openfg)

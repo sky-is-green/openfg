@@ -272,6 +272,11 @@ class MainWindow(QtWidgets.QMainWindow):
             "2x, generate on every real frame with the half-resolution flow. "
             "About 14% faster interpolation, slightly softer silhouettes.",
             lambda: self._apply_preset("performance")))
+        preset_layout.addWidget(preset(
+            "Video · 4x",
+            "4x, always generate, quality flow. Use this with a Vulkan video "
+            "player; add the player to the process include list.",
+            lambda: self._apply_preset("video")))
         root.addWidget(presets)
 
         # Frame generation settings
@@ -469,7 +474,14 @@ class MainWindow(QtWidgets.QMainWindow):
     def _apply_preset(self, name: str) -> None:
         self.enabled.setChecked(True)
         self.cross_gpu.setChecked(False)
-        self.multiplier.setCurrentIndex(self.multiplier.findData(2))
+        multiplier = 4 if name == "video" else 2
+        self.multiplier.setCurrentIndex(self.multiplier.findData(multiplier))
+        if name == "video":
+            self.target_fps.setValue(0)
+            self.performance.setChecked(False)
+            self._set_status("Video preset applied (4x). Add your player to Processes.")
+            self._update_summary()
+            return
         if name == "latency":
             self.target_fps.setValue(120)
             self.performance.setChecked(False)

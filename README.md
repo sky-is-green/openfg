@@ -21,6 +21,8 @@ used here.
 - [x] `~/.config/openfg/conf.toml` configuration and `openfg-cli`
 - [x] Process include/exclude matching (native and Wine/Proton `.exe` names)
 - [x] GUI and per-user install scripts
+- [x] GPU capability probe (`openfg-gpu-probe`)
+- [x] Video-player support notes and an mpv smoke test
 - [ ] Distribution packages (Flatpak/AUR)
 
 ## Build
@@ -38,6 +40,7 @@ The build produces:
 - `build/libopenfg-layer.so` and `VkLayer_OPENFG_frame_generation.json`
 - `build/openfg-cli`
 - `build/fg-lab`
+- `build/openfg-gpu-probe`
 
 ## Configuration
 
@@ -159,6 +162,7 @@ starter config if none exists. Frame generation stays disabled until
 ```sh
 ~/.local/bin/openfg-cli show
 ~/.local/bin/openfg-cli validate
+~/.local/bin/openfg-gpu-probe
 ```
 
 Install the Qt control panel:
@@ -169,9 +173,9 @@ openfg-gui
 ```
 
 The GUI edits the same config and can validate or display it through
-`openfg-cli`. It exposes the latency controls directly: presets, target FPS,
-performance mode, and a live summary of the effective mode. It needs PySide6
-(CachyOS: `sudo pacman -S pyside6`).
+`openfg-cli`. It exposes the latency controls directly: presets (including a
+4x video preset), target FPS, performance mode, and a live summary of the
+effective mode. It needs PySide6 (CachyOS: `sudo pacman -S pyside6`).
 
 ## Latency
 
@@ -189,7 +193,7 @@ display refresh. The practical options are:
   `target_fps = 120` keeps native latency above ~126 fps and only interpolates
   when the game is slower.
 - `performance_mode`: skip the full-resolution flow refinement. It measured
-  ~14% faster (1.70 → 1.46 ms at 1440p) with a 0.08 dB PSNR change on the pan
+  ~16% faster (1.58 → 1.32 ms at 1440p) with a 0.08 dB PSNR change on the pan
   scene and 0.01 dB on the ghost scene.
 - `multiplier = 2` has the lowest added delay; 3x/4x insert more frames before
   the real one.
@@ -208,6 +212,29 @@ The implicit-layer manifest is installed under
 `share/vulkan/implicit_layer.d`, so after installation the layer is loaded by
 every Vulkan application and the config decides whether it is active. Use
 `DISABLE_OPENFG=1` to bypass it for one process.
+
+## Video
+
+The layer works with Vulkan-presenting video players. mpv's Vulkan output was
+tested at 2x and 4x; use the **Video · 4x** GUI preset and add `mpv` to the
+process include list. VLC 3 on this system uses OpenGL/VAAPI and has no Vulkan
+output, so the layer cannot see it. See [docs/VIDEO.md](docs/VIDEO.md) for the
+mpv command, video limitations (scene cuts, PTS/cadence, HDR/10-bit) and the
+compositor alternative.
+
+## GPU support
+
+Run the probe on the target machine:
+
+```sh
+./build/openfg-gpu-probe
+./build/openfg-gpu-probe --gpu 0000:03:00.0
+```
+
+It prints the required extensions, features and formats, then creates a 64x64
+backend context for same-GPU and cross-GPU. See
+[docs/GPU-SUPPORT.md](docs/GPU-SUPPORT.md) for the RDNA2/RDNA3/NVIDIA/Intel
+matrix and the mixed-vendor limitation.
 
 ## Harness
 
@@ -235,8 +262,8 @@ Performance mode with `--performance` at 1440p:
 
 ```
 scene    normal ms   perf ms   normal dB   perf dB
-pan         1.70       1.46      31.5095    31.4298
-ghost       1.69       1.46      25.9564    25.9445
+pan         1.58       1.32      31.5095    31.4298
+ghost       1.57       1.33      25.9564    25.9445
 ```
 
 ## Benchmarks
@@ -252,7 +279,7 @@ python3 tools/ghost_bench.py --scene ghost --width 2560 --height 1440
 
 ```
 backend   full dB  edge dB  edge MAD   ghost  moving dB     ms
-openfg      25.96    26.12     2.653   2.380      25.81   2.83
+openfg      25.96    26.12     2.653   2.380      25.81   1.82
 ```
 
 Tile-mask early-out:
@@ -263,10 +290,10 @@ python3 tools/tile_bench.py --width 2560 --height 1440
 
 ```
 scene        off ms    on ms  speedup   off dB    on dB
-pan           2.808    2.833    0.99x    31.51    31.51
-zoom          2.833    2.855    0.99x    27.75    27.75
-occlude       2.832    2.850    0.99x    21.16    21.16
-static        2.807    0.654    4.29x    43.14    43.14
+pan           1.724    1.745    0.99x    31.51    31.51
+zoom          1.838    1.754    1.05x    27.75    27.75
+occlude       1.618    1.819    0.89x    21.16    21.16
+static        1.592    0.465    3.42x    43.14    43.14
 ```
 
 `ghost` (extra edges in the ground-truth edge band) is the acceptance gate for

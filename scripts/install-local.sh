@@ -25,6 +25,7 @@ echo "Installed openfg:"
 echo "  layer    : $prefix/lib/libopenfg-layer.so"
 echo "  manifest : $prefix/share/vulkan/implicit_layer.d/VkLayer_OPENFG_frame_generation.json"
 echo "  cli      : $prefix/bin/openfg-cli"
+echo "  probe    : $prefix/bin/openfg-gpu-probe"
 echo "  config   : $config"
 echo
 echo "The layer is loaded by every Vulkan application; the config decides"
