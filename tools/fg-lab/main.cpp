@@ -2,7 +2,7 @@
 
 // fg-lab: standalone harness for the openfg interpolation pipeline.
 //
-//   fg-lab --a frame_a.rgba --b frame_b.rgba --out frame_t.rgba \
+//   fg-lab --a frame_a.rgba --b frame_b.rgba --out frame_t.rgba
 //          --width 2560 --height 1440 --t 0.5 [--gt frame_gt.rgba]
 //
 // Frames are raw RGBA8. The harness times analyze+generate on the selected
