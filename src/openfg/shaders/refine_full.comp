@@ -1,0 +1,80 @@
+// One full-resolution Lucas-Kanade step, seeded by the half-resolution flow.
+//
+// The half-resolution field is accurate enough in flat regions but rounds off
+// silhouettes by a couple of pixels. One cheap 3x3 step at full resolution
+// snaps the vector to the visible edge without the cost of a full pyramid.
+#version 460
+#include "common.glsl"
+
+layout(set = 0, binding = 8, r8) uniform image2D uA;
+layout(set = 0, binding = 9, rg16f) uniform image2D uCoarse;
+layout(set = 0, binding = 10, rg16f) uniform image2D uOut;
+
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = ivec2(pc.width, pc.height);
+    if (any(greaterThanEqual(p, size)))
+        return;
+
+
+    ivec2 as = imageSize(uA);
+    ivec2 bs = size;
+
+    // Bilinear read of the half-resolution flow, in full-resolution pixels.
+    ivec2 cs = imageSize(uCoarse);
+    vec2 cq = clamp((vec2(p) + 0.5) * 0.5, vec2(0.0), vec2(cs) - 1.0);
+    ivec2 ci = ivec2(floor(cq));
+    vec2 cf = cq - vec2(ci);
+    ivec2 ci1 = min(ci + ivec2(1), cs - 1);
+    vec2 c00 = imageLoad(uCoarse, ci).xy;
+    vec2 c10 = imageLoad(uCoarse, ivec2(ci1.x, ci.y)).xy;
+    vec2 c01 = imageLoad(uCoarse, ivec2(ci.x, ci1.y)).xy;
+    vec2 c11 = imageLoad(uCoarse, ci1).xy;
+    vec2 f = mix(mix(c00, c10, cf.x), mix(c01, c11, cf.x), cf.y) * 2.0;
+
+    if ((pc.flags & 256) != 0) {
+        ivec2 ts = textureSize(sampler2D(uTex3, uSampler), 0);
+        ivec2 tile = clamp(p / 16, ivec2(0), ts - 1);
+        if (texelFetch(sampler2D(uTex3, uSampler), tile, 0).r < 0.5) {
+            imageStore(uOut, p, vec4(f, 0.0, 1.0));
+            return;
+        }
+    }
+
+    vec2 q = vec2(p) + f;
+    float a11 = 0.0, a12 = 0.0, a22 = 0.0, b1 = 0.0, b2 = 0.0;
+    for (int oy = -1; oy <= 1; oy++) {
+        for (int ox = -1; ox <= 1; ox++) {
+            ivec2 o = ivec2(ox, oy);
+            float a = imageLoad(uA, clampCoord(p + o, as)).r;
+
+            vec2 qq = clamp(q + vec2(o) + 0.5, vec2(0.5), vec2(bs) - 0.5);
+            vec2 uvq = qq / vec2(bs);
+            vec2 texel = 1.0 / vec2(bs);
+            float b = texture(sampler2D(uTex1, uSampler), uvq).r;
+            float bx0 = texture(sampler2D(uTex1, uSampler), uvq - vec2(texel.x, 0.0)).r;
+            float bx1 = texture(sampler2D(uTex1, uSampler), uvq + vec2(texel.x, 0.0)).r;
+            float by0 = texture(sampler2D(uTex1, uSampler), uvq - vec2(0.0, texel.y)).r;
+            float by1 = texture(sampler2D(uTex1, uSampler), uvq + vec2(0.0, texel.y)).r;
+
+            float gx = (bx1 - bx0) * 0.5;
+            float gy = (by1 - by0) * 0.5;
+            float e = a - b;
+            a11 += gx * gx;
+            a12 += gx * gy;
+            a22 += gy * gy;
+            b1 += gx * e;
+            b2 += gy * e;
+        }
+    }
+
+    float trace = a11 + a22;
+    a11 += 1e-3 + 0.05 * trace;
+    a22 += 1e-3 + 0.05 * trace;
+    float det = a11 * a22 - a12 * a12;
+    vec2 d = vec2(a22 * b1 - a12 * b2, a11 * b2 - a12 * b1) / max(det, 1e-6);
+    f += clamp(d, vec2(-1.0), vec2(1.0));
+    f = clamp(f, vec2(-128.0), vec2(128.0));
+
+    imageStore(uOut, p, vec4(f, 0.0, 1.0));
+}

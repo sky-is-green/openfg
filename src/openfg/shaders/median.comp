@@ -1,0 +1,53 @@
+// Edge-preserving vector median filter for the final flow field.
+//
+// Picks the neighbour vector with the smallest total distance to the others,
+// but keeps the center unless it is clearly an outlier. Removes the isolated
+// block-match mistakes that would otherwise tear the interpolated image.
+#version 460
+#include "common.glsl"
+
+layout(set = 0, binding = 8, rg16f) uniform image2D uIn;
+layout(set = 0, binding = 9, rg16f) uniform image2D uOut;
+
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(uIn);
+    if (any(greaterThanEqual(p, size)))
+        return;
+
+
+    if ((pc.flags & 256) != 0) {
+        ivec2 ts = textureSize(sampler2D(uTex3, uSampler), 0);
+        ivec2 tile = clamp((p * (1 << pc.level)) / 16, ivec2(0), ts - 1);
+        if (texelFetch(sampler2D(uTex3, uSampler), tile, 0).r < 0.5) {
+            imageStore(uOut, p, imageLoad(uIn, p));
+            return;
+        }
+    }
+
+    vec2 v[9];
+    int k = 0;
+    for (int dy = -1; dy <= 1; dy++) {
+        for (int dx = -1; dx <= 1; dx++)
+            v[k++] = imageLoad(uIn, clampCoord(p + ivec2(dx, dy), size)).xy;
+    }
+
+    vec2 center = imageLoad(uIn, clampCoord(p, size)).xy;
+    vec2 best = center;
+    float bestCost = 1e30;
+    for (int i = 0; i < 9; i++) {
+        float cost = 0.0;
+        for (int j = 0; j < 9; j++)
+            cost += length(v[i] - v[j]);
+        if (cost < bestCost) {
+            bestCost = cost;
+            best = v[i];
+        }
+    }
+
+    // Only replace genuine outliers; keep detail at motion boundaries.
+    if (length(center - best) > 1.5)
+        center = best;
+
+    imageStore(uOut, p, vec4(center, 0.0, 1.0));
+}

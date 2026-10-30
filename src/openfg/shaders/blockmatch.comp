@@ -1,0 +1,94 @@
+// Coarsest-level block matching with subpixel parabola refinement.
+//
+// Uses a 5x5 zero-mean SAD: subtracting the patch means removes brightness
+// differences and, more importantly, stops flat blurred regions from winning
+// on noise alone. A small quadratic prior favours slow motion.
+#version 460
+#include "common.glsl"
+
+layout(set = 0, binding = 8, r8) uniform image2D uA;
+layout(set = 0, binding = 9, r8) uniform image2D uB;
+layout(set = 0, binding = 10, rg16f) uniform image2D uFlow;
+
+float matchCost(ivec2 p, ivec2 d, ivec2 as, ivec2 bs) {
+    float sa = 0.0, sb = 0.0;
+    for (int oy = -2; oy <= 2; oy++) {
+        for (int ox = -2; ox <= 2; ox++) {
+            sa += imageLoad(uA, clampCoord(p + ivec2(ox, oy), as)).r;
+            sb += imageLoad(uB, clampCoord(p + d + ivec2(ox, oy), bs)).r;
+        }
+    }
+    const float inv = 1.0 / 25.0;
+    sa *= inv;
+    sb *= inv;
+
+    float cost = 0.0;
+    for (int oy = -2; oy <= 2; oy++) {
+        for (int ox = -2; ox <= 2; ox++) {
+            float a = imageLoad(uA, clampCoord(p + ivec2(ox, oy), as)).r - sa;
+            float b = imageLoad(uB, clampCoord(p + d + ivec2(ox, oy), bs)).r - sb;
+            cost += abs(a - b);
+        }
+    }
+    return cost;
+}
+
+float edgeCost(ivec2 p, ivec2 d, ivec2 as, ivec2 bs) {
+    // Border pixels are penalised so the search does not slide off the frame.
+    ivec2 q = p + d;
+    if (q.x < 1 || q.y < 1 || q.x >= bs.x - 1 || q.y >= bs.y - 1)
+        return 1e6;
+    return 0.0;
+}
+
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = ivec2(pc.width, pc.height);
+    if (any(greaterThanEqual(p, size)))
+        return;
+
+
+    if ((pc.flags & 256) != 0) {
+        // At level 4 one pixel is one 16x16 full-resolution tile.
+        ivec2 ts = textureSize(sampler2D(uTex3, uSampler), 0);
+        ivec2 tile = clamp(p, ivec2(0), ts - 1);
+        if (texelFetch(sampler2D(uTex3, uSampler), tile, 0).r < 0.5) {
+            imageStore(uFlow, p, vec4(0.0));
+            return;
+        }
+    }
+
+    ivec2 as = imageSize(uA);
+    ivec2 bs = imageSize(uB);
+    int r = pc.radius;
+
+    float best = 1e30;
+    ivec2 bestDelta = ivec2(0);
+
+    for (int dy = -r; dy <= r; dy++) {
+        for (int dx = -r; dx <= r; dx++) {
+            float cost = matchCost(p, ivec2(dx, dy), as, bs)
+                + edgeCost(p, ivec2(dx, dy), as, bs);
+            cost += 0.004 * float(dx * dx + dy * dy);
+            if (cost < best) {
+                best = cost;
+                bestDelta = ivec2(dx, dy);
+            }
+        }
+    }
+
+    // Parabola fit through the best sample and its four neighbours.
+    float s0 = matchCost(p, bestDelta, as, bs);
+    float sxm = matchCost(p, bestDelta + ivec2(-1, 0), as, bs);
+    float sxp = matchCost(p, bestDelta + ivec2(1, 0), as, bs);
+    float sym = matchCost(p, bestDelta + ivec2(0, -1), as, bs);
+    float syp = matchCost(p, bestDelta + ivec2(0, 1), as, bs);
+
+    float denx = sxm - 2.0 * s0 + sxp;
+    float deny = sym - 2.0 * s0 + syp;
+    float subx = abs(denx) > 1e-6 ? clamp(0.5 * (sxm - sxp) / denx, -0.5, 0.5) : 0.0;
+    float suby = abs(deny) > 1e-6 ? clamp(0.5 * (sym - syp) / deny, -0.5, 0.5) : 0.0;
+
+    vec2 flow = vec2(bestDelta) + vec2(subx, suby);
+    imageStore(uFlow, p, vec4(flow, 0.0, 1.0));
+}

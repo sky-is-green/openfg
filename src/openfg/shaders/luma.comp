@@ -1,0 +1,16 @@
+// RGBA8 (or RGBA16F via the same untyped sampler) -> R8 full-resolution luma.
+#version 460
+#include "common.glsl"
+
+layout(set = 0, binding = 8, r8) uniform image2D uOut;
+
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = ivec2(pc.width, pc.height);
+    if (any(greaterThanEqual(p, size)))
+        return;
+
+    vec2 uv = (vec2(p) + 0.5) / vec2(size);
+    vec4 c = texture(sampler2DArray(uTexArray0, uSampler), vec3(uv, float(pc.layerA)));
+    imageStore(uOut, p, vec4(luma(c.rgb), 0.0, 0.0, 1.0));
+}

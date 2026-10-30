@@ -1,0 +1,49 @@
+// Edge-aware (joint bilateral) flow smoothing, guided by the current luma.
+//
+// Per-pixel Lucas-Kanade produces a noisy field on flat or repetitive
+// textures. Averaging within regions of similar luma removes that noise while
+// keeping motion boundaries, where luma changes, intact.
+#version 460
+#include "common.glsl"
+
+layout(set = 0, binding = 8, rg16f) uniform image2D uIn;
+layout(set = 0, binding = 9, rg16f) uniform image2D uOut;
+
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(uIn);
+    if (any(greaterThanEqual(p, size)))
+        return;
+
+
+    if ((pc.flags & 256) != 0) {
+        ivec2 ts = textureSize(sampler2D(uTex3, uSampler), 0);
+        ivec2 tile = clamp((p * (1 << pc.level)) / 16, ivec2(0), ts - 1);
+        if (texelFetch(sampler2D(uTex3, uSampler), tile, 0).r < 0.5) {
+            imageStore(uOut, p, imageLoad(uIn, p));
+            return;
+        }
+    }
+
+    vec2 uv = (vec2(p) + 0.5) / vec2(size);
+    float g0 = texture(sampler2D(uTex1, uSampler), uv).r;
+
+    vec2 sum = vec2(0.0);
+    float wsum = 0.0;
+    for (int dy = -3; dy <= 3; dy++) {
+        for (int dx = -3; dx <= 3; dx++) {
+            ivec2 q = clampCoord(p + ivec2(dx, dy), size);
+            vec2 uvn = (vec2(q) + 0.5) / vec2(size);
+            float g = texture(sampler2D(uTex1, uSampler), uvn).r;
+
+            float ws = exp(-float(dx * dx + dy * dy) / 8.0);
+            float dg = g - g0;
+            float wr = exp(-(dg * dg) / 0.0018);
+            float w = ws * wr;
+            sum += imageLoad(uIn, q).xy * w;
+            wsum += w;
+        }
+    }
+
+    imageStore(uOut, p, vec4(sum / max(wsum, 1e-6), 0.0, 1.0));
+}

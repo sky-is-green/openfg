@@ -1,0 +1,5 @@
+build/
+__pycache__/
+*.spv
+tools/testdata/*.rgba
+tools/testdata/*.png

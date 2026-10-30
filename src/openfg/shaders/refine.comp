@@ -1,0 +1,95 @@
+// One pyramid level of Lucas-Kanade flow refinement, starting from the flow
+// of the next-coarser level (sampled at binding 1, scaled 2x).
+#version 460
+#include "common.glsl"
+
+layout(set = 0, binding = 8, r8) uniform image2D uA;
+layout(set = 0, binding = 9, rg16f) uniform image2D uCoarse;
+layout(set = 0, binding = 10, rg16f) uniform image2D uOut;
+
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = ivec2(pc.width, pc.height);
+    if (any(greaterThanEqual(p, size)))
+        return;
+
+
+    ivec2 as = imageSize(uA);
+    ivec2 bs = imageSize(uOut);
+    // Flow from the coarser level, in coarse pixels; convert to this level.
+    ivec2 csize = imageSize(uCoarse);
+    vec2 cq = clamp((vec2(p) + 0.5) * 0.5, vec2(0.0), vec2(csize) - 1.0);
+    ivec2 ci = ivec2(floor(cq));
+    vec2 cf = cq - vec2(ci);
+    ivec2 ci1 = min(ci + ivec2(1), csize - 1);
+    vec2 c00 = imageLoad(uCoarse, ci).xy;
+    vec2 c10 = imageLoad(uCoarse, ivec2(ci1.x, ci.y)).xy;
+    vec2 c01 = imageLoad(uCoarse, ivec2(ci.x, ci1.y)).xy;
+    vec2 c11 = imageLoad(uCoarse, ci1).xy;
+    vec2 f = mix(mix(c00, c10, cf.x), mix(c01, c11, cf.x), cf.y) * 2.0;
+    if ((pc.flags & 8) != 0)
+        f = vec2(0.0);
+
+    if ((pc.flags & 256) != 0) {
+        ivec2 ts = textureSize(sampler2D(uTex3, uSampler), 0);
+        ivec2 tile = clamp((p * (1 << pc.level)) / 16, ivec2(0), ts - 1);
+        if (texelFetch(sampler2D(uTex3, uSampler), tile, 0).r < 0.5) {
+            imageStore(uOut, p, vec4(f, 0.0, 1.0)); // keep the coarse prior
+            return;
+        }
+    }
+
+    if ((pc.flags & 2) != 0) {
+        imageStore(uOut, p, vec4(f, 0.0, 1.0));
+        return;
+    }
+
+    if ((pc.flags & 4) != 0) {
+        float b = texture(sampler2D(uTex1, uSampler), (vec2(p) + 0.5) / vec2(bs)).r;
+        imageStore(uOut, p, vec4(b, b, 0.0, 1.0));
+        return;
+    }
+
+    for (int iter = 0; iter < 4; iter++) {
+        vec2 q = vec2(p) + f;
+
+        float a11 = 0.0, a12 = 0.0, a22 = 0.0, b1 = 0.0, b2 = 0.0;
+        for (int oy = -2; oy <= 2; oy++) {
+            for (int ox = -2; ox <= 2; ox++) {
+                ivec2 o = ivec2(ox, oy);
+                float a = imageLoad(uA, clampCoord(p + o, as)).r;
+
+                vec2 qq = clamp(q + vec2(o) + 0.5, vec2(0.5), vec2(bs) - 0.5);
+                vec2 uvq = qq / vec2(bs);
+                float b = texture(sampler2D(uTex1, uSampler), uvq).r;
+                vec2 texel = 1.0 / vec2(bs);
+                float bx0 = texture(sampler2D(uTex1, uSampler), uvq - vec2(texel.x, 0.0)).r;
+                float bx1 = texture(sampler2D(uTex1, uSampler), uvq + vec2(texel.x, 0.0)).r;
+                float by0 = texture(sampler2D(uTex1, uSampler), uvq - vec2(0.0, texel.y)).r;
+                float by1 = texture(sampler2D(uTex1, uSampler), uvq + vec2(0.0, texel.y)).r;
+
+                float gx = (bx1 - bx0) * 0.5;
+                float gy = (by1 - by0) * 0.5;
+                float e = a - b;
+
+                a11 += gx * gx;
+                a12 += gx * gy;
+                a22 += gy * gy;
+                b1 += gx * e;
+                b2 += gy * e;
+            }
+        }
+
+        // Regularisation keeps the 2x2 solve stable in flat regions.
+        float trace = a11 + a22;
+        a11 += 0.01 + 0.05 * trace;
+        a22 += 0.01 + 0.05 * trace;
+        float det = a11 * a22 - a12 * a12;
+        vec2 d = vec2(a22 * b1 - a12 * b2, a11 * b2 - a12 * b1) / max(det, 1e-6);
+        f += clamp(d, vec2(-1.0), vec2(1.0));
+    }
+
+    float maxFlow = 128.0 / float(1 << pc.level);
+    f = clamp(f, vec2(-maxFlow), vec2(maxFlow));
+    imageStore(uOut, p, vec4(f, 0.0, 1.0));
+}
