@@ -722,18 +722,24 @@ std::vector<std::string> processNames() {
     return names;
 }
 
+namespace {
+    bool matchesConfig(const Config& config, const std::vector<std::string>& names) {
+        if (listMatches(config.exclude, names))
+            return false;
+        // Video players are matched in addition to the normal include list, so
+        // adding [video].processes is enough to activate the layer for them.
+        return config.include.empty() ||
+            listMatches(config.include, names) ||
+            listMatches(config.video.processes, names);
+    }
+}
+
 bool processMatches(const Config& config) {
-    const std::vector<std::string> names = processNames();
-    if (!listMatches(config.exclude, names))
-        return config.include.empty() || listMatches(config.include, names);
-    return false;
+    return matchesConfig(config, processNames());
 }
 
 bool matchesName(const Config& config, const std::string& name) {
-    const std::vector<std::string> names{ name };
-    if (!listMatches(config.exclude, names))
-        return config.include.empty() || listMatches(config.include, names);
-    return false;
+    return matchesConfig(config, { name });
 }
 
 Config withVideoProfile(const Config& config, const std::vector<std::string>& names) {
@@ -787,7 +793,8 @@ exclude = []
 
 [video]
 # Players that should use the video profile. Empty disables it.
-# The profile overrides multiplier, target_fps and performance_mode below.
+# These names are matched in addition to [processes].include, and the profile
+# overrides multiplier, target_fps and performance_mode below.
 processes = []
 
 multiplier = 4

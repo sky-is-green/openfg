@@ -15,7 +15,8 @@ mpv --no-config \
 ```
 
 Give the player a dedicated profile. It overrides the game settings only for
-the named processes:
+the named processes, and `video.processes` is matched in addition to the normal
+include list:
 
 ```toml
 [openfg]
@@ -27,7 +28,7 @@ target_fps = 0
 performance_mode = false
 
 [processes]
-include = ["mpv"]
+include = ["helldivers2.exe"]
 
 [video]
 processes = ["mpv"]
@@ -123,8 +124,8 @@ low-fps and not GPU-bound; `false` is the better starting point for quality.
 - `target_fps = 0` (always generate; 24 fps is below any useful target)
 - `performance_mode = false`
 - `safe = true` (scene-cut guard)
-- Include the player in `processes.include` and name it in
-  `video.processes`
+- Name the player in `video.processes` (it is matched in addition to
+  `processes.include`)
 - Start with mpv’s default/audio sync. `--video-sync=display-resample` can
   duplicate frames before the layer sees them, which is not what the
   interpolator wants.

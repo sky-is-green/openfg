@@ -36,7 +36,8 @@ exclude = []
 
 [video]
 # Players that should use the video profile. Empty disables it.
-# The profile overrides multiplier, target_fps and performance_mode below.
+# These names are matched in addition to [processes].include, and the profile
+# overrides multiplier, target_fps and performance_mode below.
 processes = []
 
 multiplier = 4
