@@ -149,7 +149,7 @@ namespace {
         std::chrono::steady_clock::time_point aboveSince{};
         std::chrono::steady_clock::time_point belowSince{};
         double intervalMs{};
-        bool generating{true};
+        bool generating{false};
         bool resetPending{false};
     };
 
