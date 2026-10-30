@@ -244,6 +244,7 @@ namespace {
         uint32_t multiplier{2};
         VkFormat colorFormat{VK_FORMAT_R8G8B8A8_UNORM};
         bool crossGpu{};
+        bool timingLogged{};
         bool ready{};
         bool failed{};
         std::string error;
@@ -989,6 +990,14 @@ VkResult present(
 
     state->device = fns.device;
     state->fns = &fns;
+    state->swapchain = swapchain;
+    if (activeConfig().presentTiming && !state->timingLogged) {
+        state->timingLogged = true;
+        logLine("%s present timing: %s (id=%d wait=%p)\n", TAG,
+            fns.presentId ? "enabled" : "unsupported",
+            static_cast<int>(fns.presentId),
+            reinterpret_cast<void*>(fns.waitForPresent));
+    }
     pollPresentLatency(*state, fns);
 
     if (state->failed)
@@ -1187,7 +1196,11 @@ VkResult present(
     VkPresentInfoKHR originalPresent = *presentInfo;
     originalPresent.waitSemaphoreCount = 1;
     originalPresent.pWaitSemaphores = &imageSync.sourceDone;
-    const VkResult originalResult = presentNext(fns, queue, &originalPresent, nextPresent);
+    uint64_t appPresentId{};
+    const VkResult originalResult = presentNext(
+        fns, queue, &originalPresent, nextPresent, &appPresentId);
+    if (appPresentId)
+        state->adaptive.pendingPresents.emplace_back(appPresentId, layerStart);
 
     state->syncValue = generatedSync;
     state->iteration++;

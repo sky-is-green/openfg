@@ -203,6 +203,20 @@ namespace {
             presentId = idFeatures.presentId && waitFeatures.presentWait &&
                 supported.count(VK_KHR_PRESENT_ID_EXTENSION_NAME) &&
                 supported.count(VK_KHR_PRESENT_WAIT_EXTENSION_NAME);
+            if (openfg_layer::debug()) {
+                VkPhysicalDeviceProperties props{};
+                auto getProps = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties>(
+                    nextGipa(instance, "vkGetPhysicalDeviceProperties"));
+                if (getProps)
+                    getProps(physdev, &props);
+                std::fprintf(stderr,
+                    "[openfg] present timing probe: %s features2=%p id=%d wait=%d "
+                    "ext=%d/%d\n", props.deviceName,
+                    reinterpret_cast<void*>(features2),
+                    idFeatures.presentId, waitFeatures.presentWait,
+                    static_cast<int>(supported.count(VK_KHR_PRESENT_ID_EXTENSION_NAME)),
+                    static_cast<int>(supported.count(VK_KHR_PRESENT_WAIT_EXTENSION_NAME)));
+            }
             if (presentId) {
                 addExtension(VK_KHR_PRESENT_ID_EXTENSION_NAME);
                 addExtension(VK_KHR_PRESENT_WAIT_EXTENSION_NAME);
