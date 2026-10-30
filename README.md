@@ -19,7 +19,8 @@ used here.
 - [x] 2x, 3x and 4x frame insertion
 - [x] `~/.config/openfg/conf.toml` configuration and `openfg-cli`
 - [x] Process include/exclude matching (native and Wine/Proton `.exe` names)
-- [ ] GUI and distribution packages
+- [x] GUI and per-user install scripts
+- [ ] Distribution packages (Flatpak/AUR)
 
 ## Build
 
@@ -116,11 +117,37 @@ VK_INSTANCE_LAYERS=VK_LAYER_OPENFG_frame_generation \
 vkcube
 ```
 
-For a system-wide install:
+## Install
+
+For a per-user install under `~/.local` (no root):
+
+```sh
+scripts/install-local.sh
+```
+
+This builds the project, installs the layer, CLI and harness, and creates a
+starter config if none exists. Frame generation stays disabled until
+`enabled = true` is set:
+
+```sh
+~/.local/bin/openfg-cli show
+~/.local/bin/openfg-cli validate
+```
+
+Install the Qt control panel:
+
+```sh
+scripts/install-gui.sh
+openfg-gui
+```
+
+The GUI edits the same config and can validate it through `openfg-cli`. It
+needs PySide6 (CachyOS: `sudo pacman -S pyside6`).
+
+For a system-wide install, use CMake directly:
 
 ```sh
 sudo cmake --install build --prefix /usr/local
-sudo ldconfig
 ```
 
 The implicit-layer manifest is installed under
