@@ -48,6 +48,7 @@ starter file with:
 ./build/openfg-cli init
 ./build/openfg-cli validate
 ./build/openfg-cli show
+./build/openfg-cli test PoE2.exe
 ```
 
 Example:

@@ -17,6 +17,7 @@ namespace {
             "\n"
             "  validate [path]  check the config file (default: %s)\n"
             "  show [path]      print the effective settings\n"
+            "  test <name>...   test process names against include/exclude\n"
             "  path             print the config path\n"
             "  init [--force]   write the default config file\n"
             "\n"
@@ -49,6 +50,21 @@ namespace {
             return 1;
         }
         std::printf("ok: %s\n", result.path.c_str());
+        return 0;
+    }
+
+    int testNames(const std::vector<std::string>& names) {
+        const auto result = openfg::config::load();
+        for (const auto& warning : result.warnings)
+            std::fprintf(stderr, "warning: %s\n", warning.c_str());
+        if (!result.error.empty()) {
+            std::fprintf(stderr, "error: %s\n", result.error.c_str());
+            return 1;
+        }
+        for (const auto& name : names) {
+            std::printf("%s: %s\n", name.c_str(),
+                openfg::config::matchesName(result.config, name) ? "yes" : "no");
+        }
         return 0;
     }
 
@@ -132,6 +148,14 @@ int main(int argc, char** argv) {
             }
         }
         return init(openfg::config::defaultPath(), force);
+    }
+
+    if (command == "test") {
+        if (args.empty()) {
+            usage();
+            return 2;
+        }
+        return testNames(args);
     }
 
     if (command == "validate" || command == "show") {

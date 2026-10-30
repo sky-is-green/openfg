@@ -62,6 +62,9 @@ std::vector<std::string> processNames();
 /// Include/exclude matching against `processNames()`.
 bool processMatches(const Config& config);
 
+/// Include/exclude matching for one process name (for `openfg-cli test`).
+bool matchesName(const Config& config, const std::string& name);
+
 /// Default file contents written by `openfg-cli init`.
 std::string defaultFile();
 

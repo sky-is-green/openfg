@@ -357,8 +357,14 @@ namespace {
     bool listMatches(const std::vector<std::string>& patterns,
         const std::vector<std::string>& names) {
         for (const std::string& pattern : patterns) {
+            // Patterns copied from Windows paths often contain backslashes.
+            // Process names are basenames, so also try the final component.
+            const size_t separator = pattern.find_last_of("/\\");
+            const std::string base = separator == std::string::npos
+                ? pattern
+                : pattern.substr(separator + 1);
             for (const std::string& name : names) {
-                if (patternMatch(pattern, name))
+                if (patternMatch(pattern, name) || patternMatch(base, name))
                     return true;
             }
         }
@@ -681,6 +687,13 @@ std::vector<std::string> processNames() {
 
 bool processMatches(const Config& config) {
     const std::vector<std::string> names = processNames();
+    if (!listMatches(config.exclude, names))
+        return config.include.empty() || listMatches(config.include, names);
+    return false;
+}
+
+bool matchesName(const Config& config, const std::string& name) {
+    const std::vector<std::string> names{ name };
     if (!listMatches(config.exclude, names))
         return config.include.empty() || listMatches(config.include, names);
     return false;
