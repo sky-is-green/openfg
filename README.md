@@ -26,7 +26,9 @@ used here.
 - [x] GPU capability probe (`openfg-gpu-probe`)
 - [x] Video profile with a global scene-cut guard
 - [x] Video-player support notes and an mpv smoke test
-- [ ] Distribution packages (Flatpak/AUR)
+- [x] clang/gcc CI and config tests
+- [x] Arch/CachyOS PKGBUILD (`packaging/`)
+- [ ] AUR/Flatpak packages
 
 ## Build
 
@@ -37,6 +39,9 @@ cmake --build build -j"$(nproc)"
 
 Requirements: C++20 compiler, CMake 3.20+, Ninja, `glslc` (shaderc), Vulkan
 headers (vendored), Python 3 (shader embedding).
+
+An Arch/CachyOS package recipe is in [`packaging/`](packaging/README.md)
+(`makepkg -si`).
 
 The build produces:
 
