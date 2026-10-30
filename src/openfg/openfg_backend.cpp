@@ -89,11 +89,12 @@ namespace {
         vk::Extent2D extent,
         vk::ImageUsageFlags usage,
         uint32_t layers,
-        bool crossGpu
+        bool crossGpu,
+        vk::Format format
     ) {
         auto image{vkutil::createImage(
             dld, device, extent,
-            vk::Format::eR8G8B8A8Unorm,
+            format,
             layers, usage,
             crossGpu ? vkutil::ExternalMode::DmaBuf : vkutil::ExternalMode::OpaqueFd
         )};
@@ -207,7 +208,8 @@ Context::Context(
     uint32_t height,
     float flowScale,
     bool performanceMode,
-    bool videoSafe
+    bool videoSafe,
+    vk::Format colorFormat
 ) {
     (void)flowScale;
 
@@ -217,13 +219,13 @@ Context::Context(
     auto [sourceImage, sourceMemory] = createExternalImage(
         *vk.dld, vk.physdev, *vk.device, extent,
         vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst,
-        2, instance.m_impl->crossGpu
+        2, instance.m_impl->crossGpu, colorFormat
     );
     auto [destinationImage, destinationMemory] = createExternalImage(
         *vk.dld, vk.physdev, *vk.device, extent,
         vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled |
         vk::ImageUsageFlagBits::eTransferSrc,
-        openfg::kMaxInterpolatedFrames, instance.m_impl->crossGpu
+        openfg::kMaxInterpolatedFrames, instance.m_impl->crossGpu, colorFormat
     );
 
     const auto shaderDir{instance.m_impl->shaderDir};
@@ -245,7 +247,8 @@ Context::Context(
             return std::vector<uint32_t>(shader.begin(), shader.end());
         },
         performanceMode,
-        videoSafe
+        videoSafe,
+        colorFormat
     )};
 
     auto pool{vkutil::createCommandPool(*vk.dld, *vk.device, vk.qfi, true)};

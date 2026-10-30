@@ -20,6 +20,8 @@ context** for both modes:
 ```text
 runtime same  : yes
 runtime cross : yes
+runtime hdr   : yes
+runtime hdr x : yes
 ```
 
 `--gpu` accepts the same forms as `fg-lab` and the layer config: a PCI address,
@@ -36,6 +38,8 @@ Same-GPU mode needs:
   `OPAQUE_FD` import/export.
 - `VK_FORMAT_R8_UNORM` and `VK_FORMAT_R16G16_SFLOAT` storage images.
 - A storage/sampled/transfer-capable `VK_FORMAT_R8G8B8A8_UNORM`.
+- For 10-bit/HDR: a storage/sampled/transfer-capable
+  `VK_FORMAT_R16G16B16A16_SFLOAT`, plus external-memory export/import of it.
 
 Cross-GPU mode additionally needs:
 

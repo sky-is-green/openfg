@@ -26,6 +26,7 @@ used here.
 - [x] GPU capability probe (`openfg-gpu-probe`)
 - [x] Video profile with a global scene-cut guard
 - [x] Video-player support notes and an mpv smoke test
+- [x] 10-bit/HDR half-float swapchain path
 - [x] clang/gcc CI and config tests
 - [x] Arch/CachyOS PKGBUILD (`packaging/`)
 - [ ] AUR/Flatpak packages
@@ -245,8 +246,9 @@ unrelated, instead of blending them. On a real video cut this moved PSNR from
 12.21 dB (blend) to 99 dB (current frame) while normal motion stayed at
 49.85 dB. The guard costs about 0.08 ms per frame pair at 1440p. See
 [docs/VIDEO.md](docs/VIDEO.md) for the mpv command, measured results and the
-remaining video limitations (PTS/cadence, subtitles, and HDR; 10-bit SDR uses
-the 8-bit path, while HDR color spaces are skipped).
+remaining video limitations (PTS/cadence and subtitles). 10-bit and HDR
+swapchains use a half-float path; HDR10 PQ is interpolated in code values, not
+linear light, so a fully color-managed HDR path is still open.
 
 ## GPU support
 

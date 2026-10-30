@@ -51,6 +51,7 @@ namespace {
         uint32_t debugFlags{0};
         bool performance{false};
         bool videoSafe{false};
+        bool hdr{false};
         float t{0.5F};
     };
 
@@ -228,9 +229,10 @@ namespace {
         const vk::CommandBuffer& cmdbuf,
         vk::Image image,
         uint32_t width,
-        uint32_t height
+        uint32_t height,
+        uint32_t bytesPerPixel
     ) {
-        const size_t size{static_cast<size_t>(width) * height * 4};
+        const size_t size{static_cast<size_t>(width) * height * bytesPerPixel};
         auto staging{makeStaging(
             dld, physdev, device,
             vk::BufferUsageFlagBits::eTransferDst,
@@ -373,6 +375,72 @@ namespace {
         return readback(dld, device, staging);
     }
 
+    uint16_t toHalf(float value) {
+        uint32_t bits{};
+        std::memcpy(&bits, &value, sizeof(bits));
+        const uint32_t sign{(bits >> 16) & 0x8000u};
+        const int32_t exponent{static_cast<int32_t>((bits >> 23) & 0xffu) - 127 + 15};
+        uint32_t mantissa{bits & 0x007fffffu};
+        if (exponent <= 0) {
+            if (exponent < -10)
+                return static_cast<uint16_t>(sign);
+            mantissa |= 0x00800000u;
+            return static_cast<uint16_t>(sign | (mantissa >> (14 - exponent)));
+        }
+        if (exponent >= 31)
+            return static_cast<uint16_t>(sign | 0x7c00u);
+        return static_cast<uint16_t>(sign | (static_cast<uint32_t>(exponent) << 10) | (mantissa >> 13));
+    }
+
+    float fromHalf(uint16_t value) {
+        const uint32_t sign{static_cast<uint32_t>(value & 0x8000u) << 16};
+        uint32_t exponent{(value >> 10) & 0x1fu};
+        uint32_t mantissa{value & 0x3ffu};
+        uint32_t bits{};
+        if (exponent == 0) {
+            if (mantissa == 0) {
+                bits = sign;
+            } else {
+                exponent = 127 - 15 + 1;
+                while ((mantissa & 0x400u) == 0) {
+                    mantissa <<= 1;
+                    exponent--;
+                }
+                mantissa &= 0x3ffu;
+                bits = sign | (exponent << 23) | (mantissa << 13);
+            }
+        } else if (exponent == 31) {
+            bits = sign | 0x7f800000u | (mantissa << 13);
+        } else {
+            bits = sign | ((exponent - 15 + 127) << 23) | (mantissa << 13);
+        }
+        float result{};
+        std::memcpy(&result, &bits, sizeof(result));
+        return result;
+    }
+
+    std::vector<uint8_t> rgba8ToHalf(const std::vector<uint8_t>& input) {
+        std::vector<uint8_t> output(input.size() * 2);
+        for (size_t i = 0; i + 3 < input.size(); i += 4) {
+            for (size_t c = 0; c < 4; c++) {
+                const uint16_t half{toHalf(static_cast<float>(input[i + c]) / 255.0F)};
+                std::memcpy(&output[(i + c) * 2], &half, sizeof(half));
+            }
+        }
+        return output;
+    }
+
+    std::vector<uint8_t> halfToRgba8(const std::vector<uint8_t>& input) {
+        std::vector<uint8_t> output(input.size() / 2);
+        for (size_t i = 0; i + 1 < input.size(); i += 2) {
+            uint16_t half{};
+            std::memcpy(&half, &input[i], sizeof(half));
+            const float value{std::clamp(fromHalf(half), 0.0F, 1.0F)};
+            output[i / 2] = static_cast<uint8_t>(std::lround(value * 255.0F));
+        }
+        return output;
+    }
+
     double psnr(const std::vector<uint8_t>& a, const std::vector<uint8_t>& b) {
         if (a.size() != b.size() || a.size() % 4 != 0)
             throw std::runtime_error("PSNR: size mismatch");
@@ -414,6 +482,7 @@ OPTIONS:
         --dump-luma <LVL>   Write R8 luma pyramids at this level to PATH.a/.b
         --performance       Half-resolution flow (faster, softer silhouettes)
         --video-safe        Fall back to the current frame on a hard cut
+        --hdr               Use RGBA16F source/destination images
 )";
     }
 }
@@ -421,7 +490,7 @@ OPTIONS:
 int main(int argc, char** argv) {
     Options opts{};
 
-    const std::array<option, 20> GETOPT{{
+    const std::array<option, 21> GETOPT{{
         { "a", required_argument, nullptr, 'a' },
         { "b", required_argument, nullptr, 'b' },
         { "out", required_argument, nullptr, 'o' },
@@ -441,6 +510,7 @@ int main(int argc, char** argv) {
         { "flow-reverse", no_argument, nullptr, 9 },
         { "performance", no_argument, nullptr, 10 },
         { "video-safe", no_argument, nullptr, 11 },
+        { "hdr", no_argument, nullptr, 12 },
         { nullptr, 0, nullptr, 0 }
     }};
 
@@ -469,6 +539,7 @@ int main(int argc, char** argv) {
             case 9: opts.dumpFlowReverse = true; break;
             case 10: opts.performance = true; break;
             case 11: opts.videoSafe = true; break;
+            case 12: opts.hdr = true; break;
             default:
                 usage(argv[0]);
                 return EXIT_FAILURE;
@@ -523,10 +594,13 @@ int main(int argc, char** argv) {
             vk::ImageUsageFlagBits::eTransferSrc
         };
 
+        const vk::Format colorFormat{opts.hdr
+            ? vk::Format::eR16G16B16A16Sfloat
+            : vk::Format::eR8G8B8A8Unorm};
         auto source{createImage(dld, physdev, *device, extent,
-            vk::Format::eR8G8B8A8Unorm, 2, SOURCE_USAGE)};
+            colorFormat, 2, SOURCE_USAGE)};
         auto dest{createImage(dld, physdev, *device, extent,
-            vk::Format::eR8G8B8A8Unorm, openfg::kMaxInterpolatedFrames, DEST_USAGE)};
+            colorFormat, openfg::kMaxInterpolatedFrames, DEST_USAGE)};
 
         auto pool{vkutil::createCommandPool(dld, *device, qfi, false)};
         auto cmdbuf{vkutil::createCommandBuffer(dld, *device, *pool)};
@@ -545,13 +619,16 @@ int main(int argc, char** argv) {
                 return loadSpirv(opts.shaders, name);
             },
             opts.performance,
-            opts.videoSafe);
+            opts.videoSafe,
+            colorFormat);
 
         cmdbuf->begin({ .flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit }, dld);
+        const auto uploadA{opts.hdr ? rgba8ToHalf(frameA) : frameA};
+        const auto uploadB{opts.hdr ? rgba8ToHalf(frameB) : frameB};
         auto stagingA{uploadImage(dld, physdev, *device, *cmdbuf, *source.image,
-            frameA, opts.width, opts.height, 0)};
+            uploadA, opts.width, opts.height, 0)};
         auto stagingB{uploadImage(dld, physdev, *device, *cmdbuf, *source.image,
-            frameB, opts.width, opts.height, 1)};
+            uploadB, opts.width, opts.height, 1)};
 
         const vk::MemoryBarrier startBarrier{
             .srcAccessMask = vk::AccessFlagBits::eTransferWrite,
@@ -574,7 +651,7 @@ int main(int argc, char** argv) {
         }
 
         auto readbackBuffer{prepareDownload(dld, physdev, *device, *cmdbuf, *dest.image,
-            opts.width, opts.height)};
+            opts.width, opts.height, opts.hdr ? 8 : 4)};
         cmdbuf->end(dld);
 
         const auto start{std::chrono::steady_clock::now()};
@@ -615,7 +692,9 @@ int main(int argc, char** argv) {
             static_cast<double>(opts.iterations)
         };
 
-        const auto output{readback(dld, *device, readbackBuffer)};
+        auto output{readback(dld, *device, readbackBuffer)};
+        if (opts.hdr)
+            output = halfToRgba8(output);
         writeFile(opts.out, output);
 
         if (!opts.dumpFlow.empty()) {

@@ -7,6 +7,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <vk>
 
 #include "limits.hpp"
 
@@ -14,10 +15,9 @@ namespace openfg {
 
 /// File descriptors exported by a context. The caller closes them.
 struct FileDescriptors {
-    /// Two-layer RGBA8 source image, layer = iteration % 2.
+    /// Two-layer source image (RGBA8 or RGBA16F), layer = iteration % 2.
     int sourceFd;
-    /// Three-layer RGBA8 destination image; generated frame i is written to
-    /// layer i.
+    /// Three-layer destination image; generated frame i is written to layer i.
     int destinationFd;
     /// External timeline semaphore.
     int syncFd;
@@ -61,7 +61,8 @@ public:
         uint32_t height,
         float flowScale,
         bool performanceMode,
-        bool videoSafe = false
+        bool videoSafe = false,
+        vk::Format colorFormat = vk::Format::eR8G8B8A8Unorm
     );
 
     [[nodiscard]] FileDescriptors exportFds() const;

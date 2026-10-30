@@ -111,13 +111,18 @@ namespace {
     struct Report {
         bool sameGpu{};
         bool crossGpu{};
+        bool hdr{};
+        bool hdrCross{};
         std::string sameError;
         std::string crossError;
+        std::string hdrError;
+        std::string hdrCrossError;
     };
 
     bool testBackend(
         const std::string& deviceId,
         bool crossGpu,
+        bool hdr,
         std::string& error
     ) {
         try {
@@ -128,7 +133,10 @@ namespace {
                 false,
                 nullptr
             );
-            openfg::Context context(instance, 64, 64, 1.0F, false);
+            openfg::Context context(
+                instance, 64, 64, 1.0F, false, false,
+                hdr ? vk::Format::eR16G16B16A16Sfloat
+                    : vk::Format::eR8G8B8A8Unorm);
             const auto fds = context.exportFds();
             if (fds.sourceFd >= 0)
                 ::close(fds.sourceFd);
@@ -249,8 +257,10 @@ namespace {
         // The format queries above are advisory: some RADV versions do not
         // advertise linear DMA-BUF images even though the exact create/export
         // path used by the backend works. Run the real backend instead.
-        report.sameGpu = testBackend(deviceId, false, report.sameError);
-        report.crossGpu = testBackend(deviceId, true, report.crossError);
+        report.sameGpu = testBackend(deviceId, false, false, report.sameError);
+        report.crossGpu = testBackend(deviceId, true, false, report.crossError);
+        report.hdr = testBackend(deviceId, false, true, report.hdrError);
+        report.hdrCross = testBackend(deviceId, true, true, report.hdrCrossError);
 
         std::printf("  runtime same  : %s", boolText(report.sameGpu));
         if (!report.sameError.empty())
@@ -259,6 +269,14 @@ namespace {
         std::printf("  runtime cross : %s", boolText(report.crossGpu));
         if (!report.crossError.empty())
             std::printf(" (%s)", report.crossError.c_str());
+        std::printf("\n");
+        std::printf("  runtime hdr   : %s", boolText(report.hdr));
+        if (!report.hdrError.empty())
+            std::printf(" (%s)", report.hdrError.c_str());
+        std::printf("\n");
+        std::printf("  runtime hdr x : %s", boolText(report.hdrCross));
+        if (!report.hdrCrossError.empty())
+            std::printf(" (%s)", report.hdrCrossError.c_str());
         std::printf("\n");
         std::printf("\n");
         return report;

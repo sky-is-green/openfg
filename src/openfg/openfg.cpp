@@ -18,7 +18,7 @@
 using namespace openfg;
 
 namespace {
-    constexpr std::array<std::string_view, 10> PIPELINE_NAMES{
+    constexpr std::array<std::string_view, 11> PIPELINE_NAMES{
         "luma",
         "downsample",
         "blockmatch",
@@ -28,6 +28,7 @@ namespace {
         "tilemask",
         "refine_full",
         "interpolate",
+        "interpolate_hdr",
         "cutdetect"
     };
 
@@ -41,7 +42,8 @@ namespace {
         TILEMASK = 6,
         REFINE_FULL = 7,
         INTERPOLATE = 8,
-        CUTDETECT = 9
+        INTERPOLATE_HDR = 9,
+        CUTDETECT = 10
     };
 
     constexpr uint32_t LOCAL_SIZE = 8;
@@ -63,7 +65,8 @@ Interpolator::Interpolator(
     vk::Image destination,
     const ShaderLoader& loader,
     bool performanceMode,
-    bool videoSafe
+    bool videoSafe,
+    vk::Format colorFormat
 ) : m_dld(dld), m_physdev(physdev), m_device(device),
     m_extent(extent), m_loader(loader) {
     if (extent.width == 0 || extent.height == 0)
@@ -78,6 +81,8 @@ Interpolator::Interpolator(
     this->m_tileMaskEnabled = std::getenv("OPENFG_NO_TILE_MASK") == nullptr;
     this->m_performanceMode = performanceMode;
     this->m_videoSafe = videoSafe;
+    this->m_colorFormat = colorFormat;
+    this->m_hdr = colorFormat != vk::Format::eR8G8B8A8Unorm;
 
     constexpr vk::ImageUsageFlags INTERNAL_USAGE{
         vk::ImageUsageFlagBits::eStorage |
@@ -130,9 +135,9 @@ Interpolator::Interpolator(
         { 1, 1 }, vk::Format::eR8G8B8A8Unorm, vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled);
 
     this->m_srcView = vkutil::createImageView(
-        this->m_dld, this->m_device, source, vk::Format::eR8G8B8A8Unorm, 2);
+        this->m_dld, this->m_device, source, this->m_colorFormat, 2);
     this->m_dstView = vkutil::createImageView(
-        this->m_dld, this->m_device, destination, vk::Format::eR8G8B8A8Unorm,
+        this->m_dld, this->m_device, destination, this->m_colorFormat,
         kMaxInterpolatedFrames);
 
     this->m_sampler = vkutil::createSampler(
@@ -728,7 +733,9 @@ void Interpolator::generate(
     if (this->m_videoSafe)
         pc.flags |= 4096;
 
-    this->dispatch(cmdbuf, "interpolate", this->m_setInterp, this->m_extent, pc);
+    this->dispatch(cmdbuf,
+        this->m_hdr ? "interpolate_hdr" : "interpolate",
+        this->m_setInterp, this->m_extent, pc);
     this->barrier(cmdbuf);
 }
 

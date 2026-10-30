@@ -17,6 +17,7 @@ find_program(GLSLC_EXECUTABLE NAMES glslc REQUIRED)
 set(SHADER_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/openfg/shaders")
 set(SHADER_BIN "${CMAKE_CURRENT_BINARY_DIR}/openfg-shaders")
 file(GLOB SHADER_FILES CONFIGURE_DEPENDS "${SHADER_SRC}/*.comp")
+file(GLOB SHADER_INCLUDES CONFIGURE_DEPENDS "${SHADER_SRC}/*.glsl")
 
 set(SHADER_SPV)
 foreach(shader ${SHADER_FILES})
@@ -25,7 +26,7 @@ foreach(shader ${SHADER_FILES})
   add_custom_command(OUTPUT "${spv}"
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${SHADER_BIN}"
     COMMAND "${GLSLC_EXECUTABLE}" -O -I"${SHADER_SRC}" -o "${spv}" "${shader}"
-    DEPENDS "${shader}" "${SHADER_SRC}/common.glsl"
+    DEPENDS "${shader}" ${SHADER_INCLUDES}
     COMMENT "glslc ${name}.comp")
   list(APPEND SHADER_SPV "${spv}")
 endforeach()

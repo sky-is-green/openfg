@@ -55,7 +55,8 @@ public:
         vk::Image destination,
         const ShaderLoader& loader,
         bool performanceMode = false,
-        bool videoSafe = false
+        bool videoSafe = false,
+        vk::Format colorFormat = vk::Format::eR8G8B8A8Unorm
     );
     ~Interpolator();
 
@@ -126,6 +127,8 @@ private:
     bool m_tileMaskEnabled{true};
     bool m_performanceMode{false};
     bool m_videoSafe{false};
+    vk::Format m_colorFormat{vk::Format::eR8G8B8A8Unorm};
+    bool m_hdr{false};
 
     std::array<vk::Extent2D, 6> m_levels{};
     std::array<Image, 6> m_lumaA{};
@@ -151,7 +154,7 @@ private:
     vk::UniqueDescriptorSetLayout m_setLayout;
     vk::UniquePipelineLayout m_pipelineLayout;
     vk::UniqueDescriptorPool m_pool;
-    std::array<vk::UniquePipeline, 10> m_pipelines{};
+    std::array<vk::UniquePipeline, 11> m_pipelines{};
     std::vector<vk::UniqueShaderModule> m_modules;
 
     vk::DescriptorSet m_setLumaA{};

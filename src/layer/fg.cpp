@@ -183,6 +183,7 @@ namespace {
         uint64_t syncValue{};
         uint32_t iteration{};
         uint32_t multiplier{2};
+        VkFormat colorFormat{VK_FORMAT_R8G8B8A8_UNORM};
         bool crossGpu{};
         bool ready{};
         bool failed{};
@@ -367,7 +368,7 @@ namespace {
         info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         info.pNext = &external;
         info.imageType = VK_IMAGE_TYPE_2D;
-        info.format = VK_FORMAT_R8G8B8A8_UNORM;
+        info.format = state.colorFormat;
         info.extent = { state.extent.width, state.extent.height, 1 };
         info.mipLevels = 1;
         info.arrayLayers = layers;
@@ -504,33 +505,20 @@ namespace {
             swapchain.colorSpace == VK_COLOR_SPACE_HDR10_HLG_EXT ||
             swapchain.colorSpace == VK_COLOR_SPACE_DOLBYVISION_EXT ||
             swapchain.colorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT;
-        if (hdr) {
-            // The internal path is 8-bit, and a straight 8-bit copy would
-            // clip HDR highlights. Stay out of the way until there is a
-            // float/half-float HDR path.
-            setError(state, "HDR swapchain is not supported yet; frame generation is off for this app");
-            return false;
-        }
-
-        switch (swapchain.format) {
-            case VK_FORMAT_A2B10G10R10_UNORM_PACK32:
-            case VK_FORMAT_A2B10G10R10_SNORM_PACK32:
-            case VK_FORMAT_A2R10G10B10_UNORM_PACK32:
-            case VK_FORMAT_A2R10G10B10_SNORM_PACK32:
-            case VK_FORMAT_R16G16B16A16_SFLOAT:
-            case VK_FORMAT_R16G16B16A16_UNORM: {
-                static bool warned{false};
-                if (!warned) {
-                    warned = true;
-                    std::fprintf(stderr,
-                        "%s 10-bit swapchain: interpolating on the 8-bit path\n",
-                        TAG);
-                }
-                break;
-            }
-            default:
-                break;
-        }
+        const bool wide =
+            swapchain.format == VK_FORMAT_A2B10G10R10_UNORM_PACK32 ||
+            swapchain.format == VK_FORMAT_A2B10G10R10_SNORM_PACK32 ||
+            swapchain.format == VK_FORMAT_A2R10G10B10_UNORM_PACK32 ||
+            swapchain.format == VK_FORMAT_A2R10G10B10_SNORM_PACK32 ||
+            swapchain.format == VK_FORMAT_R16G16B16A16_SFLOAT ||
+            swapchain.format == VK_FORMAT_R16G16B16A16_UNORM;
+        state.colorFormat = (wide || hdr)
+            ? VK_FORMAT_R16G16B16A16_SFLOAT
+            : VK_FORMAT_R8G8B8A8_UNORM;
+        if (wide || hdr)
+            std::fprintf(stderr,
+                "%s %s swapchain: half-float interpolation path\n", TAG,
+                hdr ? "HDR" : "10-bit");
 
         if (state.crossGpu && !fns.externalDmaBuf) {
             setError(state, "cross-GPU requested but VK_EXT_external_memory_dma_buf is unavailable");
@@ -567,7 +555,8 @@ namespace {
             swapchain.extent.height,
             1.0F,
             activeConfig().performanceMode,
-            activeConfig().videoSafe
+            activeConfig().videoSafe,
+            static_cast<vk::Format>(state.colorFormat)
         );
 
         const auto fds = state.context->exportFds();

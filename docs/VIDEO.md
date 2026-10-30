@@ -3,7 +3,8 @@
 ## What works today
 
 The layer works with video players that present through Vulkan. The tested
-case is **mpv 0.41** with its Vulkan output:
+case is **mpv 0.41** with its Vulkan output. mpv commonly picks a 10-bit
+swapchain even for 8-bit files; that now runs on the half-float path.
 
 ```sh
 mpv --no-config \
@@ -111,7 +112,7 @@ that present through a Vulkan swapchain.
 | Scene cuts | Global cut score; the pair falls back to the current frame. | Done. Similar-scene cuts can still slip through. |
 | Cadence / timestamps | Layer always uses `t=0.5` between presented frames (and 0.25/0.5/0.75 for 4x). | PTS-aware interpolation, especially 24 → 60/120/165 Hz. |
 | Subtitles / OSD | Burned-in text is part of the frame. Static text is protected by the tile mask; moving text can ghost. | Subtitle-aware masking or a stronger confidence threshold. |
-| HDR / 10-bit | The layer stays off for HDR color spaces. 10-bit SDR swapchains are interpolated on the 8-bit path. | A float/half-float HDR swapchain and image path. |
+| HDR / 10-bit | 10-bit and HDR swapchains use an RGBA16F path; HDR10 PQ is interpolated in code values, not linear light. | Linear-light PQ/HLG decode and encode, plus HDR metadata handling. |
 | Film grain / noise | Optical flow can chase grain. | Optional prefilter or a higher flow confidence threshold. |
 | 24 fps to high refresh | 4x gives ~96 fps, then the display holds frames. | Dynamic frame count/timestamps from the player or compositor. |
 

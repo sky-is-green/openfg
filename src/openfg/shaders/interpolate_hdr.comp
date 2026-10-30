@@ -1,0 +1,3 @@
+#version 460
+#define OPENFG_HDR 1
+#include "interpolate_body.glsl"
