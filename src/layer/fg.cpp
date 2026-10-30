@@ -611,6 +611,12 @@ void destroyDevice(VkDevice device) {
         resetState(*it->second, false);
         g_states.erase(it);
     }
+    for (auto swapIt = g_swapchains.begin(); swapIt != g_swapchains.end();) {
+        if (swapIt->second.device == device)
+            swapIt = g_swapchains.erase(swapIt);
+        else
+            ++swapIt;
+    }
 }
 
 VkResult present(

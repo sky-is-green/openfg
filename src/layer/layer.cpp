@@ -412,6 +412,7 @@ namespace {
                 modified.minImageCount, presentFamily);
 
         openfg_layer::SwapchainInfo info{};
+        info.device = device;
         info.swapchain = *swapchain;
         info.format = modified.imageFormat;
         info.extent = modified.imageExtent;

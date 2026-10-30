@@ -64,6 +64,7 @@ struct LayerDeviceFns {
 namespace openfg_layer {
 
 struct SwapchainInfo {
+    VkDevice device{};
     VkSwapchainKHR swapchain{};
     VkFormat format{VK_FORMAT_UNDEFINED};
     VkExtent2D extent{};
