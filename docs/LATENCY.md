@@ -30,17 +30,26 @@ submit→present-complete time.
 | 2x hold | 24.0 | 48.0 | 0.15 ms | **41.98 ms** |
 | 4x flow | 24.0 | 96.0 | 0.27 ms | **41.98 ms** |
 
-At 24 fps on a 165 Hz display there are enough spare refresh slots that 2x and
-4x added **no real-frame present latency** in the clean run; the generated
-frames fill slots that would otherwise repeat the previous image. The layer
-cost was only 0.13–0.27 ms.
+The same test at 60 fps shows the boundary:
 
-That depends on headroom. With a concurrent GPU load, 4x slipped to a p50 of
-~83 ms (one extra source interval) in the same clip. When the source rate
-multiplied by the multiplier is at or above the refresh rate, generated frames
-compete for display slots and the real frame can be delayed. Measure at the
-actual game rate and load. At 2x on 165 Hz, the app cannot exceed ~82.5 fps
-because only 165 presents/s exist.
+| source | mode | app fps | presented fps | present p50 | present p95 |
+|---:|---|---:|---:|---:|---:|
+| 60 | off | 60.2 | 60.2 | 16.98 ms | 17.00 ms |
+| 60 | 2x flow | 60.1 | 120.2 | 16.99 ms | 32.98 ms |
+| 60 | 4x flow | 60.1 | 165.8 | 49.99 ms | 50.00 ms |
+
+At 24 fps there are enough spare refresh slots that 2x and 4x added **no**
+real-frame present latency; at 60 fps, 2x keeps the p50 but some frames hit
+two intervals (p95 33 ms), and 4x wants 240 presents/s on a 165 Hz display, so
+the real frame lands about three source intervals later (p50 50 ms).
+
+The rule of thumb is **source rate × multiplier ≤ display refresh**. For
+2x on 165 Hz that means `target_fps` around 80, not 120; for 4x it means
+around 40. Set `target_fps` to `refresh / multiplier` for low latency, or
+accept the extra present latency when generating above that.
+
+With a concurrent GPU load, 4x at 24 fps also slipped to a p50 of ~83 ms.
+Measure at the actual game rate and load.
 
 ## Generator compute cost
 
@@ -92,6 +101,10 @@ Run the same fixed scene for each generator and read
 For the layer-free generator numbers, use
 `fg-lab --generator flow|blend|hold`, `tools/bench.py --generator ...` and
 `tools/ghost_bench.py --generator ...`.
+
+Some applications create a device where the present-id features are not
+advertised (vkmark did here). The layer logs `present timing: unsupported` and
+still reports app/presented fps, but not the present latency percentiles.
 
 ## What this does not measure
 

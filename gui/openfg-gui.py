@@ -342,8 +342,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         preset_layout.addWidget(preset(
             "Latency-friendly",
-            "2x, same GPU, generate only below 120 fps, quality flow. "
-            "This keeps native input latency when the game is already fast.",
+            "2x, same GPU, generate only below half the display refresh, "
+            "quality flow. This keeps native input latency when the game is "
+            "already fast enough.",
             lambda: self._apply_preset("latency")))
         preset_layout.addWidget(preset(
             "Always generate · quality",
@@ -463,8 +464,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.target_fps.setValue(self.config["target_fps"])
         self.target_fps.setToolTip(
             "Generate only while the estimated native rate is below this value. "
-            "0 = always generate. Set near the refresh rate; on a 165 Hz display, "
-            "120 keeps native latency above ~126 fps. Generation starts off and "
+            "0 = always generate. Set near refresh / multiplier: about 82 for "
+            "2x or 41 for 4x on a 165 Hz display. Generation starts off and "
             "enables only after a sustained drop."
         )
         self.target_note = hint("")
@@ -497,7 +498,8 @@ class MainWindow(QtWidgets.QMainWindow):
         latency_layout.addWidget(hint(
             "Measured on the dual RX 7900 XT test system (Helldivers 2, 1440p): "
             "2x active ≈134 fps / 7.5 ms; adaptive off at target 120 ≈174 fps / "
-            "5.7 ms. Cross-GPU was slower than same-GPU on that system."
+            "5.7 ms (that was the old target; use refresh / multiplier for "
+            "latency). Cross-GPU was slower than same-GPU on that system."
         ))
         latency_layout.addWidget(self.summary)
 
@@ -654,7 +656,10 @@ class MainWindow(QtWidgets.QMainWindow):
             self._update_summary()
             return
         if name == "latency":
-            self.target_fps.setValue(120)
+            screen = QtWidgets.QApplication.primaryScreen()
+            refresh = screen.refreshRate() if screen else 0.0
+            self.target_fps.setValue(
+                max(20, round(refresh / 2.0)) if refresh else 120)
             self.performance.setChecked(False)
         elif name == "quality":
             self.target_fps.setValue(0)
@@ -709,8 +714,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 f"Generation starts off. It enables after the estimated native "
                 f"rate stays below {target} fps for one second, and stops after "
                 f"it stays above {stop} fps (5% hysteresis). A game already "
-                "faster than this never initializes the backend. On 165 Hz, "
-                "120 is a good starting point.")
+                "faster than this never initializes the backend. Use "
+                "refresh / multiplier: ~82 for 2x or ~41 for 4x on 165 Hz.")
 
     def _collect(self) -> dict:
         return {

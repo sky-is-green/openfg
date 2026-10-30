@@ -204,14 +204,15 @@ Frame generation has an inherent cost: the generated frame must be shown
 display refresh. The practical options are:
 
 - `target_fps`: stop generating when the game is already near the refresh
-  rate. This is the biggest win for latency at high fps. The comparison
-  subtracts the layer's own per-frame copy/generate/present time from the
-  measured interval to estimate the native rate, then applies a 5% hysteresis
-  and a one-second dwell to avoid flapping. Generation starts off for
-  `target_fps > 0`, so a game already above the target never initializes the
-  backend at all; it enables only after a sustained drop. On a 165 Hz display,
-  `target_fps = 120` keeps native latency above ~126 fps and only interpolates
-  when the game is slower.
+  rate divided by the multiplier. This is the biggest win for latency at high
+  fps. The comparison subtracts the layer's own per-frame
+  copy/generate/present time from the measured interval to estimate the native
+  rate, then applies a 5% hysteresis and a one-second dwell to avoid flapping.
+  Generation starts off for `target_fps > 0`, so a game already above the
+  target never initializes the backend at all; it enables only after a
+  sustained drop. On a 165 Hz display, use about **80 for 2x** or **40 for
+  4x**; `target_fps = 120` with 2x wants 240 presents/s and will add present
+  latency.
 - `performance_mode`: skip the full-resolution flow refinement. It measured
   ~16% faster (1.58 → 1.32 ms at 1440p) with a 0.08 dB PSNR change on the pan
   scene and 0.01 dB on the ghost scene.
