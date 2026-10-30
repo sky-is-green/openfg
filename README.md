@@ -27,6 +27,7 @@ used here.
 - [x] Video profile with a global scene-cut guard
 - [x] Video-player support notes and an mpv smoke test
 - [x] 10-bit/HDR half-float swapchain path
+- [x] Multiple swapchains per device
 - [x] clang/gcc CI and config tests
 - [x] Arch/CachyOS PKGBUILD (`packaging/`)
 - [ ] AUR/Flatpak packages
@@ -300,6 +301,9 @@ scene    normal ms   perf ms   normal dB   perf dB
 pan         1.56       1.32      32.8252    32.7843
 ghost       1.56       1.31      26.4850    26.4693
 ```
+
+The half-float path (`fg-lab --hdr`, used for 10-bit/HDR swapchains) costs
+about 2% at 1440p: pan 1.609 ms / 32.816 dB versus 1.569 ms / 32.8252 dB.
 
 ## Benchmarks
 
