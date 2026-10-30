@@ -168,8 +168,10 @@ scripts/install-gui.sh
 openfg-gui
 ```
 
-The GUI edits the same config and can validate it through `openfg-cli`. It
-needs PySide6 (CachyOS: `sudo pacman -S pyside6`).
+The GUI edits the same config and can validate or display it through
+`openfg-cli`. It exposes the latency controls directly: presets, target FPS,
+performance mode, and a live summary of the effective mode. It needs PySide6
+(CachyOS: `sudo pacman -S pyside6`).
 
 ## Latency
 
