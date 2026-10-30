@@ -228,6 +228,14 @@ display refresh. The practical options are:
   round-trips. On the dual RX 7900 XT test system it was slower than same-GPU
   (119 vs 134 measured fps in Helldivers 2), so test it per game.
 
+Measured with `present_timing = true` on 24 fps video at 165 Hz: 2x added
+**no** real-frame present latency (p50 41.98 ms, same as off), while 4x added
+one source-frame interval (p50 82.98 ms). The generator itself cost 0.16 ms.
+At high source rates the display slots run out and the latency changes; measure
+at the actual game rate. See [docs/LATENCY.md](docs/LATENCY.md) for the
+methodology, the generator cost/quality table and what is not measured
+(input-to-photon needs external hardware).
+
 For a system-wide install, use CMake directly:
 
 ```sh
