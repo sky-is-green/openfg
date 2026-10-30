@@ -118,6 +118,19 @@ VK_INSTANCE_LAYERS=VK_LAYER_OPENFG_frame_generation \
 vkcube
 ```
 
+## Limitations
+
+- One swapchain is tracked per device. Applications with several simultaneous
+  swapchains fall back to passthrough.
+- The present queue and the blit commands must share a queue family. Separate
+  present queue families fall back to passthrough.
+- Extra swapchain images are acquired with a zero timeout, so a frame is shown
+  without interpolation when no image is free. This avoids blocking the
+  application's own event loop on Wayland.
+- The backend's Vulkan device/instance is intentionally leaked at process exit:
+  destroying it while the application device still has imports can hang RADV.
+  Per-swapchain images, semaphores and command pools are still destroyed.
+
 ## Install
 
 For a per-user install under `~/.local` (no root):

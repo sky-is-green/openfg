@@ -690,7 +690,7 @@ std::string defaultFile() {
     return R"(# openfg configuration
 #
 # The layer is inactive unless enabled = true, or OPENFG_ENABLE=1 is set.
-# The file is read once per process, at the first present.
+# The file is read once per process, early in device startup.
 
 [openfg]
 enabled = false
