@@ -291,6 +291,22 @@ namespace {
         VkMemoryRequirements requirements{};
         fns.getImageMemoryRequirements(fns.device, image, &requirements);
 
+        // A DMA-BUF import must use a memory type compatible with the handle.
+        if (state.crossGpu && fns.getMemoryFdProperties) {
+            VkMemoryFdPropertiesKHR properties{};
+            properties.sType = VK_STRUCTURE_TYPE_MEMORY_FD_PROPERTIES_KHR;
+            if (fns.getMemoryFdProperties(
+                    fns.device, handleType, fd, &properties) == VK_SUCCESS) {
+                requirements.memoryTypeBits &= properties.memoryTypeBits;
+                if (requirements.memoryTypeBits == 0) {
+                    closeFd(fd);
+                    fns.destroyImage(fns.device, image, nullptr);
+                    setError(state, "no compatible memory type for the imported DMA-BUF");
+                    return false;
+                }
+            }
+        }
+
         VkMemoryDedicatedAllocateInfo dedicated{};
         dedicated.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO;
         dedicated.image = image;

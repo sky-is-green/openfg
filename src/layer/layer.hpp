@@ -52,6 +52,7 @@ struct LayerDeviceFns {
     PFN_vkCreateImage createImage{};
     PFN_vkDestroyImage destroyImage{};
     PFN_vkGetImageMemoryRequirements getImageMemoryRequirements{};
+    PFN_vkGetMemoryFdPropertiesKHR getMemoryFdProperties{};
     PFN_vkAllocateMemory allocateMemory{};
     PFN_vkFreeMemory freeMemory{};
     PFN_vkBindImageMemory bindImageMemory{};

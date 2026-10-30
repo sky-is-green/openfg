@@ -300,6 +300,8 @@ namespace {
             getDeviceProc("vkDestroyImage"));
         fns.getImageMemoryRequirements = reinterpret_cast<PFN_vkGetImageMemoryRequirements>(
             getDeviceProc("vkGetImageMemoryRequirements"));
+        fns.getMemoryFdProperties = reinterpret_cast<PFN_vkGetMemoryFdPropertiesKHR>(
+            getDeviceProc("vkGetMemoryFdPropertiesKHR"));
         fns.allocateMemory = reinterpret_cast<PFN_vkAllocateMemory>(
             getDeviceProc("vkAllocateMemory"));
         fns.freeMemory = reinterpret_cast<PFN_vkFreeMemory>(
