@@ -92,10 +92,13 @@ early in device startup.
 Load the layer explicitly (no installation needed):
 
 ```sh
+OPENFG_ENABLE=1 \
 VK_LAYER_PATH="$PWD/build" \
 VK_INSTANCE_LAYERS=VK_LAYER_OPENFG_frame_generation \
 vkcube
 ```
+
+`OPENFG_ENABLE=1` is only needed while the config still has `enabled = false`.
 
 Make sure no other frame-generation layer is active; two layers inserting
 frames into the same swapchain will fight. Disable any other frame-generation
