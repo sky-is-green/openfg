@@ -11,6 +11,8 @@
 #include <vector>
 #include <vk>
 
+#include "limits.hpp"
+
 namespace openfg {
 
 /// Loads a named shader as SPIR-V words. Implementations may read from disk
@@ -29,7 +31,7 @@ struct PushConstants {
     int32_t pad0;
     uint32_t layerA;
     uint32_t layerB;
-    uint32_t pad1;
+    uint32_t dstLayer;
     uint32_t pad2;
 };
 static_assert(sizeof(PushConstants) == 48);
@@ -39,7 +41,8 @@ static_assert(sizeof(PushConstants) == 48);
 ///
 /// The caller owns the Vulkan device and the external source/destination
 /// images. Source is a two-layer RGBA8 array (previous/current); destination
-/// is a single-layer RGBA8 image.
+/// is a three-layer RGBA8 array. Each generated frame is written to the layer
+/// selected by `destinationLayer` (`kMaxInterpolatedFrames` layers cover 4x).
 ///
 class Interpolator {
 public:
@@ -62,7 +65,7 @@ public:
 
     /// Interpolate one output frame at time t into the destination image.
     void generate(const vk::CommandBuffer& cmdbuf, uint32_t layerA, uint32_t layerB, float t,
-        uint32_t flags = 0);
+        uint32_t flags = 0, uint32_t destinationLayer = 0);
 
     /// Expose the internal flow image for debugging/inspection.
     [[nodiscard]] vk::Image flowImage(uint32_t level = 1) const {

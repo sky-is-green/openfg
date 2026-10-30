@@ -145,7 +145,6 @@ namespace {
 
     void uploadLayer(
         const vk::detail::DispatchLoaderDynamic& dld,
-        const vk::Device& device,
         const vk::CommandBuffer& cmdbuf,
         vk::Buffer staging,
         vk::Image image,
@@ -205,7 +204,7 @@ namespace {
             dld, physdev, device,
             vk::BufferUsageFlagBits::eTransferSrc,
             data.data(), data.size())};
-        uploadLayer(dld, device, cmdbuf, *staging.buffer, image, width, height, layer);
+        uploadLayer(dld, cmdbuf, *staging.buffer, image, width, height, layer);
         return staging;
     }
 
@@ -508,7 +507,7 @@ int main(int argc, char** argv) {
         auto source{createImage(dld, physdev, *device, extent,
             vk::Format::eR8G8B8A8Unorm, 2, SOURCE_USAGE)};
         auto dest{createImage(dld, physdev, *device, extent,
-            vk::Format::eR8G8B8A8Unorm, 1, DEST_USAGE)};
+            vk::Format::eR8G8B8A8Unorm, openfg::kMaxInterpolatedFrames, DEST_USAGE)};
 
         auto pool{vkutil::createCommandPool(dld, *device, qfi, false)};
         auto cmdbuf{vkutil::createCommandBuffer(dld, *device, *pool)};

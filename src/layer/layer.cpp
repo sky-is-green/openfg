@@ -38,6 +38,7 @@ namespace {
     std::unordered_map<VkInstance, InstanceData> g_instances;
     std::unordered_map<VkDevice, DeviceData> g_devices;
     std::unordered_map<VkQueue, VkDevice> g_queues;
+    std::unordered_map<VkQueue, uint32_t> g_queueFamilies;
     VkInstance g_lastInstance{};
 
     template<typename T>
@@ -176,12 +177,14 @@ namespace {
             }
             extensions.push_back(name);
         };
-        addExtension(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME);
-        addExtension(VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME);
-        addExtension(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
-        const bool crossGpu = std::getenv("OPENFG_CROSS_GPU") != nullptr;
-        if (crossGpu)
-            addExtension(VK_EXT_EXTERNAL_MEMORY_DMA_BUF_EXTENSION_NAME);
+        const bool fgEnabled = openfg_layer::enabled();
+        if (fgEnabled) {
+            addExtension(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME);
+            addExtension(VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME);
+            addExtension(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME);
+            if (openfg_layer::crossGpu())
+                addExtension(VK_EXT_EXTERNAL_MEMORY_DMA_BUF_EXTENSION_NAME);
+        }
 
         VkDeviceCreateInfo modified = *createInfo;
         modified.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
@@ -189,21 +192,23 @@ namespace {
 
         VkPhysicalDeviceVulkan12Features features{};
         features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
-        bool haveFeatures{false};
-        auto* pnext = const_cast<VkBaseOutStructure*>(
-            static_cast<const VkBaseOutStructure*>(modified.pNext));
-        while (pnext) {
-            if (pnext->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES) {
-                reinterpret_cast<VkPhysicalDeviceVulkan12Features*>(pnext)->timelineSemaphore = VK_TRUE;
-                haveFeatures = true;
-                break;
+        if (fgEnabled) {
+            bool haveFeatures{false};
+            auto* pnext = const_cast<VkBaseOutStructure*>(
+                static_cast<const VkBaseOutStructure*>(modified.pNext));
+            while (pnext) {
+                if (pnext->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES) {
+                    reinterpret_cast<VkPhysicalDeviceVulkan12Features*>(pnext)->timelineSemaphore = VK_TRUE;
+                    haveFeatures = true;
+                    break;
+                }
+                pnext = pnext->pNext;
             }
-            pnext = pnext->pNext;
-        }
-        if (!haveFeatures) {
-            features.timelineSemaphore = VK_TRUE;
-            features.pNext = const_cast<void*>(modified.pNext);
-            modified.pNext = &features;
+            if (!haveFeatures) {
+                features.timelineSemaphore = VK_TRUE;
+                features.pNext = const_cast<void*>(modified.pNext);
+                modified.pNext = &features;
+            }
         }
 
         const auto create = reinterpret_cast<PFN_vkCreateDevice>(
@@ -231,6 +236,12 @@ namespace {
             nextGipa(instance, "vkEnumerateDeviceExtensionProperties"));
         fns.getPhysDevMemoryProperties = reinterpret_cast<PFN_vkGetPhysicalDeviceMemoryProperties>(
             nextGipa(instance, "vkGetPhysicalDeviceMemoryProperties"));
+        fns.getQueueFamilyProperties = reinterpret_cast<PFN_vkGetPhysicalDeviceQueueFamilyProperties>(
+            nextGipa(instance, "vkGetPhysicalDeviceQueueFamilyProperties"));
+        fns.getSurfaceSupport = reinterpret_cast<PFN_vkGetPhysicalDeviceSurfaceSupportKHR>(
+            nextGipa(instance, "vkGetPhysicalDeviceSurfaceSupportKHR"));
+        fns.getSurfaceCapabilities = reinterpret_cast<PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR>(
+            nextGipa(instance, "vkGetPhysicalDeviceSurfaceCapabilitiesKHR"));
 
         const auto getDeviceProc = [&](const char* name) {
             return nextGdpa(*device, name);
@@ -299,15 +310,13 @@ namespace {
         fns.externalSemaphoreFd = supported.count(VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME) != 0;
         fns.externalDmaBuf = supported.count(VK_EXT_EXTERNAL_MEMORY_DMA_BUF_EXTENSION_NAME) != 0;
 
-        // Use the first graphics+transfer family. The present queue on the
-        // target system is family 0; a mismatch falls back to passthrough.
-        const auto getFamilies = reinterpret_cast<PFN_vkGetPhysicalDeviceQueueFamilyProperties>(
-            nextGipa(instance, "vkGetPhysicalDeviceQueueFamilyProperties"));
-        if (getFamilies) {
+        // Preferred family for the layer's command buffers. The swapchain
+        // hook refines this to the family that actually supports present.
+        if (fns.getQueueFamilyProperties) {
             uint32_t count{0};
-            getFamilies(physdev, &count, nullptr);
+            fns.getQueueFamilyProperties(physdev, &count, nullptr);
             std::vector<VkQueueFamilyProperties> families(count);
-            getFamilies(physdev, &count, families.data());
+            fns.getQueueFamilyProperties(physdev, &count, families.data());
             for (uint32_t i = 0; i < count; i++) {
                 if (families[i].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
                     fns.queueFamily = i;
@@ -331,12 +340,59 @@ namespace {
         if (!data || !data->fns.createSwapchain)
             return VK_ERROR_INITIALIZATION_FAILED;
 
+        const bool fgEnabled = openfg_layer::enabled();
+        const uint32_t multiplier = fgEnabled ? openfg_layer::multiplier() : 1;
+
         VkSwapchainCreateInfoKHR modified = *createInfo;
-        modified.imageUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-        // The current present path inserts one generated frame. Keep the
-        // swapchain allocation at 2x until the multi-frame loop lands.
-        const int multiplier = 2;
-        modified.minImageCount = std::min(modified.minImageCount + static_cast<uint32_t>(multiplier), 8u);
+        if (fgEnabled) {
+            modified.imageUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+
+            uint32_t images = modified.minImageCount + multiplier;
+            bool haveCaps{false};
+            if (data->fns.getSurfaceCapabilities) {
+                VkSurfaceCapabilitiesKHR caps{};
+                if (data->fns.getSurfaceCapabilities(
+                        data->fns.physdev, modified.surface, &caps) == VK_SUCCESS) {
+                    haveCaps = true;
+                    if (caps.maxImageCount > 0)
+                        images = std::min(images, caps.maxImageCount);
+                }
+            }
+            if (!haveCaps)
+                images = std::min(images, 8u);
+            modified.minImageCount = std::max(modified.minImageCount, images);
+        }
+
+        // Pick the present family that can also run the layer's blits. If the
+        // application presents from another family, the layer falls back.
+        uint32_t presentFamily{UINT32_MAX};
+        if (fgEnabled && data->fns.getSurfaceSupport &&
+            data->fns.getQueueFamilyProperties) {
+            uint32_t count{0};
+            data->fns.getQueueFamilyProperties(data->fns.physdev, &count, nullptr);
+            std::vector<VkQueueFamilyProperties> families(count);
+            data->fns.getQueueFamilyProperties(data->fns.physdev, &count, families.data());
+
+            auto supports = [&](uint32_t family) {
+                if ((families[family].queueFlags & VK_QUEUE_TRANSFER_BIT) == 0)
+                    return false;
+                VkBool32 supported{VK_FALSE};
+                data->fns.getSurfaceSupport(
+                    data->fns.physdev, family, modified.surface, &supported);
+                return supported == VK_TRUE;
+            };
+            if (data->fns.queueFamily < count && supports(data->fns.queueFamily)) {
+                presentFamily = data->fns.queueFamily;
+            } else {
+                for (uint32_t i = 0; i < count; i++) {
+                    if (supports(i)) {
+                        presentFamily = i;
+                        break;
+                    }
+                }
+            }
+        }
 
         const VkResult result = data->fns.createSwapchain(device, &modified, allocator, swapchain);
         if (result != VK_SUCCESS)
@@ -349,10 +405,17 @@ namespace {
         if (data->fns.getSwapchainImages(device, *swapchain, &count, images.data()) != VK_SUCCESS)
             return VK_SUCCESS;
 
+        if (openfg_layer::debug())
+            std::fprintf(stderr,
+                "[openfg] swapchain: %ux%u, minImageCount=%u, family=%u\n",
+                modified.imageExtent.width, modified.imageExtent.height,
+                modified.minImageCount, presentFamily);
+
         openfg_layer::SwapchainInfo info{};
         info.swapchain = *swapchain;
         info.format = modified.imageFormat;
         info.extent = modified.imageExtent;
+        info.queueFamily = presentFamily;
         info.images = std::move(images);
         openfg_layer::addSwapchain(data->fns, info);
         return VK_SUCCESS;
@@ -382,6 +445,7 @@ namespace {
         if (*queue) {
             std::lock_guard lock(g_mutex);
             g_queues[*queue] = device;
+            g_queueFamilies[*queue] = queueFamilyIndex;
         }
     }
 
@@ -397,6 +461,7 @@ namespace {
         if (*queue) {
             std::lock_guard lock(g_mutex);
             g_queues[*queue] = device;
+            g_queueFamilies[*queue] = info->queueFamilyIndex;
         }
     }
 
@@ -405,18 +470,23 @@ namespace {
         const VkPresentInfoKHR* presentInfo
     ) {
         VkDevice device{};
+        uint32_t queueFamily{UINT32_MAX};
         {
             std::lock_guard lock(g_mutex);
             auto it = g_queues.find(queue);
             if (it != g_queues.end())
                 device = it->second;
+            auto fit = g_queueFamilies.find(queue);
+            if (fit != g_queueFamilies.end())
+                queueFamily = fit->second;
         }
         auto* data = getDeviceData(device);
         if (!data || !data->fns.queuePresent)
             return VK_ERROR_INITIALIZATION_FAILED;
 
         if (openfg_layer::enabled())
-            return openfg_layer::present(data->fns, queue, presentInfo, data->fns.queuePresent);
+            return openfg_layer::present(
+                data->fns, queue, queueFamily, presentInfo, data->fns.queuePresent);
         return data->fns.queuePresent(queue, presentInfo);
     }
 
@@ -433,10 +503,12 @@ namespace {
                 destroy = reinterpret_cast<PFN_vkDestroyDevice>(
                     it->second.fns.gdpa(device, "vkDestroyDevice"));
                 for (auto qit = g_queues.begin(); qit != g_queues.end();) {
-                    if (qit->second == device)
+                    if (qit->second == device) {
+                        g_queueFamilies.erase(qit->first);
                         qit = g_queues.erase(qit);
-                    else
+                    } else {
                         ++qit;
+                    }
                 }
                 g_devices.erase(it);
             }

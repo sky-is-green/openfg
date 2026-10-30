@@ -223,7 +223,7 @@ Context::Context(
         *vk.dld, vk.physdev, *vk.device, extent,
         vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled |
         vk::ImageUsageFlagBits::eTransferSrc,
-        1, instance.m_impl->crossGpu
+        openfg::kMaxInterpolatedFrames, instance.m_impl->crossGpu
     );
 
     const auto shaderDir{instance.m_impl->shaderDir};
@@ -362,7 +362,8 @@ void Context::acquire(bool unsignaled) {
     generate.reset({}, *vk.dld);
     generate.begin(
         { .flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit }, *vk.dld);
-    ctx.interpolator->generate(generate, ctx.layerA, ctx.layerB, t);
+    ctx.interpolator->generate(
+        generate, ctx.layerA, ctx.layerB, t, 0, ctx.index);
     generate.end(*vk.dld);
 
     auto& sync{ctx.syncSemaphore};
@@ -420,8 +421,13 @@ Context::~Context() {
 }
 
 Instance::~Instance() {
-    if (!this->m_impl->vk.leakInstance)
+    if (!this->m_impl->vk.leakInstance) {
+        try {
+            this->m_impl->vk.device->waitIdle(*this->m_impl->vk.dld);
+        } catch (...) { // NOLINT
+        }
         return;
+    }
 
     try {
         new std::unique_ptr<vk::detail::DispatchLoaderDynamic>(

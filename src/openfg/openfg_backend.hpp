@@ -8,13 +8,16 @@
 #include <memory>
 #include <string>
 
+#include "limits.hpp"
+
 namespace openfg {
 
 /// File descriptors exported by a context. The caller closes them.
 struct FileDescriptors {
     /// Two-layer RGBA8 source image, layer = iteration % 2.
     int sourceFd;
-    /// Single-layer RGBA8 destination image.
+    /// Three-layer RGBA8 destination image; generated frame i is written to
+    /// layer i.
     int destinationFd;
     /// External timeline semaphore.
     int syncFd;
@@ -24,8 +27,9 @@ struct FileDescriptors {
 /// Open frame-generation backend.
 ///
 /// It owns a Vulkan device on the selected GPU and exports a two-layer RGBA8
-/// source image, a single-layer RGBA8 destination image and an external
-/// timeline semaphore.
+/// source image, a three-layer RGBA8 destination image and an external
+/// timeline semaphore. `dispatch(n)` analyses one frame pair; each `acquire()`
+/// renders one intermediate frame into the next destination layer.
 ///
 class Instance {
 public:

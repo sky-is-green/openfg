@@ -37,6 +37,12 @@ add_custom_command(OUTPUT "${EMBED_CPP}"
   DEPENDS ${SHADER_SPV} "${CMAKE_CURRENT_SOURCE_DIR}/tools/embed_openfg_shaders.py"
   COMMENT "Embedding openfg shaders")
 
+add_library(openfg-config STATIC
+  "src/config/config.cpp")
+target_include_directories(openfg-config PUBLIC
+  "${CMAKE_CURRENT_SOURCE_DIR}/src")
+set_target_properties(openfg-config PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 add_library(vkutil STATIC
   "src/vkutil/vkutil.cpp")
 target_include_directories(vkutil PUBLIC
@@ -63,7 +69,11 @@ target_link_libraries(fg-lab PRIVATE openfg vkutil)
 target_compile_definitions(fg-lab PRIVATE
   OPENFG_SHADER_DIR="${SHADER_BIN}")
 
-install(TARGETS fg-lab RUNTIME DESTINATION bin)
+add_executable(openfg-cli
+  "tools/openfg-cli/main.cpp")
+target_link_libraries(openfg-cli PRIVATE openfg-config)
+
+install(TARGETS fg-lab openfg-cli RUNTIME DESTINATION bin)
 
 add_library(openfg-layer SHARED
   "src/layer/layer.cpp"
@@ -71,7 +81,7 @@ add_library(openfg-layer SHARED
 target_include_directories(openfg-layer PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/src"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/openfg")
-target_link_libraries(openfg-layer PRIVATE openfg vkutil)
+target_link_libraries(openfg-layer PRIVATE openfg vkutil openfg-config)
 set_target_properties(openfg-layer PROPERTIES
   PREFIX "lib"
   OUTPUT_NAME "openfg-layer"
@@ -81,8 +91,15 @@ configure_file(
   "${CMAKE_CURRENT_SOURCE_DIR}/src/layer/VkLayer_OPENFG_frame_generation.json.in"
   "${CMAKE_CURRENT_BINARY_DIR}/VkLayer_OPENFG_frame_generation.json"
   @ONLY)
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/install")
+configure_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/layer/VkLayer_OPENFG_frame_generation.install.json.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/install/VkLayer_OPENFG_frame_generation.json"
+  @ONLY)
 
 install(TARGETS openfg-layer
   LIBRARY DESTINATION lib)
-install(FILES "${CMAKE_CURRENT_BINARY_DIR}/VkLayer_OPENFG_frame_generation.json"
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/install/VkLayer_OPENFG_frame_generation.json"
   DESTINATION share/vulkan/implicit_layer.d)
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/config/conf.toml"
+  DESTINATION share/doc/openfg)

@@ -1,0 +1,29 @@
+# openfg configuration
+#
+# The layer is inactive unless enabled = true, or OPENFG_ENABLE=1 is set.
+# The file is read once per process, at the first present.
+
+[openfg]
+enabled = false
+
+# Vulkan device used for interpolation: "auto", a PCI address such as
+# "0000:07:00.0", a device name, or "vendor:device".
+gpu = "auto"
+
+# true: run the backend on the GPU above and share frames with the display
+# GPU over DMA-BUF. false: run on the display GPU with OpaqueFd.
+cross_gpu = false
+
+# Generated frames per real frame: 2, 3 or 4.
+multiplier = 2
+
+# Log generated frames and present results to stderr.
+debug = false
+
+[processes]
+# Enable only for these process names. Empty means all processes.
+# '*' and '?' wildcards are supported; matching is case-insensitive.
+include = []
+
+# Always keep frame generation off for these processes.
+exclude = []

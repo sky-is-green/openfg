@@ -1,17 +1,22 @@
 /* SPDX-License-Identifier: MIT */
 
-// Same-GPU frame generation for the clean-room layer.
+// Frame generation for the clean-room layer.
 //
-// The first milestone is intentionally narrow: one backend context per device,
-// two real layers, multiplier 2, OpaqueFd sharing. Anything unexpected falls
-// back to a normal present rather than breaking the application.
+// One backend instance per device (kept across swapchain recreation) and one
+// context per swapchain. The application presents normally; the layer copies
+// the real frame into the backend source image, interpolates
+// `multiplier - 1` frames (2x/3x/4x), and inserts them before the real
+// present. Anything unexpected falls back to a normal present rather than
+// breaking the application.
 
 #include "layer.hpp"
+#include "config/config.hpp"
 #include "openfg_backend.hpp"
 
 #include <vulkan/vulkan.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -28,20 +33,33 @@ namespace {
 
     constexpr const char* TAG = "[openfg]";
 
-    bool envFlag(const char* name) {
-        const char* value = std::getenv(name);
-        if (!value || !*value)
-            return false;
-        return std::strcmp(value, "0") != 0 &&
-            std::strcmp(value, "false") != 0 &&
-            std::strcmp(value, "off") != 0;
+    const openfg::config::LoadResult& layerConfig() {
+        return openfg::config::processConfig();
     }
 
-    int envInt(const char* name, int fallback) {
-        const char* value = std::getenv(name);
-        if (!value || !*value)
-            return fallback;
-        return std::atoi(value);
+    const openfg::config::Config& activeConfig() {
+        return layerConfig().config;
+    }
+
+    bool enabled() {
+        static const bool value = [] {
+            const auto& result = layerConfig();
+            if (!result.error.empty()) {
+                std::fprintf(stderr, "%s config error: %s\n", TAG, result.error.c_str());
+                return false;
+            }
+            for (const auto& warning : result.warnings)
+                std::fprintf(stderr, "%s warning: %s\n", TAG, warning.c_str());
+            if (!result.config.enabled)
+                return false;
+            if (!openfg::config::processMatches(result.config)) {
+                if (result.config.debug)
+                    std::fprintf(stderr, "%s process does not match the config\n", TAG);
+                return false;
+            }
+            return true;
+        }();
+        return value;
     }
 
     bool hasExtension(
@@ -87,9 +105,9 @@ namespace {
         return fallback < 0 ? 0u : static_cast<uint32_t>(fallback);
     }
 
-    std::string identifyPhysicalDevice(const LayerDeviceFns& fns) {
-        if (const char* env = std::getenv("OPENFG_GPU"); env && *env)
-            return env;
+    std::string identifyPhysicalDevice(const LayerDeviceFns& fns, const std::string& requested) {
+        if (!requested.empty() && requested != "auto")
+            return requested;
 
         const bool hasPci = hasExtension(fns, VK_EXT_PCI_BUS_INFO_EXTENSION_NAME);
         VkPhysicalDevicePCIBusInfoPropertiesEXT pci{};
@@ -111,10 +129,24 @@ namespace {
         return props.properties.deviceName;
     }
 
+    using SemaphoreArray = std::array<VkSemaphore, openfg::kMaxInterpolatedFrames>;
+    using CommandArray = std::array<VkCommandBuffer, openfg::kMaxInterpolatedFrames>;
+
+    // Present semaphores are tied to the swapchain image they were used with.
+    // Re-signalling a binary semaphore before the presentation engine has
+    // consumed its previous wait is invalid; indexing by the application's
+    // image gives each semaphore a full swapchain rotation to be consumed.
+    struct ImageSync {
+        VkSemaphore sourceDone{};
+        SemaphoreArray acquire{};
+        SemaphoreArray copyDone{};
+    };
+
     struct FgState {
         const LayerDeviceFns* fns{};
         VkSwapchainKHR swapchain{};
         VkExtent2D extent{};
+        uint32_t queueFamily{};
         std::unique_ptr<openfg::Instance> instance;
         std::unique_ptr<openfg::Context> context;
 
@@ -126,10 +158,8 @@ namespace {
 
         VkCommandPool pool{};
         VkCommandBuffer sourceCmd{};
-        VkCommandBuffer destinationCmd{};
-        VkSemaphore sourceDone{};
-        VkSemaphore acquire{};
-        VkSemaphore copyDone{};
+        CommandArray destinationCmds{};
+        std::vector<ImageSync> imageSync;
         VkFence fence{};
         bool fencePending{};
 
@@ -156,15 +186,25 @@ namespace {
         if (!state.fns)
             return;
         const auto& fns = *state.fns;
+        if (fns.deviceWaitIdle)
+            fns.deviceWaitIdle(fns.device);
         if (state.fencePending && fns.waitForFences && state.fence) {
             fns.waitForFences(fns.device, 1, &state.fence, VK_TRUE, UINT64_MAX);
             state.fencePending = false;
         }
 
         if (fns.destroySemaphore) {
-            for (VkSemaphore sem : { state.sourceDone, state.acquire, state.copyDone }) {
-                if (sem)
-                    fns.destroySemaphore(fns.device, sem, nullptr);
+            for (const ImageSync& sync : state.imageSync) {
+                if (sync.sourceDone)
+                    fns.destroySemaphore(fns.device, sync.sourceDone, nullptr);
+                for (VkSemaphore sem : sync.acquire) {
+                    if (sem)
+                        fns.destroySemaphore(fns.device, sem, nullptr);
+                }
+                for (VkSemaphore sem : sync.copyDone) {
+                    if (sem)
+                        fns.destroySemaphore(fns.device, sem, nullptr);
+                }
             }
             if (state.sync)
                 fns.destroySemaphore(fns.device, state.sync, nullptr);
@@ -185,6 +225,21 @@ namespace {
             if (state.destinationMemory)
                 fns.freeMemory(fns.device, state.destinationMemory, nullptr);
         }
+
+        // Destroy the context (and its exported images/semaphores) but keep
+        // the backend instance. Destroying the backend VkDevice while the
+        // application still has imports from it can wedge RADV, and swapchain
+        // recreation happens while the application device is very much alive.
+        state.context.reset();
+    }
+
+    /// Tears down per-swapchain resources. The backend instance survives
+    /// unless the device itself is going away.
+    void resetState(FgState& state, bool keepInstance) {
+        auto instance = keepInstance ? std::move(state.instance) : nullptr;
+        destroyState(state);
+        state = FgState{};
+        state.instance = std::move(instance);
     }
 
     bool importImage(
@@ -305,9 +360,9 @@ namespace {
         state.fns = &fns;
         state.swapchain = swapchain.swapchain;
         state.extent = swapchain.extent;
-        // One generated frame per real frame in this milestone.
-        state.multiplier = 2;
-        state.crossGpu = envFlag("OPENFG_CROSS_GPU");
+        state.queueFamily = swapchain.queueFamily;
+        state.multiplier = std::clamp(activeConfig().multiplier, 2u, 4u);
+        state.crossGpu = activeConfig().crossGpu;
 
         if (state.crossGpu && !fns.externalDmaBuf) {
             setError(state, "cross-GPU requested but VK_EXT_external_memory_dma_buf is unavailable");
@@ -318,19 +373,25 @@ namespace {
             return false;
         }
 
-        const std::string deviceId = identifyPhysicalDevice(fns);
+        const std::string deviceId = identifyPhysicalDevice(fns, activeConfig().gpu);
         std::fprintf(stderr, "%s backend on %s, %s, %ux\n", TAG,
             deviceId.c_str(), state.crossGpu ? "cross-GPU" : "same-GPU", state.multiplier);
 
-        state.instance = std::make_unique<openfg::Instance>(
-            deviceId,
-            std::filesystem::path{},
-            state.crossGpu,
-            true,
-            [](const std::string& message) {
-                std::fprintf(stderr, "%s %s\n", TAG, message.c_str());
-            }
-        );
+        if (!state.instance) {
+            state.instance = std::make_unique<openfg::Instance>(
+                deviceId,
+                std::filesystem::path{},
+                state.crossGpu,
+                // Destroying the backend VkDevice while the application's
+                // device still has imports from it can hang RADV. Leak the
+                // backend device/instance at process exit; the layer still
+                // tears down all images, semaphores and its context.
+                true,
+                [](const std::string& message) {
+                    std::fprintf(stderr, "%s %s\n", TAG, message.c_str());
+                }
+            );
+        }
         state.context = std::make_unique<openfg::Context>(
             *state.instance,
             swapchain.extent.width,
@@ -341,7 +402,7 @@ namespace {
 
         const auto fds = state.context->exportFds();
         if (!importImage(state, fds.sourceFd, 2, false) ||
-            !importImage(state, fds.destinationFd, 1, true) ||
+            !importImage(state, fds.destinationFd, openfg::kMaxInterpolatedFrames, true) ||
             !importSyncSemaphore(state, fds.syncFd)) {
             return false;
         }
@@ -349,7 +410,7 @@ namespace {
         VkCommandPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
         poolInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-        poolInfo.queueFamilyIndex = fns.queueFamily;
+        poolInfo.queueFamilyIndex = swapchain.queueFamily;
         if (fns.createCommandPool(fns.device, &poolInfo, nullptr, &state.pool) != VK_SUCCESS) {
             setError(state, "failed to create command pool");
             return false;
@@ -359,20 +420,29 @@ namespace {
         cmdInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         cmdInfo.commandPool = state.pool;
         cmdInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        cmdInfo.commandBufferCount = 2;
-        VkCommandBuffer cmds[2]{};
-        if (fns.allocateCommandBuffers(fns.device, &cmdInfo, cmds) != VK_SUCCESS) {
+        cmdInfo.commandBufferCount = 1 + openfg::kMaxInterpolatedFrames;
+        std::array<VkCommandBuffer, 1 + openfg::kMaxInterpolatedFrames> cmds{};
+        if (fns.allocateCommandBuffers(fns.device, &cmdInfo, cmds.data()) != VK_SUCCESS) {
             setError(state, "failed to allocate command buffers");
             return false;
         }
         state.sourceCmd = cmds[0];
-        state.destinationCmd = cmds[1];
+        for (uint32_t i = 0; i < openfg::kMaxInterpolatedFrames; i++)
+            state.destinationCmds[i] = cmds[i + 1];
 
-        if (!createBinarySemaphore(fns, state.sourceDone) ||
-            !createBinarySemaphore(fns, state.acquire) ||
-            !createBinarySemaphore(fns, state.copyDone)) {
-            setError(state, "failed to create semaphores");
-            return false;
+        state.imageSync.resize(swapchain.images.size());
+        for (ImageSync& sync : state.imageSync) {
+            if (!createBinarySemaphore(fns, sync.sourceDone)) {
+                setError(state, "failed to create semaphores");
+                return false;
+            }
+            for (uint32_t i = 0; i < openfg::kMaxInterpolatedFrames; i++) {
+                if (!createBinarySemaphore(fns, sync.acquire[i]) ||
+                    !createBinarySemaphore(fns, sync.copyDone[i])) {
+                    setError(state, "failed to create semaphores");
+                    return false;
+                }
+            }
         }
 
         VkFenceCreateInfo fenceInfo{};
@@ -488,7 +558,19 @@ namespace {
 namespace openfg_layer {
 
 bool enabled() {
-    return envFlag("OPENFG_ENABLE");
+    return ::enabled();
+}
+
+bool debug() {
+    return layerConfig().error.empty() && activeConfig().debug;
+}
+
+unsigned multiplier() {
+    return std::clamp(activeConfig().multiplier, 2u, 4u);
+}
+
+bool crossGpu() {
+    return activeConfig().crossGpu;
 }
 
 void addSwapchain(const LayerDeviceFns&, const SwapchainInfo& info) {
@@ -499,10 +581,8 @@ void addSwapchain(const LayerDeviceFns&, const SwapchainInfo& info) {
 void removeSwapchain(VkDevice device, VkSwapchainKHR swapchain) {
     std::lock_guard lock(g_mutex);
     auto it = g_states.find(device);
-    if (it != g_states.end() && it->second->swapchain == swapchain) {
-        destroyState(*it->second);
-        g_states.erase(it);
-    }
+    if (it != g_states.end() && it->second->swapchain == swapchain)
+        resetState(*it->second, true);
     g_swapchains.erase(swapchain);
 }
 
@@ -510,7 +590,7 @@ void destroyDevice(VkDevice device) {
     std::lock_guard lock(g_mutex);
     auto it = g_states.find(device);
     if (it != g_states.end()) {
-        destroyState(*it->second);
+        resetState(*it->second, false);
         g_states.erase(it);
     }
 }
@@ -518,6 +598,7 @@ void destroyDevice(VkDevice device) {
 VkResult present(
     const LayerDeviceFns& fns,
     VkQueue queue,
+    uint32_t queueFamily,
     const VkPresentInfoKHR* presentInfo,
     PFN_vkQueuePresentKHR nextPresent
 ) {
@@ -532,6 +613,9 @@ VkResult present(
     if (swapIt == g_swapchains.end())
         return nextPresent(queue, presentInfo);
     const SwapchainInfo& swapInfo = swapIt->second;
+
+    if (swapInfo.queueFamily != queueFamily || swapInfo.images.empty())
+        return nextPresent(queue, presentInfo);
 
     FgState* state{};
     auto stateIt = g_states.find(fns.device);
@@ -548,14 +632,13 @@ VkResult present(
     if (state->failed)
         return nextPresent(queue, presentInfo);
 
-    if (!state->ready) {
-        if (state->swapchain != swapchain) {
-            destroyState(*state);
-            *state = FgState{};
-        }
-        if (!initializeState(*state, fns, swapInfo))
-            return nextPresent(queue, presentInfo);
+    if (state->ready && state->swapchain != swapchain) {
+        resetState(*state, true);
+        state->fns = &fns;
     }
+
+    if (!state->ready && !initializeState(*state, fns, swapInfo))
+        return nextPresent(queue, presentInfo);
 
     if (state->fencePending) {
         if (fns.waitForFences(fns.device, 1, &state->fence, VK_TRUE, UINT64_MAX) != VK_SUCCESS)
@@ -564,33 +647,49 @@ VkResult present(
         state->fencePending = false;
     }
 
-    // Acquire the extra swapchain image before consuming the application's
-    // present semaphores, so a failure can still fall back cleanly.
-    uint32_t generatedIndex{};
-    VkResult acquireResult = fns.acquireNextImage(
-        fns.device, swapchain, UINT64_MAX, state->acquire, VK_NULL_HANDLE, &generatedIndex);
-    if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR)
+    const uint32_t requestedCount = std::min(
+        state->multiplier - 1, openfg::kMaxInterpolatedFrames);
+    const uint32_t appImage = presentInfo->pImageIndices[0];
+    if (appImage >= state->imageSync.size())
         return nextPresent(queue, presentInfo);
-    if (generatedIndex >= swapInfo.images.size())
+    ImageSync& imageSync = state->imageSync[appImage];
+
+    // Never block inside present: on Wayland a blocking acquire consumes the
+    // events the application's own event loop is waiting for. Use timeout 0
+    // and generate as many frames as the swapchain can hand out right now.
+    std::array<uint32_t, openfg::kMaxInterpolatedFrames> generatedIndices{};
+    uint32_t generatedCount{};
+    for (uint32_t i = 0; i < requestedCount; i++) {
+        const VkResult acquireResult = fns.acquireNextImage(
+            fns.device, swapchain, 0, imageSync.acquire[i], VK_NULL_HANDLE,
+            &generatedIndices[i]);
+        if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR)
+            break;
+        if (generatedIndices[i] >= swapInfo.images.size())
+            break;
+        generatedCount++;
+    }
+    if (generatedCount == 0)
         return nextPresent(queue, presentInfo);
 
     const uint32_t layer = state->iteration % 2;
-    if (envFlag("OPENFG_DEBUG"))
-        std::fprintf(stderr, "%s frame %u: real=%u generated=%u layer=%u\n",
-            TAG, state->iteration, presentInfo->pImageIndices[0], generatedIndex, layer);
+    if (activeConfig().debug)
+        std::fprintf(stderr, "%s frame %u: real=%u first-generated=%u (%u/%u frames), layer=%u\n",
+            TAG, state->iteration, presentInfo->pImageIndices[0],
+            generatedIndices[0], generatedCount, requestedCount, layer);
+
     recordCopy(fns, state->sourceCmd,
         swapInfo.images[presentInfo->pImageIndices[0]], 0,
         state->source, layer,
         swapInfo.extent, true, false);
 
     const uint64_t sourceSync = state->syncValue + 1;
-    const uint64_t generatedSync = sourceSync + 1;
 
     std::vector<uint64_t> waitValues(presentInfo->waitSemaphoreCount, 0);
     std::vector<VkPipelineStageFlags> waitStages(
         presentInfo->waitSemaphoreCount, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
 
-    VkSemaphore sourceSignals[2]{ state->sourceDone, state->sync };
+    VkSemaphore sourceSignals[2]{ imageSync.sourceDone, state->sync };
     uint64_t sourceSignalValues[2]{ 0, sourceSync };
 
     VkTimelineSemaphoreSubmitInfo sourceTimeline{};
@@ -615,68 +714,91 @@ VkResult present(
         return nextPresent(queue, presentInfo);
     }
 
-    state->context->dispatch(1);
-    state->context->acquire();
+    uint64_t generatedSync = sourceSync;
+    try {
+        state->context->dispatch(generatedCount);
 
-    recordCopy(fns, state->destinationCmd,
-        state->destination, 0,
-        swapInfo.images[generatedIndex], 0,
-        swapInfo.extent, false, true);
+        for (uint32_t i = 0; i < generatedCount; i++) {
+            state->context->acquire();
+            generatedSync++;
 
-    VkSemaphore copyWaits[2]{ state->acquire, state->sync };
-    uint64_t copyWaitValues[2]{ 0, generatedSync };
+            recordCopy(fns, state->destinationCmds[i],
+                state->destination, i,
+                swapInfo.images[generatedIndices[i]], 0,
+                swapInfo.extent, false, true);
 
-    VkTimelineSemaphoreSubmitInfo copyTimeline{};
-    copyTimeline.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
-    copyTimeline.waitSemaphoreValueCount = 2;
-    copyTimeline.pWaitSemaphoreValues = copyWaitValues;
-    copyTimeline.signalSemaphoreValueCount = 1;
-    uint64_t zeroSignal{0};
-    copyTimeline.pSignalSemaphoreValues = &zeroSignal;
+            VkSemaphore copyWaits[2]{ imageSync.acquire[i], state->sync };
+            uint64_t copyWaitValues[2]{ 0, generatedSync };
 
-    std::vector<VkPipelineStageFlags> copyStages(
-        2, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
+            VkTimelineSemaphoreSubmitInfo copyTimeline{};
+            copyTimeline.sType = VK_STRUCTURE_TYPE_TIMELINE_SEMAPHORE_SUBMIT_INFO;
+            copyTimeline.waitSemaphoreValueCount = 2;
+            copyTimeline.pWaitSemaphoreValues = copyWaitValues;
+            copyTimeline.signalSemaphoreValueCount = 1;
+            uint64_t zeroSignal{0};
+            copyTimeline.pSignalSemaphoreValues = &zeroSignal;
 
-    VkSubmitInfo copySubmit{};
-    copySubmit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    copySubmit.pNext = &copyTimeline;
-    copySubmit.waitSemaphoreCount = 2;
-    copySubmit.pWaitSemaphores = copyWaits;
-    copySubmit.pWaitDstStageMask = copyStages.data();
-    copySubmit.commandBufferCount = 1;
-    copySubmit.pCommandBuffers = &state->destinationCmd;
-    copySubmit.signalSemaphoreCount = 1;
-    copySubmit.pSignalSemaphores = &state->copyDone;
-    if (fns.queueSubmit(queue, 1, &copySubmit, state->fence) != VK_SUCCESS) {
-        setError(*state, "failed to submit generated frame copy");
-        return nextPresent(queue, presentInfo);
+            std::array<VkPipelineStageFlags, 2> copyStages{
+                VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                VK_PIPELINE_STAGE_ALL_COMMANDS_BIT
+            };
+
+            VkSubmitInfo copySubmit{};
+            copySubmit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+            copySubmit.pNext = &copyTimeline;
+            copySubmit.waitSemaphoreCount = 2;
+            copySubmit.pWaitSemaphores = copyWaits;
+            copySubmit.pWaitDstStageMask = copyStages.data();
+            copySubmit.commandBufferCount = 1;
+            copySubmit.pCommandBuffers = &state->destinationCmds[i];
+            copySubmit.signalSemaphoreCount = 1;
+            copySubmit.pSignalSemaphores = &imageSync.copyDone[i];
+            const bool last = (i + 1 == generatedCount);
+            if (fns.queueSubmit(queue, 1, &copySubmit, last ? state->fence : VK_NULL_HANDLE)
+                    != VK_SUCCESS) {
+                setError(*state, "failed to submit generated frame copy");
+                break;
+            }
+            if (last)
+                state->fencePending = true;
+
+            VkPresentInfoKHR generatedPresent = *presentInfo;
+            generatedPresent.waitSemaphoreCount = 1;
+            generatedPresent.pWaitSemaphores = &imageSync.copyDone[i];
+            generatedPresent.swapchainCount = 1;
+            generatedPresent.pSwapchains = &swapchain;
+            generatedPresent.pImageIndices = &generatedIndices[i];
+            generatedPresent.pResults = nullptr;
+            const VkResult generatedResult = nextPresent(queue, &generatedPresent);
+            if (generatedResult != VK_SUCCESS && generatedResult != VK_SUBOPTIMAL_KHR) {
+                state->syncValue = generatedSync;
+                state->iteration++;
+                if (activeConfig().debug)
+                    std::fprintf(stderr, "%s frame %u: generated present failed (%d)\n",
+                        TAG, state->iteration, generatedResult);
+                VkPresentInfoKHR originalPresent = *presentInfo;
+                originalPresent.waitSemaphoreCount = 1;
+                originalPresent.pWaitSemaphores = &imageSync.sourceDone;
+                nextPresent(queue, &originalPresent);
+                return generatedResult;
+            }
+        }
+    } catch (const std::exception& exception) {
+        setError(*state, std::string("frame generation failed: ") + exception.what());
     }
-    state->fencePending = true;
-
-    VkPresentInfoKHR generatedPresent = *presentInfo;
-    generatedPresent.pNext = presentInfo->pNext;
-    generatedPresent.waitSemaphoreCount = 1;
-    generatedPresent.pWaitSemaphores = &state->copyDone;
-    generatedPresent.swapchainCount = 1;
-    generatedPresent.pSwapchains = &swapchain;
-    generatedPresent.pImageIndices = &generatedIndex;
-    generatedPresent.pResults = nullptr;
-    const VkResult generatedResult = nextPresent(queue, &generatedPresent);
 
     VkPresentInfoKHR originalPresent = *presentInfo;
     originalPresent.waitSemaphoreCount = 1;
-    originalPresent.pWaitSemaphores = &state->sourceDone;
+    originalPresent.pWaitSemaphores = &imageSync.sourceDone;
     const VkResult originalResult = nextPresent(queue, &originalPresent);
 
     state->syncValue = generatedSync;
     state->iteration++;
 
-    if (envFlag("OPENFG_DEBUG"))
-        std::fprintf(stderr, "%s frame %u: present gen=%d original=%d\n",
-            TAG, state->iteration, generatedResult, originalResult);
+    if (activeConfig().debug)
+        std::fprintf(stderr, "%s frame %u: present original=%d\n",
+            TAG, state->iteration, originalResult);
 
-    if (generatedResult != VK_SUCCESS && generatedResult != VK_SUBOPTIMAL_KHR)
-        return generatedResult;
     return originalResult;
 }
 

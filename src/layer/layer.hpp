@@ -18,6 +18,9 @@ struct LayerDeviceFns {
     PFN_vkGetPhysicalDeviceProperties2 getPhysDevProperties2{};
     PFN_vkEnumerateDeviceExtensionProperties enumerateDeviceExtensions{};
     PFN_vkGetPhysicalDeviceMemoryProperties getPhysDevMemoryProperties{};
+    PFN_vkGetPhysicalDeviceQueueFamilyProperties getQueueFamilyProperties{};
+    PFN_vkGetPhysicalDeviceSurfaceSupportKHR getSurfaceSupport{};
+    PFN_vkGetPhysicalDeviceSurfaceCapabilitiesKHR getSurfaceCapabilities{};
 
     PFN_vkCreateSwapchainKHR createSwapchain{};
     PFN_vkDestroySwapchainKHR destroySwapchain{};
@@ -64,10 +67,14 @@ struct SwapchainInfo {
     VkSwapchainKHR swapchain{};
     VkFormat format{VK_FORMAT_UNDEFINED};
     VkExtent2D extent{};
+    uint32_t queueFamily{UINT32_MAX};
     std::vector<VkImage> images;
 };
 
 bool enabled();
+bool debug();
+unsigned multiplier();
+bool crossGpu();
 
 void addSwapchain(const LayerDeviceFns& fns, const SwapchainInfo& info);
 void removeSwapchain(VkDevice device, VkSwapchainKHR swapchain);
@@ -76,6 +83,7 @@ void destroyDevice(VkDevice device);
 VkResult present(
     const LayerDeviceFns& fns,
     VkQueue queue,
+    uint32_t queueFamily,
     const VkPresentInfoKHR* presentInfo,
     PFN_vkQueuePresentKHR nextPresent
 );

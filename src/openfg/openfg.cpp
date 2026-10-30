@@ -123,7 +123,8 @@ Interpolator::Interpolator(
     this->m_srcView = vkutil::createImageView(
         this->m_dld, this->m_device, source, vk::Format::eR8G8B8A8Unorm, 2);
     this->m_dstView = vkutil::createImageView(
-        this->m_dld, this->m_device, destination, vk::Format::eR8G8B8A8Unorm, 1);
+        this->m_dld, this->m_device, destination, vk::Format::eR8G8B8A8Unorm,
+        kMaxInterpolatedFrames);
 
     this->m_sampler = vkutil::createSampler(
         this->m_dld, this->m_device,
@@ -666,7 +667,8 @@ void Interpolator::generate(
     uint32_t layerA,
     uint32_t layerB,
     float t,
-    uint32_t flags
+    uint32_t flags,
+    uint32_t destinationLayer
 ) {
     PushConstants pc{};
     pc.width = this->m_extent.width;
@@ -677,6 +679,7 @@ void Interpolator::generate(
     pc.flags = static_cast<int32_t>(flags);
     pc.layerA = layerA;
     pc.layerB = layerB;
+    pc.dstLayer = destinationLayer;
     if (this->m_bidirectional)
         pc.flags |= 64;
     else if (this->m_occlusionFlow)

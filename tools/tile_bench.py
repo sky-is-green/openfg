@@ -15,7 +15,7 @@ def run(repo, scene, width, height, gpu, iterations, mask):
 
     prefix = repo / "tools" / "testdata" / f"{scene}_{width}x{height}"
     cmd = [
-        str(repo / "layer" / "build" / "fg-lab" / "fg-lab"),
+        str(repo / "build" / "fg-lab"),
         "--a", str(prefix.with_name(prefix.name + "_a.rgba")),
         "--b", str(prefix.with_name(prefix.name + "_b.rgba")),
         "--gt", str(prefix.with_name(prefix.name + "_gt.rgba")),

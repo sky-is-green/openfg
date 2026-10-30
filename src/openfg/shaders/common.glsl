@@ -30,7 +30,7 @@ layout(push_constant) uniform PC {
     int pad0;
     uint layerA;
     uint layerB;
-    uint pad1;
+    uint dstLayer;
     uint pad2;
 } pc;
 

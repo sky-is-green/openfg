@@ -5,7 +5,7 @@
 #version 460
 #include "common.glsl"
 
-layout(set = 0, binding = 11, rgba8) uniform image2D uOut;
+layout(set = 0, binding = 11, rgba8) uniform image2DArray uOut;
 
 void main() {
     ivec2 p = ivec2(gl_GlobalInvocationID.xy);
@@ -18,7 +18,7 @@ void main() {
     if ((pc.flags & 512) != 0) {
         ivec2 ts = textureSize(sampler2D(uTex3, uSampler), 0);
         ivec2 tile = clamp(p / 16, ivec2(0), ts - 1);
-        imageStore(uOut, p, vec4(vec3(texelFetch(sampler2D(uTex3, uSampler), tile, 0).r), 1.0));
+        imageStore(uOut, ivec3(p, int(pc.dstLayer)), vec4(vec3(texelFetch(sampler2D(uTex3, uSampler), tile, 0).r), 1.0));
         return;
     }
 
@@ -26,7 +26,7 @@ void main() {
         ivec2 ts = textureSize(sampler2D(uTex3, uSampler), 0);
         ivec2 tile = clamp(p / 16, ivec2(0), ts - 1);
         if (texelFetch(sampler2D(uTex3, uSampler), tile, 0).r < 0.5) {
-            imageStore(uOut, p, texture(sampler2DArray(uTexArray0, uSampler),
+            imageStore(uOut, ivec3(p, int(pc.dstLayer)), texture(sampler2DArray(uTexArray0, uSampler),
                 vec3(uv, float(pc.layerB))));
             return;
         }
@@ -34,7 +34,7 @@ void main() {
 
     // Debug: dump the current source layer unchanged.
     if ((pc.flags & 2) != 0) {
-        imageStore(uOut, p, texture(sampler2DArray(uTexArray0, uSampler),
+        imageStore(uOut, ivec3(p, int(pc.dstLayer)), texture(sampler2DArray(uTexArray0, uSampler),
             vec3(uv, float(pc.layerB))));
         return;
     }
@@ -63,11 +63,11 @@ void main() {
     vec4 cb = texture(sampler2DArray(uTexArray0, uSampler), vec3(uvb, float(pc.layerB)));
 
     if ((pc.flags & 8) != 0) {
-        imageStore(uOut, p, ca);
+        imageStore(uOut, ivec3(p, int(pc.dstLayer)), ca);
         return;
     }
     if ((pc.flags & 16) != 0) {
-        imageStore(uOut, p, cb);
+        imageStore(uOut, ivec3(p, int(pc.dstLayer)), cb);
         return;
     }
 
@@ -89,7 +89,7 @@ void main() {
     // or eb) and the reverse flow maps back to it (low consistency). There is
     // no hard switch: a bad side simply loses weight.
     if ((pc.flags & 2048) != 0) {
-        imageStore(uOut, p, vec4(vec3(clamp(consistency / 20.0, 0.0, 1.0)), 1.0));
+        imageStore(uOut, ivec3(p, int(pc.dstLayer)), vec4(vec3(clamp(consistency / 20.0, 0.0, 1.0)), 1.0));
         return;
     }
     float flowConf = hasReverse ? smoothstep(10.0, 2.0, consistency) : 1.0;
@@ -102,11 +102,11 @@ void main() {
 
     float err = min(ea, eb);
     if ((pc.flags & 32) != 0) {
-        imageStore(uOut, p, vec4(vec3(clamp(err * 4.0, 0.0, 1.0)), 1.0));
+        imageStore(uOut, ivec3(p, int(pc.dstLayer)), vec4(vec3(clamp(err * 4.0, 0.0, 1.0)), 1.0));
         return;
     }
     if ((pc.flags & 1024) != 0) {
-        imageStore(uOut, p, vec4(vec3(max(confA, confB)), 1.0));
+        imageStore(uOut, ivec3(p, int(pc.dstLayer)), vec4(vec3(max(confA, confB)), 1.0));
         return;
     }
 
@@ -120,5 +120,5 @@ void main() {
         c = b0;
 
     c.a = 1.0;
-    imageStore(uOut, p, c);
+    imageStore(uOut, ivec3(p, int(pc.dstLayer)), c);
 }
