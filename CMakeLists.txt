@@ -69,6 +69,11 @@ add_executable(openfg-cli
   "tools/openfg-cli/main.cpp")
 target_link_libraries(openfg-cli PRIVATE openfg-config)
 
+enable_testing()
+add_executable(openfg-config-test "tests/config_test.cpp")
+target_link_libraries(openfg-config-test PRIVATE openfg-config)
+add_test(NAME config COMMAND openfg-config-test)
+
 add_executable(openfg-gpu-probe
   "tools/gpu-probe/main.cpp")
 target_include_directories(openfg-gpu-probe PRIVATE
