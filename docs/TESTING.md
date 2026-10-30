@@ -106,8 +106,8 @@ and:
 
 ## Known limitations
 
-- Interpolation quality is still behind Lossless Scaling on the 1440p test
-  scenes. Ghosting is the acceptance gate; report it with the scene.
+- Interpolation quality is close on ghosting but still behind on the 1440p
+  camera-pan scene. Ghosting is the acceptance gate; report it with the scene.
 - RDNA2, RDNA1/Vega, NVIDIA and Intel are expected to meet the Vulkan
   requirements but have not been validated on real hardware here.
 - Mixed-vendor cross-GPU (AMD + NVIDIA, Intel + AMD) is unsupported: the

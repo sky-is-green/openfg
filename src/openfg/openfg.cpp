@@ -372,12 +372,12 @@ void Interpolator::createDescriptors() {
             *this->m_dummyR8.view,
             *this->m_srcView
         }};
-        refineSampled.at(0) = *this->m_flow.at(level + 1).view;
+        refineSampled.at(0) = *this->m_flowSmooth.at(level + 1).view;
         refineSampled.at(1) = *this->m_lumaB.at(level).view;
 
         std::array<vk::ImageView, 4> refineStorage{{
             *this->m_lumaA.at(level).view,
-            *this->m_flow.at(level + 1).view,
+            *this->m_flowSmooth.at(level + 1).view,
             *this->m_flow.at(level).view,
             *this->m_dummyRgba8.view
         }};
@@ -423,12 +423,12 @@ void Interpolator::createDescriptors() {
             *this->m_dummyR8.view,
             *this->m_srcView
         }};
-        refineSampled.at(0) = *this->m_flowBA.at(level + 1).view;
+        refineSampled.at(0) = *this->m_flowBASmooth.at(level + 1).view;
         refineSampled.at(1) = *this->m_lumaA.at(level).view;
 
         std::array<vk::ImageView, 4> refineStorage{{
             *this->m_lumaB.at(level).view,
-            *this->m_flowBA.at(level + 1).view,
+            *this->m_flowBASmooth.at(level + 1).view,
             *this->m_flowBA.at(level).view,
             *this->m_dummyRgba8.view
         }};
