@@ -178,6 +178,39 @@ Run the interpolator:
 The backend reproduces the reference implementation used during development
 byte-for-byte on the same inputs (31.5095 dB on the 1440p pan scene).
 
+## Benchmarks
+
+The benchmark scripts need `numpy`, `Pillow` and `scipy`
+(`python3 -m pip install -r tools/requirements.txt`).
+
+Ghosting on the `ghost` scene at 1440p (dual RX 7900 XT):
+
+```sh
+python3 tools/ghost_bench.py --scene ghost --width 2560 --height 1440
+```
+
+```
+backend   full dB  edge dB  edge MAD   ghost  moving dB     ms
+openfg      25.96    26.12     2.653   2.380      25.81   2.83
+```
+
+Tile-mask early-out:
+
+```sh
+python3 tools/tile_bench.py --width 2560 --height 1440
+```
+
+```
+scene        off ms    on ms  speedup   off dB    on dB
+pan           2.808    2.833    0.99x    31.51    31.51
+zoom          2.833    2.855    0.99x    27.75    27.75
+occlude       2.832    2.850    0.99x    21.16    21.16
+static        2.807    0.654    4.29x    43.14    43.14
+```
+
+`ghost` (extra edges in the ground-truth edge band) is the acceptance gate for
+any detail-restoration or sharpening pass: it must not increase.
+
 ## License
 
 MIT. See `LICENSE` and `THIRD_PARTY.md`.

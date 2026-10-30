@@ -3,6 +3,7 @@
 
 import argparse
 import subprocess
+import tempfile
 from pathlib import Path
 
 
@@ -14,12 +15,14 @@ def run(repo, scene, width, height, gpu, iterations, mask):
         env["OPENFG_NO_TILE_MASK"] = "1"
 
     prefix = repo / "tools" / "testdata" / f"{scene}_{width}x{height}"
+    outdir = Path(tempfile.gettempdir()) / "openfg"
+    outdir.mkdir(parents=True, exist_ok=True)
     cmd = [
         str(repo / "build" / "fg-lab"),
         "--a", str(prefix.with_name(prefix.name + "_a.rgba")),
         "--b", str(prefix.with_name(prefix.name + "_b.rgba")),
         "--gt", str(prefix.with_name(prefix.name + "_gt.rgba")),
-        "--out", f"/tmp/opencode/{scene}_{width}x{height}_{'mask' if mask else 'nomask'}.rgba",
+        "--out", str(outdir / f"{scene}_{width}x{height}_{'mask' if mask else 'nomask'}.rgba"),
         "--width", str(width), "--height", str(height),
         "--t", "0.5", "--iterations", str(iterations), "--gpu", gpu,
     ]

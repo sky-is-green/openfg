@@ -16,6 +16,7 @@ Metrics:
 import argparse
 import math
 import subprocess
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -65,7 +66,9 @@ def metrics(c, gt, a, b):
 
 def run_openfg(repo, scene, width, height, gpu, iterations):
     prefix = repo / "tools" / "testdata" / f"{scene}_{width}x{height}"
-    out = Path(f"/tmp/opencode/{scene}_{width}x{height}_openfg.rgba")
+    outdir = Path(tempfile.gettempdir()) / "openfg"
+    outdir.mkdir(parents=True, exist_ok=True)
+    out = outdir / f"{scene}_{width}x{height}_openfg.rgba"
     cmd = [
         str(repo / "build" / "fg-lab"),
         "--a", str(prefix.with_name(prefix.name + "_a.rgba")),
@@ -119,8 +122,10 @@ def main():
     # Save a crop around the fast occluder and HUD for eyeballing.
     crop = (slice(300, 820), slice(220, 1250))
     rows_img = [a[crop], b[crop], gt[crop]] + [c[crop] for c in images]
+    outdir = Path(tempfile.gettempdir()) / "openfg"
+    outdir.mkdir(parents=True, exist_ok=True)
     Image.fromarray(np.concatenate(rows_img, axis=0).astype(np.uint8)).save(
-        f"/tmp/opencode/{args.scene}_ghost_compare.png")
+        outdir / f"{args.scene}_ghost_compare.png")
 
 
 if __name__ == "__main__":
