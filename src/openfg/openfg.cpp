@@ -468,7 +468,7 @@ void Interpolator::createDescriptors() {
         }};
         std::array<vk::ImageView, 4> fullStorage{{
             *this->m_lumaA.at(0).view,
-            *this->m_flow.at(1).view,
+            *this->m_flowSmooth.at(1).view,
             *this->m_flowFull.view,
             *this->m_dummyRgba8.view
         }};
