@@ -296,6 +296,9 @@ occlude       1.618    1.819    0.89x    21.16    21.16
 static        1.592    0.465    3.42x    43.14    43.14
 ```
 
+Pan/zoom/occlude are within run-to-run GPU clock noise; the real early-out
+win is the static scene, where whole 16x16 tiles are skipped.
+
 `ghost` (extra edges in the ground-truth edge band) is the acceptance gate for
 any detail-restoration or sharpening pass: it must not increase.
 
