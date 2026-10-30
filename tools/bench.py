@@ -30,6 +30,8 @@ def run_lab(repo, args, scene, performance):
     ]
     if performance:
         cmd.append("--performance")
+    if args.generator != "flow":
+        cmd += ["--generator", args.generator]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         raise SystemExit(result.stdout + result.stderr)
@@ -46,6 +48,8 @@ def main():
     ap.add_argument("--height", type=int, default=1440)
     ap.add_argument("--gpu", default="auto")
     ap.add_argument("--iterations", type=int, default=100)
+    ap.add_argument("--generator", choices=("flow", "blend", "hold"),
+                    default="flow")
     ap.add_argument("--testdata", type=Path,
                     default=Path(__file__).resolve().parent / "testdata")
     ap.add_argument("--outdir", default="/tmp/openfg-bench")
@@ -56,7 +60,8 @@ def main():
     repo = Path(__file__).resolve().parent.parent
     Path(args.outdir).mkdir(parents=True, exist_ok=True)
 
-    print(f"{args.width}x{args.height}, {args.iterations} iterations, GPU {args.gpu}")
+    print(f"{args.width}x{args.height}, {args.iterations} iterations, GPU {args.gpu}, "
+          f"generator {args.generator}")
     print(f"{'scene':<9} {'normal ms':>10} {'perf ms':>9} "
           f"{'normal dB':>10} {'perf dB':>9}")
     for scene in SCENES:

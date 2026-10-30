@@ -25,6 +25,7 @@ struct LayerDeviceFns {
     PFN_vkCreateSwapchainKHR createSwapchain{};
     PFN_vkDestroySwapchainKHR destroySwapchain{};
     PFN_vkQueuePresentKHR queuePresent{};
+    PFN_vkWaitForPresentKHR waitForPresent{};
     PFN_vkGetDeviceQueue getDeviceQueue{};
     PFN_vkGetDeviceQueue2 getDeviceQueue2{};
     PFN_vkGetSwapchainImagesKHR getSwapchainImages{};
@@ -60,6 +61,7 @@ struct LayerDeviceFns {
     bool externalMemoryFd{};
     bool externalSemaphoreFd{};
     bool externalDmaBuf{};
+    bool presentId{};
 };
 
 namespace openfg_layer {
@@ -78,6 +80,7 @@ bool enabled();
 bool debug();
 unsigned multiplier();
 bool crossGpu();
+bool presentTiming();
 
 void addSwapchain(const LayerDeviceFns& fns, const SwapchainInfo& info);
 void removeSwapchain(VkDevice device, VkSwapchainKHR swapchain);

@@ -425,6 +425,11 @@ bool validate(const Config& config, std::string& error) {
         error = "openfg.target_fps must be 0 (always generate) or between 20 and 1000";
         return false;
     }
+    if (config.generator != "flow" && config.generator != "blend" &&
+        config.generator != "hold" && config.generator != "off") {
+        error = "openfg.generator must be flow, blend, hold or off";
+        return false;
+    }
     if (config.gpu.empty()) {
         error = "openfg.gpu must not be empty (use \"auto\" for the default device)";
         return false;
@@ -570,7 +575,7 @@ LoadResult parse(const std::string& text, const std::filesystem::path& path) {
         static const std::set<std::string> known{
             "openfg.enabled", "openfg.gpu", "openfg.cross_gpu",
             "openfg.multiplier", "openfg.target_fps", "openfg.performance_mode",
-            "openfg.debug",
+            "openfg.generator", "openfg.present_timing", "openfg.debug",
             "processes.include", "processes.exclude",
             "video.processes", "video.multiplier", "video.target_fps",
             "video.performance_mode", "video.safe"
@@ -589,6 +594,8 @@ LoadResult parse(const std::string& text, const std::filesystem::path& path) {
             !getUnsigned(values, "openfg", "multiplier", config.multiplier, error) ||
             !getUnsigned(values, "openfg", "target_fps", config.targetFps, error) ||
             !getBool(values, "openfg", "performance_mode", config.performanceMode, error) ||
+            !getString(values, "openfg", "generator", config.generator, error) ||
+            !getBool(values, "openfg", "present_timing", config.presentTiming, error) ||
             !getBool(values, "openfg", "debug", config.debug, error) ||
             !getStringArray(values, "processes", "include", config.include, error) ||
             !getStringArray(values, "processes", "exclude", config.exclude, error) ||
@@ -780,6 +787,14 @@ target_fps = 0
 # Skip the full-resolution flow refinement: faster, softer silhouettes.
 performance_mode = false
 
+# Generator: flow (optical flow), blend (linear A/B), hold (repeat the
+# current frame), or off (layer loaded but no generation; useful for timing).
+generator = "flow"
+
+# Enable present-id/wait instrumentation. This can make the compositor pace
+# presents, so leave it off for normal use.
+present_timing = false
+
 # Log generated frames and present results to stderr.
 debug = false
 
@@ -842,6 +857,9 @@ std::string toToml(const Config& config) {
     result += "target_fps = " + std::to_string(config.targetFps) + "\n";
     result += std::string("performance_mode = ") +
         (config.performanceMode ? "true" : "false") + "\n";
+    result += "generator = " + quote(config.generator) + "\n";
+    result += std::string("present_timing = ") +
+        (config.presentTiming ? "true" : "false") + "\n";
     result += std::string("debug = ") + (config.debug ? "true" : "false") + "\n\n";
     result += "[processes]\n";
     result += "include = " + list(config.include) + "\n";

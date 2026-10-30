@@ -28,6 +28,8 @@ used here.
 - [x] Video-player support notes and an mpv smoke test
 - [x] 10-bit/HDR half-float swapchain path
 - [x] Multiple swapchains per device
+- [x] Generator modes: optical flow, blend, hold and timing-only off
+- [x] Opt-in present-timing latency percentiles
 - [x] clang/gcc CI and config tests
 - [x] Arch/CachyOS PKGBUILD (`packaging/`)
 - [ ] AUR/Flatpak packages
@@ -88,6 +90,14 @@ target_fps = 0
 
 # Skip the full-resolution flow refinement: ~14% faster, slightly softer edges.
 performance_mode = false
+
+# "flow" (optical flow), "blend" (linear A/B), "hold" (repeat current frame),
+# or "off" (layer loaded but no generation; for latency baselines).
+generator = "flow"
+
+# Present-id/wait instrumentation for latency percentiles. It can make the
+# compositor pace presents; use only for benchmarking.
+present_timing = false
 
 # Per-frame logging to stderr.
 debug = false
@@ -205,6 +215,12 @@ display refresh. The practical options are:
 - `performance_mode`: skip the full-resolution flow refinement. It measured
   ~16% faster (1.58 → 1.32 ms at 1440p) with a 0.08 dB PSNR change on the pan
   scene and 0.01 dB on the ghost scene.
+- `generator`: `flow` is the real optical-flow path; `blend` and `hold` are
+  cheap comparison baselines; `off` keeps the layer loaded but generates
+  nothing, giving a layer-off timing baseline.
+- `present_timing`: opt-in `VK_KHR_present_id`/`present_wait` measurement. The
+  debug log then reports real-frame present latency percentiles. It can make
+  the compositor pace presents, so leave it off for normal play.
 - `multiplier = 2` has the lowest added delay; 3x/4x insert more frames before
   the real one.
 - `cross_gpu` moves interpolation to the second card. It removes GPU work from

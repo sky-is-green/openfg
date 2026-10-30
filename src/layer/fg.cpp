@@ -19,6 +19,8 @@
 #include <array>
 #include <chrono>
 #include <cstdarg>
+#include <atomic>
+#include <deque>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -208,6 +210,9 @@ namespace {
         std::chrono::steady_clock::time_point reportTime{};
         uint64_t reportPresents{};
         uint64_t reportGenerated{};
+        std::deque<std::pair<uint64_t, std::chrono::steady_clock::time_point>>
+            pendingPresents;
+        std::vector<double> presentLatencies;
         bool generating{false};
         bool resetPending{false};
     };
@@ -328,6 +333,11 @@ namespace {
         using namespace std::chrono;
         const auto now = steady_clock::now();
         auto& adaptive = state.adaptive;
+
+        if (config.generator == "off") {
+            adaptive.generating = false;
+            return false;
+        }
 
         if (config.targetFps == 0) {
             adaptive.generating = true;
@@ -586,9 +596,10 @@ namespace {
         }
 
         const std::string deviceId = identifyPhysicalDevice(fns, activeConfig().gpu);
-        logLine("%s backend on %s, %s, %ux%s\n", TAG,
+        logLine("%s backend on %s, %s, %ux, %s%s\n", TAG,
             deviceId.c_str(), state.crossGpu ? "cross-GPU" : "same-GPU",
-            state.multiplier, activeConfig().videoSafe ? ", video-safe" : "");
+            state.multiplier, activeConfig().generator.c_str(),
+            activeConfig().videoSafe ? ", video-safe" : "");
 
         auto& instance = g_instances[fns.device];
         if (!instance) {
@@ -607,6 +618,12 @@ namespace {
             );
         }
         state.instance = instance;
+        openfg::Generator generator{openfg::Generator::Flow};
+        if (activeConfig().generator == "blend")
+            generator = openfg::Generator::Blend;
+        else if (activeConfig().generator == "hold")
+            generator = openfg::Generator::Hold;
+
         state.context = std::make_unique<openfg::Context>(
             *instance,
             swapchain.extent.width,
@@ -614,7 +631,8 @@ namespace {
             1.0F,
             activeConfig().performanceMode,
             activeConfig().videoSafe,
-            static_cast<vk::Format>(state.colorFormat)
+            static_cast<vk::Format>(state.colorFormat),
+            generator
         );
 
         const auto fds = state.context->exportFds();
@@ -797,6 +815,10 @@ bool crossGpu() {
     return activeConfig().crossGpu;
 }
 
+bool presentTiming() {
+    return activeConfig().presentTiming;
+}
+
 void addSwapchain(const LayerDeviceFns&, const SwapchainInfo& info) {
     std::lock_guard lock(g_mutex);
     g_swapchains[info.swapchain] = info;
@@ -832,6 +854,70 @@ void destroyDevice(VkDevice device) {
     }
 }
 
+std::atomic<uint64_t> g_presentIdCounter{0};
+
+VkResult presentNext(
+    const LayerDeviceFns& fns,
+    VkQueue queue,
+    const VkPresentInfoKHR* info,
+    PFN_vkQueuePresentKHR next,
+    uint64_t* appPresentId = nullptr
+) {
+    if (appPresentId)
+        *appPresentId = 0;
+    if (!fns.presentId || !info || info->swapchainCount == 0)
+        return next(queue, info);
+
+    // If the application already supplies present IDs, leave them alone.
+    for (const auto* p = static_cast<const VkBaseInStructure*>(info->pNext);
+         p; p = p->pNext) {
+        if (p->sType == VK_STRUCTURE_TYPE_PRESENT_ID_KHR)
+            return next(queue, info);
+    }
+
+    uint64_t singleId{};
+    std::vector<uint64_t> ids;
+    uint64_t* idData{&singleId};
+    if (info->swapchainCount > 1) {
+        ids.resize(info->swapchainCount);
+        idData = ids.data();
+    }
+    for (uint32_t i = 0; i < info->swapchainCount; i++)
+        idData[i] = g_presentIdCounter.fetch_add(1, std::memory_order_relaxed) + 1;
+
+    VkPresentIdKHR idInfo{};
+    idInfo.sType = VK_STRUCTURE_TYPE_PRESENT_ID_KHR;
+    idInfo.pNext = const_cast<void*>(info->pNext);
+    idInfo.swapchainCount = info->swapchainCount;
+    idInfo.pPresentIds = idData;
+
+    VkPresentInfoKHR copy = *info;
+    copy.pNext = &idInfo;
+    if (appPresentId)
+        *appPresentId = idData[0];
+    return next(queue, &copy);
+}
+
+void pollPresentLatency(FgState& state, const LayerDeviceFns& fns) {
+    if (!fns.presentId || !fns.waitForPresent || state.failed)
+        return;
+    const auto now = std::chrono::steady_clock::now();
+    while (!state.adaptive.pendingPresents.empty()) {
+        const auto [id, submitted] = state.adaptive.pendingPresents.front();
+        const VkResult result =
+            fns.waitForPresent(fns.device, state.swapchain, id, 0);
+        if (result == VK_TIMEOUT)
+            break;
+        if (result == VK_SUCCESS) {
+            state.adaptive.presentLatencies.push_back(
+                std::chrono::duration<double, std::milli>(now - submitted).count());
+        }
+        state.adaptive.pendingPresents.pop_front();
+    }
+    while (state.adaptive.pendingPresents.size() > 8)
+        state.adaptive.pendingPresents.pop_front();
+}
+
 void reportPerf(FgState& state) {
     if (!activeConfig().debug)
         return;
@@ -851,6 +937,19 @@ void reportPerf(FgState& state) {
         "generating %s\n",
         TAG, appFps, presentedFps, state.adaptive.overheadMs,
         state.adaptive.generating ? "yes" : "no");
+    if (!state.adaptive.presentLatencies.empty()) {
+        auto samples = state.adaptive.presentLatencies;
+        std::sort(samples.begin(), samples.end());
+        auto pct = [&](double p) {
+            const size_t index = std::min(samples.size() - 1,
+                static_cast<size_t>(p * static_cast<double>(samples.size() - 1)));
+            return samples[index];
+        };
+        logLine("%s present latency: p50 %.2f ms, p95 %.2f ms, p99 %.2f ms "
+            "(%zu samples)\n", TAG, pct(0.50), pct(0.95), pct(0.99),
+            samples.size());
+        state.adaptive.presentLatencies.clear();
+    }
     state.adaptive.reportTime = now;
     state.adaptive.reportPresents = 0;
     state.adaptive.reportGenerated = 0;
@@ -865,18 +964,18 @@ VkResult present(
 ) {
     if (!enabled() || !presentInfo || presentInfo->swapchainCount != 1 ||
         !presentInfo->pSwapchains || !presentInfo->pImageIndices)
-        return nextPresent(queue, presentInfo);
+        return presentNext(fns, queue, presentInfo, nextPresent);
 
     std::lock_guard lock(g_mutex);
 
     const VkSwapchainKHR swapchain = presentInfo->pSwapchains[0];
     const auto swapIt = g_swapchains.find(swapchain);
     if (swapIt == g_swapchains.end())
-        return nextPresent(queue, presentInfo);
+        return presentNext(fns, queue, presentInfo, nextPresent);
     const SwapchainInfo& swapInfo = swapIt->second;
 
     if (swapInfo.queueFamily != queueFamily || swapInfo.images.empty())
-        return nextPresent(queue, presentInfo);
+        return presentNext(fns, queue, presentInfo, nextPresent);
 
     FgState* state{};
     auto stateIt = g_states.find(swapchain);
@@ -890,9 +989,10 @@ VkResult present(
 
     state->device = fns.device;
     state->fns = &fns;
+    pollPresentLatency(*state, fns);
 
     if (state->failed)
-        return nextPresent(queue, presentInfo);
+        return presentNext(fns, queue, presentInfo, nextPresent);
 
     reportPerf(*state);
     state->adaptive.reportPresents++;
@@ -901,7 +1001,12 @@ VkResult present(
 
     if (!shouldGenerate(*state, activeConfig())) {
         state->adaptive.overheadMs = 0.0;
-        return nextPresent(queue, presentInfo);
+        uint64_t appPresentId{};
+        const VkResult result = presentNext(
+            fns, queue, presentInfo, nextPresent, &appPresentId);
+        if (appPresentId)
+            state->adaptive.pendingPresents.emplace_back(appPresentId, layerStart);
+        return result;
     }
 
     if (state->adaptive.resetPending) {
@@ -919,12 +1024,12 @@ VkResult present(
             setError(*state, std::string("backend initialization failed: ") + exception.what());
         }
         if (!initialized)
-            return nextPresent(queue, presentInfo);
+            return presentNext(fns, queue, presentInfo, nextPresent);
     }
 
     if (state->fencePending) {
         if (fns.waitForFences(fns.device, 1, &state->fence, VK_TRUE, UINT64_MAX) != VK_SUCCESS)
-            return nextPresent(queue, presentInfo);
+            return presentNext(fns, queue, presentInfo, nextPresent);
         fns.resetFences(fns.device, 1, &state->fence);
         state->fencePending = false;
     }
@@ -933,7 +1038,7 @@ VkResult present(
         state->multiplier - 1, openfg::kMaxInterpolatedFrames);
     const uint32_t appImage = presentInfo->pImageIndices[0];
     if (appImage >= state->imageSync.size())
-        return nextPresent(queue, presentInfo);
+        return presentNext(fns, queue, presentInfo, nextPresent);
     ImageSync& imageSync = state->imageSync[appImage];
 
     // Never block inside present: on Wayland a blocking acquire consumes the
@@ -952,7 +1057,7 @@ VkResult present(
         generatedCount++;
     }
     if (generatedCount == 0)
-        return nextPresent(queue, presentInfo);
+        return presentNext(fns, queue, presentInfo, nextPresent);
 
     const uint32_t layer = state->iteration % 2;
     if (activeConfig().debug)
@@ -993,7 +1098,7 @@ VkResult present(
     sourceSubmit.pSignalSemaphores = sourceSignals;
     if (fns.queueSubmit(queue, 1, &sourceSubmit, VK_NULL_HANDLE) != VK_SUCCESS) {
         setError(*state, "failed to submit source copy");
-        return nextPresent(queue, presentInfo);
+        return presentNext(fns, queue, presentInfo, nextPresent);
     }
 
     uint64_t generatedSync = sourceSync;
@@ -1054,7 +1159,7 @@ VkResult present(
             generatedPresent.pSwapchains = &swapchain;
             generatedPresent.pImageIndices = &generatedIndices[i];
             generatedPresent.pResults = nullptr;
-            const VkResult generatedResult = nextPresent(queue, &generatedPresent);
+            const VkResult generatedResult = presentNext(fns, queue, &generatedPresent, nextPresent);
             if (generatedResult != VK_SUCCESS && generatedResult != VK_SUBOPTIMAL_KHR) {
                 state->syncValue = generatedSync;
                 state->iteration++;
@@ -1067,7 +1172,7 @@ VkResult present(
                 VkPresentInfoKHR originalPresent = *presentInfo;
                 originalPresent.waitSemaphoreCount = 1;
                 originalPresent.pWaitSemaphores = &imageSync.sourceDone;
-                nextPresent(queue, &originalPresent);
+                presentNext(fns, queue, &originalPresent, nextPresent);
                 return generatedResult;
             }
         }
@@ -1082,7 +1187,7 @@ VkResult present(
     VkPresentInfoKHR originalPresent = *presentInfo;
     originalPresent.waitSemaphoreCount = 1;
     originalPresent.pWaitSemaphores = &imageSync.sourceDone;
-    const VkResult originalResult = nextPresent(queue, &originalPresent);
+    const VkResult originalResult = presentNext(fns, queue, &originalPresent, nextPresent);
 
     state->syncValue = generatedSync;
     state->iteration++;

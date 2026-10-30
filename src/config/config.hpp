@@ -33,6 +33,11 @@ struct Config {
     unsigned targetFps{0};
     /// Skip the full-resolution flow refinement (faster, softer edges).
     bool performanceMode{false};
+    /// "flow", "blend", "hold" or "off" (instrument-only passthrough).
+    std::string generator{"flow"};
+    /// Enable present-id/wait instrumentation. It can make the compositor pace
+    /// presents, so it is off by default.
+    bool presentTiming{false};
     bool debug{false};
     Video video;
     /// Effective video-safe flag after applying `video` to this process.

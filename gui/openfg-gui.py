@@ -174,6 +174,8 @@ def load_config() -> dict:
         "multiplier": 2,
         "target_fps": 0,
         "performance_mode": False,
+        "generator": "flow",
+        "present_timing": False,
         "debug": False,
         "include": [],
         "exclude": [],
@@ -204,6 +206,9 @@ def load_config() -> dict:
                 pass
         config["performance_mode"] = bool(
             section.get("performance_mode", config["performance_mode"]))
+        config["generator"] = str(section.get("generator", config["generator"]))
+        config["present_timing"] = bool(
+            section.get("present_timing", config["present_timing"]))
         config["debug"] = bool(section.get("debug", config["debug"]))
     processes = data.get("processes", {})
     if isinstance(processes, dict):
@@ -251,6 +256,8 @@ cross_gpu = {'true' if config['cross_gpu'] else 'false'}
 multiplier = {config['multiplier']}
 target_fps = {config['target_fps']}
 performance_mode = {'true' if config['performance_mode'] else 'false'}
+generator = {quote(config['generator'])}
+present_timing = {'true' if config['present_timing'] else 'false'}
 debug = {'true' if config['debug'] else 'false'}
 
 [processes]
@@ -405,8 +412,32 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         form.addRow("Multiplier:", self.multiplier)
 
+        self.generator = QtWidgets.QComboBox()
+        for value, label in (
+            ("flow", "Optical flow (quality)"),
+            ("blend", "Linear blend (no flow; fast baseline)"),
+            ("hold", "Hold current frame (no interpolation)"),
+            ("off", "Off / timing only"),
+        ):
+            self.generator.addItem(label, value)
+        index = self.generator.findData(self.config["generator"])
+        self.generator.setCurrentIndex(index if index >= 0 else 0)
+        self.generator.setToolTip(
+            "Image-based generator. blend and hold are comparison baselines; "
+            "off keeps the layer loaded for present/latency timing only."
+        )
+        form.addRow("Generator:", self.generator)
+
         self.debug = QtWidgets.QCheckBox("Log generated frames to stderr")
         self.debug.setChecked(self.config["debug"])
+        self.present_timing = QtWidgets.QCheckBox(
+            "Present timing instrumentation (benchmarking)")
+        self.present_timing.setChecked(self.config["present_timing"])
+        self.present_timing.setToolTip(
+            "Adds present IDs and waits for present completion so the log can "
+            "report present latency percentiles. It can make the compositor "
+            "pace presents; leave it off for normal play."
+        )
 
         settings_layout.addLayout(form)
         settings_layout.addWidget(hint(
@@ -414,6 +445,7 @@ class MainWindow(QtWidgets.QMainWindow):
             "the current real frame, so every multiplier adds display delay."
         ))
         settings_layout.addWidget(self.debug)
+        settings_layout.addWidget(self.present_timing)
 
         root.addWidget(settings)
 
@@ -688,6 +720,8 @@ class MainWindow(QtWidgets.QMainWindow):
             "multiplier": int(self.multiplier.currentData()),
             "target_fps": int(self.target_fps.value()),
             "performance_mode": self.performance.isChecked(),
+            "generator": self.generator.currentData(),
+            "present_timing": self.present_timing.isChecked(),
             "debug": self.debug.isChecked(),
             "include": [line.strip() for line in self.include.toPlainText().splitlines()
                         if line.strip()],

@@ -106,6 +106,28 @@ The absolute app rate is present-bound at this resolution; use a real game for
 frame-time impact. The value of the table is that presented/app is 2.00, 2.97
 and 4.01, so the inserted frames reach the compositor.
 
+## Generator and latency matrix
+
+For a method comparison, set `debug = true` and `present_timing = true`, then
+run the same scene with:
+
+```toml
+generator = "off"    # layer loaded, no generation: latency baseline
+generator = "hold"   # repeat the current frame
+generator = "blend"  # linear A/B blend, no flow
+generator = "flow"   # optical flow
+```
+
+`present_timing` enables `VK_KHR_present_id`/`present_wait`; the debug log adds
+real-frame present latency p50/p95/p99. It can make the compositor pace
+presents, so use a fixed scene and identical settings for every row. The log’s
+`app fps`, `presented fps`, `overhead` and `present latency` lines are the
+matrix.
+
+For the generator itself without the layer, `fg-lab` accepts
+`--generator flow|blend|hold`; combine it with `tools/bench.py --generator` and
+`tools/ghost_bench.py --generator` for quality and GPU time.
+
 ## What to report
 
 Open an issue with:

@@ -66,7 +66,8 @@ Interpolator::Interpolator(
     const ShaderLoader& loader,
     bool performanceMode,
     bool videoSafe,
-    vk::Format colorFormat
+    vk::Format colorFormat,
+    Generator generator
 ) : m_dld(dld), m_physdev(physdev), m_device(device),
     m_extent(extent), m_loader(loader) {
     if (extent.width == 0 || extent.height == 0)
@@ -83,6 +84,7 @@ Interpolator::Interpolator(
     this->m_videoSafe = videoSafe;
     this->m_colorFormat = colorFormat;
     this->m_hdr = colorFormat != vk::Format::eR8G8B8A8Unorm;
+    this->m_generator = generator;
 
     constexpr vk::ImageUsageFlags INTERNAL_USAGE{
         vk::ImageUsageFlagBits::eStorage |
@@ -732,6 +734,10 @@ void Interpolator::generate(
         pc.flags |= 256;
     if (this->m_videoSafe)
         pc.flags |= 4096;
+    if (this->m_generator == Generator::Blend)
+        pc.flags |= 32768;
+    else if (this->m_generator == Generator::Hold)
+        pc.flags |= 16384;
 
     this->dispatch(cmdbuf,
         this->m_hdr ? "interpolate_hdr" : "interpolate",

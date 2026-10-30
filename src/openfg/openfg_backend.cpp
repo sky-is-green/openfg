@@ -190,6 +190,7 @@ struct Context::Impl {
     std::pair<vk::UniqueSemaphore, uint64_t> internalSemaphore;
     std::pair<vk::UniqueFence, bool> fence;
 
+    Generator generator{Generator::Flow};
     vk::UniqueCommandPool pool;
     vk::UniqueCommandBuffer analyzeCmdbuf;
     std::array<vk::UniqueCommandBuffer, 4> generateCmdbufs{};
@@ -209,7 +210,8 @@ Context::Context(
     float flowScale,
     bool performanceMode,
     bool videoSafe,
-    vk::Format colorFormat
+    vk::Format colorFormat,
+    Generator generator
 ) {
     (void)flowScale;
 
@@ -248,7 +250,8 @@ Context::Context(
         },
         performanceMode,
         videoSafe,
-        colorFormat
+        colorFormat,
+        generator
     )};
 
     auto pool{vkutil::createCommandPool(*vk.dld, *vk.device, vk.qfi, true)};
@@ -260,6 +263,7 @@ Context::Context(
     this->m_impl = std::make_unique<Impl>(Impl{
         .instance = instance.m_impl.get(),
         .interpolator = std::move(interpolator),
+        .generator = generator,
         .sourceImage = std::move(sourceImage),
         .sourceMemory = std::move(sourceMemory),
         .destinationImage = std::move(destinationImage),
@@ -318,7 +322,8 @@ void Context::dispatch(uint32_t total, bool unsignaled) {
     ctx.analyzeCmdbuf->reset({}, *vk.dld);
     ctx.analyzeCmdbuf->begin(
         { .flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit }, *vk.dld);
-    ctx.interpolator->analyze(*ctx.analyzeCmdbuf, ctx.layerA, ctx.layerB);
+    if (ctx.generator == Generator::Flow)
+        ctx.interpolator->analyze(*ctx.analyzeCmdbuf, ctx.layerA, ctx.layerB);
     ctx.analyzeCmdbuf->end(*vk.dld);
 
     auto& sync{ctx.syncSemaphore};

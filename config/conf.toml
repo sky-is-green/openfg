@@ -23,6 +23,14 @@ target_fps = 0
 # Skip the full-resolution flow refinement: faster, softer silhouettes.
 performance_mode = false
 
+# Generator: flow (optical flow), blend (linear A/B), hold (repeat the
+# current frame), or off (layer loaded but no generation; useful for timing).
+generator = "flow"
+
+# Enable present-id/wait instrumentation. This can make the compositor pace
+# presents, so leave it off for normal use.
+present_timing = false
+
 # Log generated frames and present results to stderr.
 debug = false
 

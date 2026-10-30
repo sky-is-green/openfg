@@ -26,6 +26,8 @@ cross_gpu = false
 multiplier = 2
 target_fps = 120
 performance_mode = false
+generator = "blend"
+present_timing = true
 debug = false
 
 [processes]
@@ -54,6 +56,8 @@ int main() {
     expect(parsed.config.video.multiplier == 4, "video multiplier parsed");
     expect(parsed.config.video.safe, "video safe parsed");
     expect(parsed.config.multiplier == 2, "global multiplier stays separate");
+    expect(parsed.config.generator == "blend", "generator parsed");
+    expect(parsed.config.presentTiming, "present timing parsed");
 
     const auto video = withVideoProfile(parsed.config, { "mpv" });
     expect(video.multiplier == 4, "video profile overrides the multiplier");
@@ -74,6 +78,13 @@ int main() {
     expect(roundTrip.error.empty(), "toToml output parses");
     expect(roundTrip.config.video.multiplier == 4, "round-trip keeps the video multiplier");
     expect(roundTrip.config.video.safe, "round-trip keeps the cut guard");
+
+    std::string brokenGenerator{CONFIG};
+    const auto generatorPosition = brokenGenerator.find("generator = \"blend\"");
+    brokenGenerator.replace(generatorPosition,
+        std::string("generator = \"blend\"").size(), "generator = \"nope\"");
+    expect(!parse(brokenGenerator, "bad-generator.toml").error.empty(),
+        "an invalid generator is rejected");
 
     std::string broken{CONFIG};
     const auto position = broken.find("multiplier = 4");

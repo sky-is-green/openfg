@@ -10,6 +10,7 @@
 #include <vk>
 
 #include "limits.hpp"
+#include "openfg.hpp"
 
 namespace openfg {
 
@@ -62,7 +63,8 @@ public:
         float flowScale,
         bool performanceMode,
         bool videoSafe = false,
-        vk::Format colorFormat = vk::Format::eR8G8B8A8Unorm
+        vk::Format colorFormat = vk::Format::eR8G8B8A8Unorm,
+        Generator generator = Generator::Flow
     );
 
     [[nodiscard]] FileDescriptors exportFds() const;

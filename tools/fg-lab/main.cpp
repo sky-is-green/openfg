@@ -52,6 +52,7 @@ namespace {
         bool performance{false};
         bool videoSafe{false};
         bool hdr{false};
+        std::string generator{"flow"};
         float t{0.5F};
     };
 
@@ -483,6 +484,7 @@ OPTIONS:
         --performance       Half-resolution flow (faster, softer silhouettes)
         --video-safe        Fall back to the current frame on a hard cut
         --hdr               Use RGBA16F source/destination images
+        --generator <NAME>  flow, blend or hold (default: flow)
 )";
     }
 }
@@ -490,7 +492,7 @@ OPTIONS:
 int main(int argc, char** argv) {
     Options opts{};
 
-    const std::array<option, 21> GETOPT{{
+    const std::array<option, 22> GETOPT{{
         { "a", required_argument, nullptr, 'a' },
         { "b", required_argument, nullptr, 'b' },
         { "out", required_argument, nullptr, 'o' },
@@ -511,6 +513,7 @@ int main(int argc, char** argv) {
         { "performance", no_argument, nullptr, 10 },
         { "video-safe", no_argument, nullptr, 11 },
         { "hdr", no_argument, nullptr, 12 },
+        { "generator", required_argument, nullptr, 13 },
         { nullptr, 0, nullptr, 0 }
     }};
 
@@ -540,6 +543,7 @@ int main(int argc, char** argv) {
             case 10: opts.performance = true; break;
             case 11: opts.videoSafe = true; break;
             case 12: opts.hdr = true; break;
+            case 13: opts.generator = optarg; break;
             default:
                 usage(argv[0]);
                 return EXIT_FAILURE;
@@ -612,6 +616,14 @@ int main(int argc, char** argv) {
             .queryCount = queryCount
         }, nullptr, dld)};
 
+        openfg::Generator generator{openfg::Generator::Flow};
+        if (opts.generator == "blend")
+            generator = openfg::Generator::Blend;
+        else if (opts.generator == "hold")
+            generator = openfg::Generator::Hold;
+        else if (opts.generator != "flow")
+            throw std::runtime_error("unknown generator: " + opts.generator);
+
         openfg::Interpolator interpolator(
             dld, physdev, *device, extent,
             *source.image, *dest.image,
@@ -620,7 +632,8 @@ int main(int argc, char** argv) {
             },
             opts.performance,
             opts.videoSafe,
-            colorFormat);
+            colorFormat,
+            generator);
 
         cmdbuf->begin({ .flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit }, dld);
         const auto uploadA{opts.hdr ? rgba8ToHalf(frameA) : frameA};
@@ -643,7 +656,8 @@ int main(int argc, char** argv) {
             cmdbuf->writeTimestamp(
                 vk::PipelineStageFlagBits::eComputeShader,
                 *queryPool, i * 2, dld);
-            interpolator.analyze(*cmdbuf, 0, 1);
+            if (generator == openfg::Generator::Flow)
+                interpolator.analyze(*cmdbuf, 0, 1);
             interpolator.generate(*cmdbuf, 0, 1, opts.t, opts.debugFlags);
             cmdbuf->writeTimestamp(
                 vk::PipelineStageFlagBits::eComputeShader,

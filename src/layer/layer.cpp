@@ -186,6 +186,29 @@ namespace {
                 addExtension(VK_EXT_EXTERNAL_MEMORY_DMA_BUF_EXTENSION_NAME);
         }
 
+        bool presentId{false};
+        if (fgEnabled && openfg_layer::presentTiming()) {
+            const auto features2 = reinterpret_cast<PFN_vkGetPhysicalDeviceFeatures2>(
+                nextGipa(instance, "vkGetPhysicalDeviceFeatures2"));
+            VkPhysicalDevicePresentWaitFeaturesKHR waitFeatures{};
+            waitFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR;
+            VkPhysicalDevicePresentIdFeaturesKHR idFeatures{};
+            idFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR;
+            idFeatures.pNext = &waitFeatures;
+            VkPhysicalDeviceFeatures2 features{};
+            features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+            features.pNext = &idFeatures;
+            if (features2)
+                features2(physdev, &features);
+            presentId = idFeatures.presentId && waitFeatures.presentWait &&
+                supported.count(VK_KHR_PRESENT_ID_EXTENSION_NAME) &&
+                supported.count(VK_KHR_PRESENT_WAIT_EXTENSION_NAME);
+            if (presentId) {
+                addExtension(VK_KHR_PRESENT_ID_EXTENSION_NAME);
+                addExtension(VK_KHR_PRESENT_WAIT_EXTENSION_NAME);
+            }
+        }
+
         VkDeviceCreateInfo modified = *createInfo;
         modified.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
         modified.ppEnabledExtensionNames = extensions.data();
@@ -208,6 +231,33 @@ namespace {
                 features.timelineSemaphore = VK_TRUE;
                 features.pNext = const_cast<void*>(modified.pNext);
                 modified.pNext = &features;
+            }
+        }
+
+        VkPhysicalDevicePresentIdFeaturesKHR presentIdFeatures{};
+        presentIdFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR;
+        VkPhysicalDevicePresentWaitFeaturesKHR presentWaitFeatures{};
+        presentWaitFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR;
+        if (presentId) {
+            bool haveId{false};
+            bool haveWait{false};
+            for (auto* pnext = const_cast<VkBaseOutStructure*>(
+                     static_cast<const VkBaseOutStructure*>(modified.pNext));
+                 pnext; pnext = pnext->pNext) {
+                if (pnext->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR) {
+                    reinterpret_cast<VkPhysicalDevicePresentIdFeaturesKHR*>(pnext)->presentId = VK_TRUE;
+                    haveId = true;
+                } else if (pnext->sType == VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR) {
+                    reinterpret_cast<VkPhysicalDevicePresentWaitFeaturesKHR*>(pnext)->presentWait = VK_TRUE;
+                    haveWait = true;
+                }
+            }
+            if (!haveId || !haveWait) {
+                presentIdFeatures.presentId = VK_TRUE;
+                presentWaitFeatures.presentWait = VK_TRUE;
+                presentIdFeatures.pNext = const_cast<void*>(modified.pNext);
+                presentWaitFeatures.pNext = &presentIdFeatures;
+                modified.pNext = &presentWaitFeatures;
             }
         }
 
@@ -252,6 +302,9 @@ namespace {
             getDeviceProc("vkDestroySwapchainKHR"));
         fns.queuePresent = reinterpret_cast<PFN_vkQueuePresentKHR>(
             getDeviceProc("vkQueuePresentKHR"));
+        fns.waitForPresent = reinterpret_cast<PFN_vkWaitForPresentKHR>(
+            getDeviceProc("vkWaitForPresentKHR"));
+        fns.presentId = presentId && fns.waitForPresent;
         fns.getSwapchainImages = reinterpret_cast<PFN_vkGetSwapchainImagesKHR>(
             getDeviceProc("vkGetSwapchainImagesKHR"));
         fns.acquireNextImage = reinterpret_cast<PFN_vkAcquireNextImageKHR>(

@@ -15,6 +15,15 @@
 
 namespace openfg {
 
+/// Image-based frame-generation method. Off is handled by the layer and never
+/// reaches the backend.
+enum class Generator {
+    Flow,
+    Blend,
+    Hold,
+    Off
+};
+
 /// Loads a named shader as SPIR-V words. Implementations may read from disk
 /// (fg-lab) or from an embedded table (the layer).
 using ShaderLoader = std::function<std::vector<uint32_t>(std::string_view)>;
@@ -56,7 +65,8 @@ public:
         const ShaderLoader& loader,
         bool performanceMode = false,
         bool videoSafe = false,
-        vk::Format colorFormat = vk::Format::eR8G8B8A8Unorm
+        vk::Format colorFormat = vk::Format::eR8G8B8A8Unorm,
+        Generator generator = Generator::Flow
     );
     ~Interpolator();
 
@@ -129,6 +139,7 @@ private:
     bool m_videoSafe{false};
     vk::Format m_colorFormat{vk::Format::eR8G8B8A8Unorm};
     bool m_hdr{false};
+    Generator m_generator{Generator::Flow};
 
     std::array<vk::Extent2D, 6> m_levels{};
     std::array<Image, 6> m_lumaA{};

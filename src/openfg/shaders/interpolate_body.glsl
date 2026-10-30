@@ -21,6 +21,23 @@ void main() {
 
     vec2 uv = (vec2(p) + 0.5) / vec2(size);
 
+    // Baselines for latency/quality comparisons: repeat the current frame or
+    // do a plain linear blend without touching the flow field.
+    if ((pc.flags & 16384) != 0) {
+        imageStore(uOut, ivec3(p, int(pc.dstLayer)),
+            texture(sampler2DArray(uTexArray0, uSampler),
+                vec3(uv, float(pc.layerB))));
+        return;
+    }
+    if ((pc.flags & 32768) != 0) {
+        vec4 a0 = texture(sampler2DArray(uTexArray0, uSampler),
+            vec3(uv, float(pc.layerA)));
+        vec4 b0 = texture(sampler2DArray(uTexArray0, uSampler),
+            vec3(uv, float(pc.layerB)));
+        imageStore(uOut, ivec3(p, int(pc.dstLayer)), mix(a0, b0, pc.t));
+        return;
+    }
+
     if ((pc.flags & 512) != 0) {
         ivec2 ts = textureSize(sampler2D(uTex3, uSampler), 0);
         ivec2 tile = clamp(p / 16, ivec2(0), ts - 1);
