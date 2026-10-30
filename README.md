@@ -301,7 +301,14 @@ ghost       1.56       1.31      26.4850    26.4693
 ## Benchmarks
 
 The benchmark scripts need `numpy`, `Pillow` and `scipy`
-(`python3 -m pip install -r tools/requirements.txt`).
+(`python3 -m pip install -r tools/requirements.txt`). Run the whole 1440p
+table (normal and performance mode) with:
+
+```sh
+python3 tools/bench.py --gpu 0000:03:00.0 --iterations 100
+```
+
+Add `--ghost` for the ghost/edge metrics.
 
 Ghosting on the `ghost` scene at 1440p (dual RX 7900 XT):
 
