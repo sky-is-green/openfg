@@ -494,6 +494,24 @@ namespace {
         state.multiplier = std::clamp(activeConfig().multiplier, 2u, 4u);
         state.crossGpu = activeConfig().crossGpu;
 
+        if (activeConfig().debug)
+            std::fprintf(stderr, "%s swapchain format: %d\n", TAG,
+                static_cast<int>(swapchain.format));
+        switch (swapchain.format) {
+            case VK_FORMAT_A2B10G10R10_UNORM_PACK32:
+            case VK_FORMAT_A2B10G10R10_SNORM_PACK32:
+            case VK_FORMAT_A2R10G10B10_UNORM_PACK32:
+            case VK_FORMAT_A2R10G10B10_SNORM_PACK32:
+            case VK_FORMAT_R16G16B16A16_SFLOAT:
+            case VK_FORMAT_R16G16B16A16_UNORM:
+                std::fprintf(stderr,
+                    "%s 10-bit/HDR swapchain: the internal path is 8-bit, "
+                    "so HDR precision is reduced\n", TAG);
+                break;
+            default:
+                break;
+        }
+
         if (state.crossGpu && !fns.externalDmaBuf) {
             setError(state, "cross-GPU requested but VK_EXT_external_memory_dma_buf is unavailable");
             return false;
