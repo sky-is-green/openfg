@@ -245,7 +245,8 @@ unrelated, instead of blending them. On a real video cut this moved PSNR from
 12.21 dB (blend) to 99 dB (current frame) while normal motion stayed at
 49.85 dB. The guard costs about 0.08 ms per frame pair at 1440p. See
 [docs/VIDEO.md](docs/VIDEO.md) for the mpv command, measured results and the
-remaining video limitations (PTS/cadence, HDR/10-bit, subtitles).
+remaining video limitations (PTS/cadence, subtitles, and HDR; 10-bit SDR uses
+the 8-bit path, while HDR color spaces are skipped).
 
 ## GPU support
 

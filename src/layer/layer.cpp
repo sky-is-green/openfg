@@ -417,6 +417,7 @@ namespace {
         info.device = device;
         info.swapchain = *swapchain;
         info.format = modified.imageFormat;
+        info.colorSpace = modified.imageColorSpace;
         info.extent = modified.imageExtent;
         info.queueFamily = presentFamily;
         info.images = std::move(images);

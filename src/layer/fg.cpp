@@ -495,19 +495,39 @@ namespace {
         state.crossGpu = activeConfig().crossGpu;
 
         if (activeConfig().debug)
-            std::fprintf(stderr, "%s swapchain format: %d\n", TAG,
-                static_cast<int>(swapchain.format));
+            std::fprintf(stderr, "%s swapchain format: %d, colour space: %d\n",
+                TAG, static_cast<int>(swapchain.format),
+                static_cast<int>(swapchain.colorSpace));
+
+        const bool hdr =
+            swapchain.colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT ||
+            swapchain.colorSpace == VK_COLOR_SPACE_HDR10_HLG_EXT ||
+            swapchain.colorSpace == VK_COLOR_SPACE_DOLBYVISION_EXT ||
+            swapchain.colorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT;
+        if (hdr) {
+            // The internal path is 8-bit, and a straight 8-bit copy would
+            // clip HDR highlights. Stay out of the way until there is a
+            // float/half-float HDR path.
+            setError(state, "HDR swapchain is not supported yet; frame generation is off for this app");
+            return false;
+        }
+
         switch (swapchain.format) {
             case VK_FORMAT_A2B10G10R10_UNORM_PACK32:
             case VK_FORMAT_A2B10G10R10_SNORM_PACK32:
             case VK_FORMAT_A2R10G10B10_UNORM_PACK32:
             case VK_FORMAT_A2R10G10B10_SNORM_PACK32:
             case VK_FORMAT_R16G16B16A16_SFLOAT:
-            case VK_FORMAT_R16G16B16A16_UNORM:
-                std::fprintf(stderr,
-                    "%s 10-bit/HDR swapchain: the internal path is 8-bit, "
-                    "so HDR precision is reduced\n", TAG);
+            case VK_FORMAT_R16G16B16A16_UNORM: {
+                static bool warned{false};
+                if (!warned) {
+                    warned = true;
+                    std::fprintf(stderr,
+                        "%s 10-bit swapchain: interpolating on the 8-bit path\n",
+                        TAG);
+                }
                 break;
+            }
             default:
                 break;
         }

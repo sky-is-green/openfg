@@ -112,8 +112,9 @@ and:
   requirements but have not been validated on real hardware here.
 - Mixed-vendor cross-GPU (AMD + NVIDIA, Intel + AMD) is unsupported: the
   current timeline-semaphore handoff uses driver-private `OPAQUE_FD` handles.
-- Video is limited to Vulkan-presenting players. HDR/10-bit and PTS-aware
-  cadence are not implemented; scene cuts are guarded by `safe = true`.
+- Video is limited to Vulkan-presenting players. HDR color spaces are
+  skipped; 10-bit SDR uses the 8-bit path. PTS-aware cadence is not
+  implemented; scene cuts are guarded by `safe = true`.
 - The layer currently assumes one swapchain per device and a graphics-capable
   present queue. Report the application if it breaks that assumption.
 

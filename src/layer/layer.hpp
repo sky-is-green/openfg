@@ -68,6 +68,7 @@ struct SwapchainInfo {
     VkDevice device{};
     VkSwapchainKHR swapchain{};
     VkFormat format{VK_FORMAT_UNDEFINED};
+    VkColorSpaceKHR colorSpace{VK_COLOR_SPACE_SRGB_NONLINEAR_KHR};
     VkExtent2D extent{};
     uint32_t queueFamily{UINT32_MAX};
     std::vector<VkImage> images;
