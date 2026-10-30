@@ -28,20 +28,37 @@ submit→present-complete time.
 | 2x flow | 24.0 | 48.0 | 0.16 ms | **41.98 ms** |
 | 2x blend | 24.0 | 48.0 | 0.14 ms | **41.98 ms** |
 | 2x hold | 24.0 | 48.0 | 0.15 ms | **41.98 ms** |
-| 4x flow | 24.0 | 96.0 | 0.26 ms | **82.98 ms** |
+| 4x flow | 24.0 | 96.0 | 0.27 ms | **41.98 ms** |
 
-At 24 fps on a 165 Hz display there are enough spare refresh slots that 2x
-adds **no real-frame present latency**; the generated frame fills a slot that
-would otherwise repeat the previous image. 4x adds one source-frame interval
-(~41.7 ms), because three generated presents now push the real frame to the
-next interval.
+At 24 fps on a 165 Hz display there are enough spare refresh slots that 2x and
+4x added **no real-frame present latency** in the clean run; the generated
+frames fill slots that would otherwise repeat the previous image. The layer
+cost was only 0.13–0.27 ms.
 
-That is not universal: when the source rate multiplied by the multiplier is at
-or above the refresh rate, generated frames compete for display slots and the
-real frame can be delayed. Measure at the actual game rate. At 2x on 165 Hz,
-the app cannot exceed ~82.5 fps because only 165 presents/s exist.
+That depends on headroom. With a concurrent GPU load, 4x slipped to a p50 of
+~83 ms (one extra source interval) in the same clip. When the source rate
+multiplied by the multiplier is at or above the refresh rate, generated frames
+compete for display slots and the real frame can be delayed. Measure at the
+actual game rate and load. At 2x on 165 Hz, the app cannot exceed ~82.5 fps
+because only 165 presents/s exist.
 
-## Generator cost and quality
+## Generator compute cost
+
+vkmark cube, 2560x1440, immediate, GPU otherwise idle. The absolute app rate
+is present-bound; the useful number is the layer work per real frame.
+
+| generator | mult | app fps | presented fps | layer work |
+|---|---:|---:|---:|---:|
+| off | — | 23,642 | 23,642 | 0.00 ms |
+| hold | 2x | 4,028 | 8,057 | 0.19 ms |
+| blend | 2x | 2,803 | 5,607 | 0.27 ms |
+| flow | 2x | 1,125 | 2,250 | 0.81 ms |
+| flow performance | 2x | 1,232 | 2,464 | 0.83 ms |
+| hold | 4x | 1,404 | 5,615 | 0.62 ms |
+| blend | 4x | 1,192 | 4,767 | 0.96 ms |
+| flow | 4x | 790 | 3,156 | 1.20 ms |
+
+## Generator quality and cost
 
 1440p synthetic scenes, `fg-lab` GPU time and PSNR:
 
