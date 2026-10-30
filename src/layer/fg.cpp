@@ -25,6 +25,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <unistd.h>
 #include <vector>
 
 namespace {
@@ -176,6 +177,11 @@ namespace {
     std::map<VkDevice, std::unique_ptr<FgState>> g_states;
     std::map<VkSwapchainKHR, SwapchainInfo> g_swapchains;
 
+    void closeFd(int fd) {
+        if (fd >= 0)
+            ::close(fd);
+    }
+
     void setError(FgState& state, std::string message) {
         state.error = std::move(message);
         state.failed = true;
@@ -275,6 +281,9 @@ namespace {
 
         VkImage image{};
         if (fns.createImage(fns.device, &info, nullptr, &image) != VK_SUCCESS) {
+            // A successful import transfers ownership to Vulkan. Until then
+            // the descriptor is ours and would leak.
+            closeFd(fd);
             setError(state, "failed to create imported image");
             return false;
         }
@@ -300,6 +309,7 @@ namespace {
 
         VkDeviceMemory memory{};
         if (fns.allocateMemory(fns.device, &alloc, nullptr, &memory) != VK_SUCCESS) {
+            closeFd(fd);
             fns.destroyImage(fns.device, image, nullptr);
             setError(state, "failed to import image memory");
             return false;
@@ -334,6 +344,7 @@ namespace {
         info.pNext = &type;
 
         if (fns.createSemaphore(fns.device, &info, nullptr, &state.sync) != VK_SUCCESS) {
+            closeFd(fd);
             setError(state, "failed to create timeline semaphore");
             return false;
         }
@@ -344,6 +355,7 @@ namespace {
         import.handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_OPAQUE_FD_BIT;
         import.fd = fd;
         if (fns.importSemaphoreFd(fns.device, &import) != VK_SUCCESS) {
+            closeFd(fd);
             setError(state, "failed to import timeline semaphore");
             return false;
         }
@@ -401,11 +413,17 @@ namespace {
         );
 
         const auto fds = state.context->exportFds();
-        if (!importImage(state, fds.sourceFd, 2, false) ||
-            !importImage(state, fds.destinationFd, openfg::kMaxInterpolatedFrames, true) ||
-            !importSyncSemaphore(state, fds.syncFd)) {
+        if (!importImage(state, fds.sourceFd, 2, false)) {
+            closeFd(fds.destinationFd);
+            closeFd(fds.syncFd);
             return false;
         }
+        if (!importImage(state, fds.destinationFd, openfg::kMaxInterpolatedFrames, true)) {
+            closeFd(fds.syncFd);
+            return false;
+        }
+        if (!importSyncSemaphore(state, fds.syncFd))
+            return false;
 
         VkCommandPoolCreateInfo poolInfo{};
         poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
