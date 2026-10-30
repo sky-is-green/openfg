@@ -60,7 +60,8 @@ public:
         uint32_t width,
         uint32_t height,
         float flowScale,
-        bool performanceMode
+        bool performanceMode,
+        bool videoSafe = false
     );
 
     [[nodiscard]] FileDescriptors exportFds() const;

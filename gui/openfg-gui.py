@@ -129,6 +129,11 @@ def load_config() -> dict:
         "debug": False,
         "include": [],
         "exclude": [],
+        "video_processes": [],
+        "video_multiplier": 4,
+        "video_target_fps": 0,
+        "video_performance_mode": False,
+        "video_safe": True,
     }
     path = config_path()
     if not path.is_file():
@@ -160,6 +165,21 @@ def load_config() -> dict:
                 values = [values]
             if isinstance(values, list):
                 config[key] = [str(v) for v in values if str(v).strip()]
+    video = data.get("video", {})
+    if isinstance(video, dict):
+        values = video.get("processes", [])
+        if isinstance(values, str):
+            values = [values]
+        if isinstance(values, list):
+            config["video_processes"] = [str(v) for v in values if str(v).strip()]
+        for key in ("video_multiplier", "video_target_fps"):
+            try:
+                config[key] = int(video.get(key.removeprefix("video_"), config[key]))
+            except (TypeError, ValueError):
+                pass
+        config["video_performance_mode"] = bool(
+            video.get("performance_mode", config["video_performance_mode"]))
+        config["video_safe"] = bool(video.get("safe", config["video_safe"]))
     return config
 
 
@@ -188,6 +208,13 @@ debug = {'true' if config['debug'] else 'false'}
 [processes]
 include = {array(config['include'])}
 exclude = {array(config['exclude'])}
+
+[video]
+processes = {array(config['video_processes'])}
+multiplier = {config['video_multiplier']}
+target_fps = {config['video_target_fps']}
+performance_mode = {'true' if config['video_performance_mode'] else 'false'}
+safe = {'true' if config['video_safe'] else 'false'}
 """
     path.write_text(text, encoding="utf-8")
 
@@ -407,6 +434,53 @@ class MainWindow(QtWidgets.QMainWindow):
         ), 2, 0, 1, 2)
         root.addWidget(processes)
 
+        # Video profile
+        video = QtWidgets.QGroupBox("Video profile")
+        video_layout = QtWidgets.QGridLayout(video)
+        video_layout.addWidget(QtWidgets.QLabel("Players (one per line):"), 0, 0, 1, 2)
+        self.video_processes = QtWidgets.QPlainTextEdit(
+            "\n".join(self.config["video_processes"]))
+        self.video_processes.setPlaceholderText("empty = video profile disabled")
+        self.video_processes.setMinimumHeight(60)
+        video_layout.addWidget(self.video_processes, 1, 0, 1, 2)
+
+        self.video_multiplier = QtWidgets.QComboBox()
+        for value in (2, 3, 4):
+            self.video_multiplier.addItem(f"{value}x", value)
+        index = self.video_multiplier.findData(self.config["video_multiplier"])
+        self.video_multiplier.setCurrentIndex(index if index >= 0 else 2)
+        video_layout.addWidget(QtWidgets.QLabel("Multiplier:"), 2, 0)
+        video_layout.addWidget(self.video_multiplier, 2, 1)
+
+        self.video_target_fps = QtWidgets.QSpinBox()
+        self.video_target_fps.setRange(0, 1000)
+        self.video_target_fps.setSingleStep(5)
+        self.video_target_fps.setSpecialValueText("Always generate")
+        self.video_target_fps.setSuffix(" fps")
+        self.video_target_fps.setValue(self.config["video_target_fps"])
+        video_layout.addWidget(QtWidgets.QLabel("Target FPS:"), 3, 0)
+        video_layout.addWidget(self.video_target_fps, 3, 1)
+
+        self.video_performance = QtWidgets.QCheckBox(
+            "Performance mode (half-resolution flow)")
+        self.video_performance.setChecked(self.config["video_performance_mode"])
+        video_layout.addWidget(self.video_performance, 4, 0, 1, 2)
+
+        self.video_safe = QtWidgets.QCheckBox(
+            "Scene-cut guard (show the current frame on a hard cut)")
+        self.video_safe.setChecked(self.config["video_safe"])
+        self.video_safe.setToolTip(
+            "Adds one small reduction pass per frame pair. A global cut score "
+            "detects unrelated frames and skips interpolation for that pair."
+        )
+        video_layout.addWidget(self.video_safe, 5, 0, 1, 2)
+        video_layout.addWidget(hint(
+            "Overrides multiplier, target FPS and performance mode for these "
+            "players. Use 4x for 24 fps video; the cut guard is on by default. "
+            "The player must present through Vulkan (mpv --vo=gpu-next)."
+        ), 6, 0, 1, 2)
+        root.addWidget(video)
+
         # Status and buttons
         self.status = QtWidgets.QLabel("")
         self.status.setWordWrap(True)
@@ -443,8 +517,11 @@ class MainWindow(QtWidgets.QMainWindow):
             self.multiplier.currentIndexChanged,
             self.gpu.currentIndexChanged,
             self.gpu.editTextChanged,
+            self.video_multiplier.currentIndexChanged,
+            self.video_safe.toggled,
         ):
             signal.connect(self._update_summary)
+        self.video_processes.textChanged.connect(self._update_summary)
         self.target_fps.valueChanged.connect(self._update_target_note)
         self._update_target_note()
         self._update_summary()
@@ -474,12 +551,18 @@ class MainWindow(QtWidgets.QMainWindow):
     def _apply_preset(self, name: str) -> None:
         self.enabled.setChecked(True)
         self.cross_gpu.setChecked(False)
-        multiplier = 4 if name == "video" else 2
-        self.multiplier.setCurrentIndex(self.multiplier.findData(multiplier))
+        self.multiplier.setCurrentIndex(self.multiplier.findData(2))
         if name == "video":
-            self.target_fps.setValue(0)
-            self.performance.setChecked(False)
-            self._set_status("Video preset applied (4x). Add your player to Processes.")
+            if not self.video_processes.toPlainText().strip():
+                self.video_processes.setPlainText("mpv")
+            self.video_multiplier.setCurrentIndex(
+                self.video_multiplier.findData(4))
+            self.video_target_fps.setValue(0)
+            self.video_performance.setChecked(False)
+            self.video_safe.setChecked(True)
+            self._set_status(
+                "Video profile set to 4x with the scene-cut guard. "
+                "Add the player's process name if it is not mpv.")
             self._update_summary()
             return
         if name == "latency":
@@ -514,6 +597,12 @@ class MainWindow(QtWidgets.QMainWindow):
             target_text = "always generating" if target == 0 else f"below {target} fps"
             flow = "performance flow" if self.performance.isChecked() else "quality flow"
             text = f"{multiplier}x · {cross} · {gpu_text} · {target_text} · {flow}"
+            video_players = [line.strip() for line in
+                             self.video_processes.toPlainText().splitlines() if line.strip()]
+            if video_players:
+                text += f"  ·  video: {self.video_multiplier.currentData()}x"
+                if self.video_safe.isChecked():
+                    text += " + cut guard"
             color = "#7ec699"
         self.summary.setText(text)
         self.summary.setStyleSheet(
@@ -548,6 +637,13 @@ class MainWindow(QtWidgets.QMainWindow):
                         if line.strip()],
             "exclude": [line.strip() for line in self.exclude.toPlainText().splitlines()
                         if line.strip()],
+            "video_processes": [line.strip() for line in
+                                self.video_processes.toPlainText().splitlines()
+                                if line.strip()],
+            "video_multiplier": int(self.video_multiplier.currentData()),
+            "video_target_fps": int(self.video_target_fps.value()),
+            "video_performance_mode": self.video_performance.isChecked(),
+            "video_safe": self.video_safe.isChecked(),
         }
 
     def _validate_widgets(self, config: dict) -> bool:
@@ -556,6 +652,9 @@ class MainWindow(QtWidgets.QMainWindow):
             return False
         if config["target_fps"] != 0 and config["target_fps"] < 20:
             self._set_status("Target FPS must be 0 (always) or at least 20.", True)
+            return False
+        if config["video_target_fps"] != 0 and config["video_target_fps"] < 20:
+            self._set_status("Video target FPS must be 0 (always) or at least 20.", True)
             return False
         return True
 

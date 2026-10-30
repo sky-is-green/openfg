@@ -206,7 +206,8 @@ Context::Context(
     uint32_t width,
     uint32_t height,
     float flowScale,
-    bool performanceMode
+    bool performanceMode,
+    bool videoSafe
 ) {
     (void)flowScale;
 
@@ -243,7 +244,8 @@ Context::Context(
                     "openfg: missing embedded shader '" + std::string(name) + "'");
             return std::vector<uint32_t>(shader.begin(), shader.end());
         },
-        performanceMode
+        performanceMode,
+        videoSafe
     )};
 
     auto pool{vkutil::createCommandPool(*vk.dld, *vk.device, vk.qfi, true)};

@@ -40,7 +40,12 @@ namespace {
     }
 
     const openfg::config::Config& activeConfig() {
-        return layerConfig().config;
+        static const openfg::config::Config config = [] {
+            const auto& loaded = layerConfig();
+            return openfg::config::withVideoProfile(
+                loaded.config, openfg::config::processNames());
+        }();
+        return config;
     }
 
     bool enabled() {
@@ -499,8 +504,9 @@ namespace {
         }
 
         const std::string deviceId = identifyPhysicalDevice(fns, activeConfig().gpu);
-        std::fprintf(stderr, "%s backend on %s, %s, %ux\n", TAG,
-            deviceId.c_str(), state.crossGpu ? "cross-GPU" : "same-GPU", state.multiplier);
+        std::fprintf(stderr, "%s backend on %s, %s, %ux%s\n", TAG,
+            deviceId.c_str(), state.crossGpu ? "cross-GPU" : "same-GPU",
+            state.multiplier, activeConfig().videoSafe ? ", video-safe" : "");
 
         if (!state.instance) {
             state.instance = std::make_unique<openfg::Instance>(
@@ -522,7 +528,8 @@ namespace {
             swapchain.extent.width,
             swapchain.extent.height,
             1.0F,
-            activeConfig().performanceMode
+            activeConfig().performanceMode,
+            activeConfig().videoSafe
         );
 
         const auto fds = state.context->exportFds();

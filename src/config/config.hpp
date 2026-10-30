@@ -15,6 +15,16 @@ namespace openfg::config {
 /// is exactly what `conf.toml` needs and nothing more, so the layer stays
 /// dependency-free.
 struct Config {
+    /// Settings used when the current process matches a video player.
+    struct Video {
+        std::vector<std::string> processes;
+        unsigned multiplier{4};
+        unsigned targetFps{0};
+        bool performanceMode{false};
+        /// Show the current frame on a detected scene cut instead of a blend.
+        bool safe{true};
+    };
+
     bool enabled{false};
     std::string gpu{"auto"};
     bool crossGpu{false};
@@ -24,6 +34,9 @@ struct Config {
     /// Skip the full-resolution flow refinement (faster, softer edges).
     bool performanceMode{false};
     bool debug{false};
+    Video video;
+    /// Effective video-safe flag after applying `video` to this process.
+    bool videoSafe{false};
 
     /// Process names (basenames, `*` and `?` wildcards) the layer may run in.
     /// An empty include list means every process.
@@ -68,6 +81,10 @@ bool processMatches(const Config& config);
 
 /// Include/exclude matching for one process name (for `openfg-cli test`).
 bool matchesName(const Config& config, const std::string& name);
+
+/// Copy `config` and apply the `[video]` overrides if one of `names` matches
+/// `video.processes`. The returned config is what the layer should use.
+Config withVideoProfile(const Config& config, const std::vector<std::string>& names);
 
 /// Default file contents written by `openfg-cli init`.
 std::string defaultFile();

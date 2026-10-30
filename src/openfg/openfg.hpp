@@ -54,7 +54,8 @@ public:
         vk::Image source,
         vk::Image destination,
         const ShaderLoader& loader,
-        bool performanceMode = false
+        bool performanceMode = false,
+        bool videoSafe = false
     );
     ~Interpolator();
 
@@ -124,6 +125,7 @@ private:
     bool m_occlusionFlow{true};
     bool m_tileMaskEnabled{true};
     bool m_performanceMode{false};
+    bool m_videoSafe{false};
 
     std::array<vk::Extent2D, 6> m_levels{};
     std::array<Image, 6> m_lumaA{};
@@ -133,6 +135,7 @@ private:
     std::array<Image, 6> m_flowSmooth{};
     Image m_flowFull;
     Image m_tileMask;
+    Image m_cutScore;
     std::array<Image, 6> m_flowBA{};
     std::array<Image, 6> m_flowBAFiltered{};
     std::array<Image, 6> m_flowBASmooth{};
@@ -148,7 +151,7 @@ private:
     vk::UniqueDescriptorSetLayout m_setLayout;
     vk::UniquePipelineLayout m_pipelineLayout;
     vk::UniqueDescriptorPool m_pool;
-    std::array<vk::UniquePipeline, 9> m_pipelines{};
+    std::array<vk::UniquePipeline, 10> m_pipelines{};
     std::vector<vk::UniqueShaderModule> m_modules;
 
     vk::DescriptorSet m_setLumaA{};
@@ -162,6 +165,7 @@ private:
     vk::DescriptorSet m_setInterp{};
     vk::DescriptorSet m_setRefineFull{};
     vk::DescriptorSet m_setTileMask{};
+    vk::DescriptorSet m_setCut{};
     std::array<vk::DescriptorSet, 6> m_setMedian{};
     std::array<vk::DescriptorSet, 6> m_setMedianBA{};
     std::array<vk::DescriptorSet, 6> m_setSmooth{};

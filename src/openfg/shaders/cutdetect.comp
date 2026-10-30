@@ -1,0 +1,46 @@
+// Global cut score.
+//
+// A hard cut has no meaningful correspondence, so the flow-compensated luma
+// residual is high across the whole frame. Normal motion leaves most of the
+// frame with a low residual. Reducing the residual over one coarse level gives
+// a single number the interpolate pass can use to show the current frame
+// instead of blending unrelated scenes.
+#version 460
+#include "common.glsl"
+
+layout(set = 0, binding = 8, r8) uniform image2D uOut;
+
+shared float sSum[64];
+
+void main() {
+    ivec2 size = textureSize(sampler2D(uTex0, uSampler), 0);
+    int total = max(size.x * size.y, 1);
+    float sum = 0.0;
+
+    for (int i = int(gl_LocalInvocationIndex); i < total; i += 64) {
+        ivec2 p = ivec2(i % size.x, i / size.x);
+        vec2 uv = (vec2(p) + 0.5) / vec2(size);
+
+        // The flow at this pyramid level is in level pixels, so dividing by
+        // the level size yields the same normalised displacement the
+        // interpolate pass uses.
+        vec2 flow = texture(sampler2D(uTex2, uSampler), uv).xy;
+        vec2 duv = flow / vec2(size);
+        vec2 uva = clamp(uv - 0.5 * duv, vec2(0.0), vec2(1.0));
+        vec2 uvb = clamp(uv + 0.5 * duv, vec2(0.0), vec2(1.0));
+
+        float a = texture(sampler2D(uTex0, uSampler), uva).r;
+        float b = texture(sampler2D(uTex1, uSampler), uvb).r;
+        sum += abs(a - b);
+    }
+
+    sSum[gl_LocalInvocationIndex] = sum;
+    barrier();
+
+    if (gl_LocalInvocationIndex == 0) {
+        float reduced = 0.0;
+        for (int i = 0; i < 64; i++)
+            reduced += sSum[i];
+        imageStore(uOut, ivec2(0), vec4(reduced / float(total), 0.0, 0.0, 1.0));
+    }
+}

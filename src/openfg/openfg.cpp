@@ -18,7 +18,7 @@
 using namespace openfg;
 
 namespace {
-    constexpr std::array<std::string_view, 9> PIPELINE_NAMES{
+    constexpr std::array<std::string_view, 10> PIPELINE_NAMES{
         "luma",
         "downsample",
         "blockmatch",
@@ -27,7 +27,8 @@ namespace {
         "smooth",
         "tilemask",
         "refine_full",
-        "interpolate"
+        "interpolate",
+        "cutdetect"
     };
 
     enum PipelineIndex : size_t {
@@ -39,7 +40,8 @@ namespace {
         SMOOTH = 5,
         TILEMASK = 6,
         REFINE_FULL = 7,
-        INTERPOLATE = 8
+        INTERPOLATE = 8,
+        CUTDETECT = 9
     };
 
     constexpr uint32_t LOCAL_SIZE = 8;
@@ -60,7 +62,8 @@ Interpolator::Interpolator(
     vk::Image source,
     vk::Image destination,
     const ShaderLoader& loader,
-    bool performanceMode
+    bool performanceMode,
+    bool videoSafe
 ) : m_dld(dld), m_physdev(physdev), m_device(device),
     m_extent(extent), m_loader(loader) {
     if (extent.width == 0 || extent.height == 0)
@@ -74,6 +77,7 @@ Interpolator::Interpolator(
     this->m_occlusionFlow = std::getenv("OPENFG_OCCLUSION") != nullptr;
     this->m_tileMaskEnabled = std::getenv("OPENFG_NO_TILE_MASK") == nullptr;
     this->m_performanceMode = performanceMode;
+    this->m_videoSafe = videoSafe;
 
     constexpr vk::ImageUsageFlags INTERNAL_USAGE{
         vk::ImageUsageFlagBits::eStorage |
@@ -112,6 +116,9 @@ Interpolator::Interpolator(
     this->m_tileMask = this->createImage(
         { (extent.width + 15) / 16, (extent.height + 15) / 16 },
         vk::Format::eR8Unorm, INTERNAL_USAGE);
+    this->m_cutScore = this->createImage(
+        { 1, 1 }, vk::Format::eR8Unorm,
+        vk::ImageUsageFlagBits::eStorage | vk::ImageUsageFlagBits::eSampled);
 
     // Dummy 1x1 images keep every descriptor binding valid for passes that do
     // not use all of them.
@@ -493,7 +500,7 @@ void Interpolator::createDescriptors() {
             : (this->m_occlusionFlow
                 ? *this->m_flowBASmooth.at(2).view
                 : *this->m_dummyRg16f.view),
-        *this->m_dummyR8.view,
+        *this->m_cutScore.view,
         this->m_performanceMode
             ? *this->m_flowSmooth.at(1).view
             : *this->m_flowFull.view,
@@ -507,6 +514,21 @@ void Interpolator::createDescriptors() {
         *this->m_dstView
     }};
     this->m_setInterp = this->makeSet(interpSampled, interpStorage);
+
+    std::array<vk::ImageView, 5> cutSampled{{
+        *this->m_lumaA.at(4).view,
+        *this->m_lumaB.at(4).view,
+        *this->m_flowSmooth.at(4).view,
+        *this->m_dummyR8.view,
+        *this->m_srcView
+    }};
+    std::array<vk::ImageView, 4> cutStorage{{
+        *this->m_cutScore.view,
+        *this->m_dummyR8.view,
+        *this->m_dummyRg16f.view,
+        *this->m_dummyRgba8.view
+    }};
+    this->m_setCut = this->makeSet(cutSampled, cutStorage);
 }
 
 void Interpolator::dispatch(
@@ -630,6 +652,17 @@ void Interpolator::analyze(const vk::CommandBuffer& cmdbuf, uint32_t layerA, uin
         this->barrier(cmdbuf);
     }
 
+    if (this->m_videoSafe) {
+        // One workgroup reduces the flow-compensated residual at level 4.
+        pc.width = this->m_levels.at(4).width;
+        pc.height = this->m_levels.at(4).height;
+        pc.level = 4;
+        pc.radius = 0;
+        pc.flags = 0;
+        this->dispatch(cmdbuf, "cutdetect", this->m_setCut, { 1, 1 }, pc);
+        this->barrier(cmdbuf);
+    }
+
     if (!this->m_bidirectional && !this->m_occlusionFlow)
         return;
 
@@ -692,6 +725,8 @@ void Interpolator::generate(
         pc.flags |= 128;
     if (this->m_tileMaskEnabled)
         pc.flags |= 256;
+    if (this->m_videoSafe)
+        pc.flags |= 4096;
 
     this->dispatch(cmdbuf, "interpolate", this->m_setInterp, this->m_extent, pc);
     this->barrier(cmdbuf);

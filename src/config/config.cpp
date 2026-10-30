@@ -445,6 +445,21 @@ bool validate(const Config& config, std::string& error) {
             return false;
         }
     }
+    if (config.video.multiplier < 2 || config.video.multiplier > 4) {
+        error = "video.multiplier must be 2, 3 or 4";
+        return false;
+    }
+    if (config.video.targetFps != 0 &&
+        (config.video.targetFps < 20 || config.video.targetFps > 1000)) {
+        error = "video.target_fps must be 0 (always generate) or between 20 and 1000";
+        return false;
+    }
+    for (const auto& pattern : config.video.processes) {
+        if (pattern.empty()) {
+            error = "video.processes contains an empty pattern";
+            return false;
+        }
+    }
     return true;
 }
 
@@ -480,7 +495,7 @@ LoadResult parse(const std::string& text, const std::filesystem::path& path) {
                     throw std::runtime_error(
                         path.string() + ":" + std::to_string(lineNumber) +
                         ": empty section name");
-                if (section != "openfg" && section != "processes")
+                if (section != "openfg" && section != "processes" && section != "video")
                     throw std::runtime_error(
                         path.string() + ":" + std::to_string(lineNumber) +
                         ": unknown section [" + section + "]");
@@ -556,7 +571,9 @@ LoadResult parse(const std::string& text, const std::filesystem::path& path) {
             "openfg.enabled", "openfg.gpu", "openfg.cross_gpu",
             "openfg.multiplier", "openfg.target_fps", "openfg.performance_mode",
             "openfg.debug",
-            "processes.include", "processes.exclude"
+            "processes.include", "processes.exclude",
+            "video.processes", "video.multiplier", "video.target_fps",
+            "video.performance_mode", "video.safe"
         };
         for (const auto& [key, value] : values) {
             (void)value;
@@ -574,7 +591,12 @@ LoadResult parse(const std::string& text, const std::filesystem::path& path) {
             !getBool(values, "openfg", "performance_mode", config.performanceMode, error) ||
             !getBool(values, "openfg", "debug", config.debug, error) ||
             !getStringArray(values, "processes", "include", config.include, error) ||
-            !getStringArray(values, "processes", "exclude", config.exclude, error))
+            !getStringArray(values, "processes", "exclude", config.exclude, error) ||
+            !getStringArray(values, "video", "processes", config.video.processes, error) ||
+            !getUnsigned(values, "video", "multiplier", config.video.multiplier, error) ||
+            !getUnsigned(values, "video", "target_fps", config.video.targetFps, error) ||
+            !getBool(values, "video", "performance_mode", config.video.performanceMode, error) ||
+            !getBool(values, "video", "safe", config.video.safe, error))
             throw std::runtime_error(path.string() + ": " + error);
 
         if (!validate(config, error))
@@ -714,6 +736,18 @@ bool matchesName(const Config& config, const std::string& name) {
     return false;
 }
 
+Config withVideoProfile(const Config& config, const std::vector<std::string>& names) {
+    Config result = config;
+    result.videoSafe = false;
+    if (result.video.processes.empty() || !listMatches(result.video.processes, names))
+        return result;
+    result.multiplier = result.video.multiplier;
+    result.targetFps = result.video.targetFps;
+    result.performanceMode = result.video.performanceMode;
+    result.videoSafe = result.video.safe;
+    return result;
+}
+
 std::string defaultFile() {
     return R"(# openfg configuration
 #
@@ -750,6 +784,18 @@ include = []
 
 # Always keep frame generation off for these processes.
 exclude = []
+
+[video]
+# Players that should use the video profile. Empty disables it.
+# The profile overrides multiplier, target_fps and performance_mode below.
+processes = []
+
+multiplier = 4
+target_fps = 0
+performance_mode = false
+
+# Detect scene cuts and show the current frame instead of blending them.
+safe = true
 )";
 }
 
@@ -792,7 +838,14 @@ std::string toToml(const Config& config) {
     result += std::string("debug = ") + (config.debug ? "true" : "false") + "\n\n";
     result += "[processes]\n";
     result += "include = " + list(config.include) + "\n";
-    result += "exclude = " + list(config.exclude) + "\n";
+    result += "exclude = " + list(config.exclude) + "\n\n";
+    result += "[video]\n";
+    result += "processes = " + list(config.video.processes) + "\n";
+    result += "multiplier = " + std::to_string(config.video.multiplier) + "\n";
+    result += "target_fps = " + std::to_string(config.video.targetFps) + "\n";
+    result += std::string("performance_mode = ") +
+        (config.video.performanceMode ? "true" : "false") + "\n";
+    result += std::string("safe = ") + (config.video.safe ? "true" : "false") + "\n";
     return result;
 }
 

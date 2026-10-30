@@ -62,8 +62,16 @@ namespace {
             return 1;
         }
         for (const auto& name : names) {
-            std::printf("%s: %s\n", name.c_str(),
-                openfg::config::matchesName(result.config, name) ? "yes" : "no");
+            const bool matches = openfg::config::matchesName(result.config, name);
+            const auto effective = openfg::config::withVideoProfile(
+                result.config, { name });
+            std::printf("%s: %s", name.c_str(), matches ? "yes" : "no");
+            if (matches && effective.videoSafe)
+                std::printf(" (video profile: %ux, safe)",
+                    effective.multiplier);
+            else if (matches && !result.config.video.processes.empty())
+                std::printf(" (%ux)", effective.multiplier);
+            std::printf("\n");
         }
         return 0;
     }
@@ -88,6 +96,12 @@ namespace {
         std::printf("\n# process names: %s\n", join(names).c_str());
         std::printf("# this process matches: %s\n",
             openfg::config::processMatches(result.config) ? "yes" : "no");
+        const auto effective = openfg::config::withVideoProfile(
+            result.config, names);
+        std::printf("# effective: %ux, target %u fps, performance %s, safe %s\n",
+            effective.multiplier, effective.targetFps,
+            effective.performanceMode ? "yes" : "no",
+            effective.videoSafe ? "yes" : "no");
         return 0;
     }
 

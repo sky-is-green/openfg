@@ -33,3 +33,15 @@ include = []
 
 # Always keep frame generation off for these processes.
 exclude = []
+
+[video]
+# Players that should use the video profile. Empty disables it.
+# The profile overrides multiplier, target_fps and performance_mode below.
+processes = []
+
+multiplier = 4
+target_fps = 0
+performance_mode = false
+
+# Detect scene cuts and show the current frame instead of blending them.
+safe = true

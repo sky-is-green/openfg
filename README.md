@@ -22,6 +22,7 @@ used here.
 - [x] Process include/exclude matching (native and Wine/Proton `.exe` names)
 - [x] GUI and per-user install scripts
 - [x] GPU capability probe (`openfg-gpu-probe`)
+- [x] Video profile with a global scene-cut guard
 - [x] Video-player support notes and an mpv smoke test
 - [ ] Distribution packages (Flatpak/AUR)
 
@@ -216,11 +217,28 @@ every Vulkan application and the config decides whether it is active. Use
 ## Video
 
 The layer works with Vulkan-presenting video players. mpv's Vulkan output was
-tested at 2x and 4x; use the **Video · 4x** GUI preset and add `mpv` to the
-process include list. VLC 3 on this system uses OpenGL/VAAPI and has no Vulkan
-output, so the layer cannot see it. See [docs/VIDEO.md](docs/VIDEO.md) for the
-mpv command, video limitations (scene cuts, PTS/cadence, HDR/10-bit) and the
-compositor alternative.
+tested at 2x and 4x. Give the player its own profile so games keep their
+settings:
+
+```toml
+[video]
+processes = ["mpv"]
+multiplier = 4
+target_fps = 0
+performance_mode = false
+safe = true
+```
+
+The **Video · 4x** GUI preset fills this in. VLC 3 on this system uses
+OpenGL/VAAPI and has no Vulkan output, so the layer cannot see it.
+
+`safe = true` adds a global scene-cut guard. It reduces the flow-compensated
+residual over the whole frame and shows the current frame when two frames are
+unrelated, instead of blending them. On a real video cut this moved PSNR from
+12.21 dB (blend) to 99 dB (current frame) while normal motion stayed at
+41.94 dB. The guard costs about 0.08 ms per frame pair at 1440p. See
+[docs/VIDEO.md](docs/VIDEO.md) for the mpv command, measured results and the
+remaining video limitations (PTS/cadence, HDR/10-bit, subtitles).
 
 ## GPU support
 

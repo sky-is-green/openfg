@@ -85,6 +85,19 @@ void main() {
     vec4 a0 = texture(sampler2DArray(uTexArray0, uSampler), vec3(uv, float(pc.layerA)));
     vec4 b0 = texture(sampler2DArray(uTexArray0, uSampler), vec3(uv, float(pc.layerB)));
 
+    // Video-safe fallback. The cut score is the mean flow-compensated
+    // residual over the whole frame, so a hard cut switches the entire frame
+    // to the current one instead of leaving a blend patchwork.
+    float cutScore = texelFetch(sampler2D(uTex1, uSampler), ivec2(0), 0).r;
+    if ((pc.flags & 8192) != 0) {
+        imageStore(uOut, ivec3(p, int(pc.dstLayer)), vec4(vec3(cutScore), 1.0));
+        return;
+    }
+    if ((pc.flags & 4096) != 0 && cutScore > 0.08) {
+        imageStore(uOut, ivec3(p, int(pc.dstLayer)), b0);
+        return;
+    }
+
     // Soft visibility. A warp is trusted when it agrees across frames (low ea
     // or eb) and the reverse flow maps back to it (low consistency). There is
     // no hard switch: a bad side simply loses weight.

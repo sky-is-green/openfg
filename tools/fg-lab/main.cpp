@@ -49,6 +49,7 @@ namespace {
         uint32_t iterations{20};
         uint32_t debugFlags{0};
         bool performance{false};
+        bool videoSafe{false};
         float t{0.5F};
     };
 
@@ -401,6 +402,7 @@ OPTIONS:
         --debug-source      Output the current source layer (sanity check)
         --dump-luma <LVL>   Write R8 luma pyramids at this level to PATH.a/.b
         --performance       Half-resolution flow (faster, softer silhouettes)
+        --video-safe        Fall back to the current frame on a hard cut
 )";
     }
 }
@@ -408,7 +410,7 @@ OPTIONS:
 int main(int argc, char** argv) {
     Options opts{};
 
-    const std::array<option, 19> GETOPT{{
+    const std::array<option, 20> GETOPT{{
         { "a", required_argument, nullptr, 'a' },
         { "b", required_argument, nullptr, 'b' },
         { "out", required_argument, nullptr, 'o' },
@@ -427,6 +429,7 @@ int main(int argc, char** argv) {
         { "debug-warp", required_argument, nullptr, 8 },
         { "flow-reverse", no_argument, nullptr, 9 },
         { "performance", no_argument, nullptr, 10 },
+        { "video-safe", no_argument, nullptr, 11 },
         { nullptr, 0, nullptr, 0 }
     }};
 
@@ -454,6 +457,7 @@ int main(int argc, char** argv) {
             case 8: opts.debugFlags |= static_cast<uint32_t>(std::stoul(optarg)); break;
             case 9: opts.dumpFlowReverse = true; break;
             case 10: opts.performance = true; break;
+            case 11: opts.videoSafe = true; break;
             default:
                 usage(argv[0]);
                 return EXIT_FAILURE;
@@ -529,7 +533,8 @@ int main(int argc, char** argv) {
             [&opts](std::string_view name) {
                 return loadSpirv(opts.shaders, name);
             },
-            opts.performance);
+            opts.performance,
+            opts.videoSafe);
 
         cmdbuf->begin({ .flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit }, dld);
         auto stagingA{uploadImage(dld, physdev, *device, *cmdbuf, *source.image,
