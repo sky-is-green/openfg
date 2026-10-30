@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -48,11 +49,57 @@ namespace {
         return config;
     }
 
+    std::FILE* g_log{};
+
+    void logLine(const char* format, ...) {
+        va_list args;
+        va_start(args, format);
+        std::vfprintf(stderr, format, args);
+        va_end(args);
+        if (g_log) {
+            va_start(args, format);
+            std::vfprintf(g_log, format, args);
+            va_end(args);
+            std::fflush(g_log);
+        }
+    }
+
+    void openLog() {
+        static bool tried{false};
+        if (tried)
+            return;
+        tried = true;
+        if (!activeConfig().debug)
+            return;
+
+        std::filesystem::path path;
+        if (const char* overridePath = std::getenv("OPENFG_LOG");
+            overridePath && *overridePath) {
+            path = overridePath;
+        } else if (const char* state = std::getenv("XDG_STATE_HOME");
+                   state && *state) {
+            path = std::filesystem::path(state) / "openfg" / "layer.log";
+        } else if (const char* home = std::getenv("HOME"); home && *home) {
+            path = std::filesystem::path(home) / ".local" / "state" /
+                "openfg" / "layer.log";
+        } else {
+            return;
+        }
+
+        std::error_code ec;
+        if (path.has_parent_path())
+            std::filesystem::create_directories(path.parent_path(), ec);
+        g_log = std::fopen(path.string().c_str(), "a");
+        if (g_log)
+            std::fprintf(stderr, "%s debug log: %s\n", TAG, path.string().c_str());
+    }
+
     bool enabled() {
         static const bool value = [] {
+            openLog();
             const auto& result = layerConfig();
             if (!result.error.empty()) {
-                std::fprintf(stderr, "%s config error: %s\n", TAG, result.error.c_str());
+                logLine("%s config error: %s\n", TAG, result.error.c_str());
                 return false;
             }
             for (const auto& warning : result.warnings)
@@ -126,13 +173,16 @@ namespace {
         if (fns.getPhysDevProperties2)
             fns.getPhysDevProperties2(fns.physdev, &props);
 
-        if (hasPci) {
+        if (hasPci &&
+            (pci.pciDomain || pci.pciBus || pci.pciDevice || pci.pciFunction)) {
             char buffer[64]{};
             std::snprintf(buffer, sizeof(buffer), "%04x:%02x:%02x.%x",
                 pci.pciDomain, pci.pciBus, pci.pciDevice, pci.pciFunction);
             return buffer;
         }
 
+        if (hasPci)
+            logLine("%s PCI bus info is empty; using the device name\n", TAG);
         return props.properties.deviceName;
     }
 
@@ -155,6 +205,9 @@ namespace {
         std::chrono::steady_clock::time_point belowSince{};
         double intervalMs{};
         double overheadMs{};
+        std::chrono::steady_clock::time_point reportTime{};
+        uint64_t reportPresents{};
+        uint64_t reportGenerated{};
         bool generating{false};
         bool resetPending{false};
     };
@@ -208,7 +261,7 @@ namespace {
     void setError(FgState& state, std::string message) {
         state.error = std::move(message);
         state.failed = true;
-        std::fprintf(stderr, "%s %s\n", TAG, state.error.c_str());
+        logLine("%s %s\n", TAG, state.error.c_str());
     }
 
     void destroyState(FgState& state) {
@@ -499,7 +552,7 @@ namespace {
         state.crossGpu = activeConfig().crossGpu;
 
         if (activeConfig().debug)
-            std::fprintf(stderr, "%s swapchain format: %d, colour space: %d\n",
+            logLine("%s swapchain format: %d, colour space: %d\n",
                 TAG, static_cast<int>(swapchain.format),
                 static_cast<int>(swapchain.colorSpace));
 
@@ -533,7 +586,7 @@ namespace {
         }
 
         const std::string deviceId = identifyPhysicalDevice(fns, activeConfig().gpu);
-        std::fprintf(stderr, "%s backend on %s, %s, %ux%s\n", TAG,
+        logLine("%s backend on %s, %s, %ux%s\n", TAG,
             deviceId.c_str(), state.crossGpu ? "cross-GPU" : "same-GPU",
             state.multiplier, activeConfig().videoSafe ? ", video-safe" : "");
 
@@ -549,7 +602,7 @@ namespace {
                 // tears down all images, semaphores and its context.
                 true,
                 [](const std::string& message) {
-                    std::fprintf(stderr, "%s %s\n", TAG, message.c_str());
+                    logLine("%s %s\n", TAG, message.c_str());
                 }
             );
         }
@@ -732,6 +785,7 @@ bool enabled() {
 }
 
 bool debug() {
+    openLog();
     return layerConfig().error.empty() && activeConfig().debug;
 }
 
@@ -778,6 +832,30 @@ void destroyDevice(VkDevice device) {
     }
 }
 
+void reportPerf(FgState& state) {
+    if (!activeConfig().debug)
+        return;
+    const auto now = std::chrono::steady_clock::now();
+    if (state.adaptive.reportTime == std::chrono::steady_clock::time_point{}) {
+        state.adaptive.reportTime = now;
+        return;
+    }
+    const double elapsed =
+        std::chrono::duration<double>(now - state.adaptive.reportTime).count();
+    if (elapsed < 5.0)
+        return;
+    const double appFps = static_cast<double>(state.adaptive.reportPresents) / elapsed;
+    const double presentedFps = static_cast<double>(
+        state.adaptive.reportPresents + state.adaptive.reportGenerated) / elapsed;
+    logLine("%s perf: app %.1f fps, presented %.1f fps, overhead %.2f ms, "
+        "generating %s\n",
+        TAG, appFps, presentedFps, state.adaptive.overheadMs,
+        state.adaptive.generating ? "yes" : "no");
+    state.adaptive.reportTime = now;
+    state.adaptive.reportPresents = 0;
+    state.adaptive.reportGenerated = 0;
+}
+
 VkResult present(
     const LayerDeviceFns& fns,
     VkQueue queue,
@@ -815,6 +893,9 @@ VkResult present(
 
     if (state->failed)
         return nextPresent(queue, presentInfo);
+
+    reportPerf(*state);
+    state->adaptive.reportPresents++;
 
     const auto layerStart = std::chrono::steady_clock::now();
 
@@ -994,6 +1075,7 @@ VkResult present(
         setError(*state, std::string("frame generation failed: ") + exception.what());
     }
 
+    state->adaptive.reportGenerated += generatedCount;
     state->adaptive.overheadMs = std::chrono::duration<double, std::milli>(
         std::chrono::steady_clock::now() - layerStart).count();
 
