@@ -180,6 +180,7 @@ Instance::Instance(
 struct Context::Impl {
     const Instance::Impl* instance{};
     std::unique_ptr<openfg::Interpolator> interpolator;
+    Generator generator{Generator::Flow};
 
     vk::UniqueImage sourceImage;
     vk::UniqueDeviceMemory sourceMemory;
@@ -190,7 +191,6 @@ struct Context::Impl {
     std::pair<vk::UniqueSemaphore, uint64_t> internalSemaphore;
     std::pair<vk::UniqueFence, bool> fence;
 
-    Generator generator{Generator::Flow};
     vk::UniqueCommandPool pool;
     vk::UniqueCommandBuffer analyzeCmdbuf;
     std::array<vk::UniqueCommandBuffer, 4> generateCmdbufs{};
