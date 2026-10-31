@@ -116,18 +116,21 @@ Measure at the actual game rate and load.
 ## Generator compute cost
 
 vkmark cube, 2560x1440, immediate, GPU otherwise idle. The absolute app rate
-is present-bound; the useful number is the layer work per real frame.
+is present-bound; the useful number is the layer work per real frame. The
+performance-mode rows are the 3×3 refinement build; absolute fps varies with
+background load.
 
 | generator | mult | app fps | presented fps | layer work |
 |---|---:|---:|---:|---:|
-| off | — | 23,642 | 23,642 | 0.00 ms |
+| off | — | 22,789 | 22,789 | 0.00 ms |
 | hold | 2x | 4,028 | 8,057 | 0.19 ms |
 | blend | 2x | 2,803 | 5,607 | 0.27 ms |
-| flow | 2x | 1,125 | 2,250 | 0.81 ms |
-| flow performance | 2x | 1,232 | 2,464 | 0.83 ms |
+| flow | 2x | 1,082 | 2,164 | 0.86 ms |
+| flow performance | 2x | 1,440 | 2,880 | **0.63 ms** |
 | hold | 4x | 1,404 | 5,615 | 0.62 ms |
 | blend | 4x | 1,192 | 4,767 | 0.96 ms |
 | flow | 4x | 790 | 3,156 | 1.20 ms |
+| flow performance | 4x | 914 | 3,652 | **1.03 ms** |
 
 ## Generator quality and cost
 
