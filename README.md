@@ -381,6 +381,7 @@ python3 tools/ghost_bench.py --scene ghost --width 2560 --height 1440
 ```
 backend   full dB  edge dB  edge MAD   ghost  moving dB     ms
 openfg      26.48    26.67     2.238   1.925      26.33   1.46
+openfg perf 26.45    26.64     2.350   1.951      26.30   1.06
 ```
 
 Tile-mask early-out:

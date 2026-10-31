@@ -64,7 +64,10 @@ def metrics(c, gt, a, b):
     }
 
 
-def run_openfg(repo, scene, width, height, gpu, iterations, generator="flow"):
+def run_openfg(
+    repo, scene, width, height, gpu, iterations, generator="flow",
+    performance=False,
+):
     prefix = repo / "tools" / "testdata" / f"{scene}_{width}x{height}"
     outdir = Path(tempfile.gettempdir()) / "openfg"
     outdir.mkdir(parents=True, exist_ok=True)
@@ -80,6 +83,8 @@ def run_openfg(repo, scene, width, height, gpu, iterations, generator="flow"):
     ]
     if generator != "flow":
         cmd += ["--generator", generator]
+    if performance:
+        cmd.append("--performance")
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         raise SystemExit(result.stdout + result.stderr)
@@ -101,6 +106,8 @@ def main():
     ap.add_argument("--iterations", type=int, default=10)
     ap.add_argument("--generator", choices=("flow", "blend", "hold"),
                     default="flow")
+    ap.add_argument("--performance", action="store_true",
+                    help="use half-resolution flow + 3x3 refine")
     args = ap.parse_args()
 
     prefix = repo / "tools" / "testdata" / f"{args.scene}_{args.width}x{args.height}"
@@ -108,8 +115,9 @@ def main():
     b = read_rgba(prefix.with_name(prefix.name + "_b.rgba"), args.width, args.height)
     gt = read_rgba(prefix.with_name(prefix.name + "_gt.rgba"), args.width, args.height)
 
-    openfg_path, ms = run_openfg(repo, args.scene, args.width, args.height,
-                                 args.gpu, args.iterations, args.generator)
+    openfg_path, ms = run_openfg(
+        repo, args.scene, args.width, args.height, args.gpu, args.iterations,
+        args.generator, args.performance)
     rows = [("openfg", openfg_path, ms)]
 
     print(f"{'backend':8} {'full dB':>8} {'edge dB':>8} {'edge MAD':>9} "
