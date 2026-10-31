@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <limits>
 #include <optional>
 #include <set>
 #include <sstream>
@@ -281,6 +282,22 @@ namespace {
         return true;
     }
 
+    bool getInt(const std::vector<std::pair<std::string, Value>>& values,
+        const std::string& section, const std::string& key, int& result,
+        std::string& error) {
+        const Value* value = findValue(values, section, key);
+        if (!value)
+            return true;
+        if (value->type != Value::Type::Integer ||
+            value->integer < std::numeric_limits<int>::min() ||
+            value->integer > std::numeric_limits<int>::max()) {
+            error = "[" + section + "] " + key + " must be an integer";
+            return false;
+        }
+        result = static_cast<int>(value->integer);
+        return true;
+    }
+
     bool getStringArray(const std::vector<std::pair<std::string, Value>>& values,
         const std::string& section, const std::string& key,
         std::vector<std::string>& result, std::string& error) {
@@ -423,6 +440,12 @@ bool validate(const Config& config, std::string& error) {
     }
     if (config.targetFps != 0 && (config.targetFps < 20 || config.targetFps > 1000)) {
         error = "openfg.target_fps must be 0 (always generate) or between 20 and 1000";
+        return false;
+    }
+    if (config.maxPresentedFps != -1 && config.maxPresentedFps != 0 &&
+        (config.maxPresentedFps < 20 || config.maxPresentedFps > 1000)) {
+        error = "openfg.max_presented_fps must be -1 (display refresh), "
+            "0 (off) or between 20 and 1000";
         return false;
     }
     if (config.generator != "flow" && config.generator != "blend" &&
@@ -574,8 +597,9 @@ LoadResult parse(const std::string& text, const std::filesystem::path& path) {
         // ignored. This also catches keys outside any section.
         static const std::set<std::string> known{
             "openfg.enabled", "openfg.gpu", "openfg.cross_gpu",
-            "openfg.multiplier", "openfg.target_fps", "openfg.performance_mode",
-            "openfg.generator", "openfg.present_timing", "openfg.debug",
+            "openfg.multiplier", "openfg.target_fps", "openfg.max_presented_fps",
+            "openfg.performance_mode", "openfg.generator", "openfg.present_timing",
+            "openfg.debug",
             "processes.include", "processes.exclude",
             "video.processes", "video.multiplier", "video.target_fps",
             "video.performance_mode", "video.safe"
@@ -593,6 +617,7 @@ LoadResult parse(const std::string& text, const std::filesystem::path& path) {
             !getBool(values, "openfg", "cross_gpu", config.crossGpu, error) ||
             !getUnsigned(values, "openfg", "multiplier", config.multiplier, error) ||
             !getUnsigned(values, "openfg", "target_fps", config.targetFps, error) ||
+            !getInt(values, "openfg", "max_presented_fps", config.maxPresentedFps, error) ||
             !getBool(values, "openfg", "performance_mode", config.performanceMode, error) ||
             !getString(values, "openfg", "generator", config.generator, error) ||
             !getBool(values, "openfg", "present_timing", config.presentTiming, error) ||
@@ -655,6 +680,13 @@ LoadResult load(const std::filesystem::path& path) {
             config.targetFps = static_cast<unsigned>(*value);
         else
             result.warnings.push_back("OPENFG_TARGET_FPS must be between 0 and 1000; ignored");
+    }
+    if (const auto value = envInt("OPENFG_MAX_PRESENTED_FPS"); value) {
+        if (*value == -1 || *value == 0 || (*value >= 20 && *value <= 1000))
+            config.maxPresentedFps = static_cast<int>(*value);
+        else
+            result.warnings.push_back(
+                "OPENFG_MAX_PRESENTED_FPS must be -1, 0 or between 20 and 1000; ignored");
     }
     if (const auto value = envBool("OPENFG_PERFORMANCE_MODE"); value)
         config.performanceMode = *value;
@@ -784,6 +816,11 @@ multiplier = 2
 # Only generate while the application is below this rate. 0 = always.
 target_fps = 0
 
+# Cap presented frames per second. The source cap becomes this value divided
+# by the multiplier. -1 = detected display refresh (recommended for latency),
+# 0 = off, or an explicit value such as 165.
+max_presented_fps = 0
+
 # Skip the full-resolution flow refinement: faster, softer silhouettes.
 performance_mode = false
 
@@ -855,6 +892,7 @@ std::string toToml(const Config& config) {
     result += std::string("cross_gpu = ") + (config.crossGpu ? "true" : "false") + "\n";
     result += "multiplier = " + std::to_string(config.multiplier) + "\n";
     result += "target_fps = " + std::to_string(config.targetFps) + "\n";
+    result += "max_presented_fps = " + std::to_string(config.maxPresentedFps) + "\n";
     result += std::string("performance_mode = ") +
         (config.performanceMode ? "true" : "false") + "\n";
     result += "generator = " + quote(config.generator) + "\n";

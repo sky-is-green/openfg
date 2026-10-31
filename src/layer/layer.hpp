@@ -5,6 +5,7 @@
 #include <vulkan/vulkan.h>
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
 // Device-level entry points collected by the layer bootstrap.
@@ -74,6 +75,9 @@ struct SwapchainInfo {
     VkExtent2D extent{};
     uint32_t queueFamily{UINT32_MAX};
     std::vector<VkImage> images;
+    /// Current display refresh, when max_presented_fps asks for auto.
+    double displayRefresh{};
+    std::string displayConnector;
 };
 
 bool enabled();

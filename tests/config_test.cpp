@@ -25,6 +25,7 @@ gpu = "auto"
 cross_gpu = false
 multiplier = 2
 target_fps = 120
+max_presented_fps = -1
 performance_mode = false
 generator = "blend"
 present_timing = true
@@ -58,6 +59,7 @@ int main() {
     expect(parsed.config.multiplier == 2, "global multiplier stays separate");
     expect(parsed.config.generator == "blend", "generator parsed");
     expect(parsed.config.presentTiming, "present timing parsed");
+    expect(parsed.config.maxPresentedFps == -1, "max presented fps parsed");
 
     const auto video = withVideoProfile(parsed.config, { "mpv" });
     expect(video.multiplier == 4, "video profile overrides the multiplier");
@@ -78,6 +80,15 @@ int main() {
     expect(roundTrip.error.empty(), "toToml output parses");
     expect(roundTrip.config.video.multiplier == 4, "round-trip keeps the video multiplier");
     expect(roundTrip.config.video.safe, "round-trip keeps the cut guard");
+    expect(roundTrip.config.maxPresentedFps == -1,
+        "round-trip keeps the presented-frame cap");
+
+    std::string badCap{CONFIG};
+    const auto capPosition = badCap.find("max_presented_fps = -1");
+    badCap.replace(capPosition, std::string("max_presented_fps = -1").size(),
+        "max_presented_fps = 5");
+    expect(!parse(badCap, "bad-cap.toml").error.empty(),
+        "an out-of-range presented cap is rejected");
 
     std::string brokenGenerator{CONFIG};
     const auto generatorPosition = brokenGenerator.find("generator = \"blend\"");

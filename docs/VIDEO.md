@@ -26,6 +26,7 @@ gpu = "auto"
 cross_gpu = false
 multiplier = 2
 target_fps = 0
+max_presented_fps = -1
 performance_mode = false
 
 [processes]
@@ -42,7 +43,9 @@ safe = true
 On the reference system a 512x384, 23.976 fps H.264 file played with Vulkan
 video decode and generated frames at both 2x and 4x. `4x` is the useful video
 setting: 24 fps becomes roughly 96 presented frames/s before display pacing.
-`target_fps` is not useful for video and should stay at 0.
+`target_fps` is not useful for video and should stay at 0; `max_presented_fps
+= -1` is useful, because it leaves 50/60 fps material native instead of
+quadrupling it past the display refresh.
 
 The GUI's **Video · 4x** preset fills in `processes = ["mpv"]` and enables the
 cut guard. The player's process name is the native executable or the
@@ -123,6 +126,10 @@ low-fps and not GPU-bound; `false` is the better starting point for quality.
 
 - `multiplier = 4`
 - `target_fps = 0` (always generate; 24 fps is below any useful target)
+- `max_presented_fps = -1` (or an explicit refresh) so 50/60 fps files are
+  not multiplied past the display. On a 60 Hz display this also disables 4x
+  for 24 fps (24 × 4 = 96 > 60); use `0` there if you prefer the extra
+  generated frames over the added latency.
 - `performance_mode = false`
 - `safe = true` (scene-cut guard)
 - Name the player in `video.processes` (it is matched in addition to

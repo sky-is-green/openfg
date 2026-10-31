@@ -11,6 +11,7 @@
 
 #include "layer.hpp"
 #include "config/config.hpp"
+#include "display.hpp"
 #include "openfg_backend.hpp"
 
 #include <vulkan/vulkan.h>
@@ -161,29 +162,41 @@ namespace {
         return fallback < 0 ? 0u : static_cast<uint32_t>(fallback);
     }
 
-    std::string identifyPhysicalDevice(const LayerDeviceFns& fns, const std::string& requested) {
-        if (!requested.empty() && requested != "auto")
-            return requested;
+    std::string devicePciAddress(const LayerDeviceFns& fns) {
+        if (!fns.getPhysDevProperties2 ||
+            !hasExtension(fns, VK_EXT_PCI_BUS_INFO_EXTENSION_NAME))
+            return {};
 
-        const bool hasPci = hasExtension(fns, VK_EXT_PCI_BUS_INFO_EXTENSION_NAME);
         VkPhysicalDevicePCIBusInfoPropertiesEXT pci{};
         pci.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PCI_BUS_INFO_PROPERTIES_EXT;
 
         VkPhysicalDeviceProperties2 props{};
         props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-        props.pNext = hasPci ? &pci : nullptr;
+        props.pNext = &pci;
+        fns.getPhysDevProperties2(fns.physdev, &props);
+
+        if (!(pci.pciDomain || pci.pciBus || pci.pciDevice || pci.pciFunction))
+            return {};
+        char buffer[64]{};
+        std::snprintf(buffer, sizeof(buffer), "%04x:%02x:%02x.%x",
+            pci.pciDomain, pci.pciBus, pci.pciDevice, pci.pciFunction);
+        return buffer;
+    }
+
+    std::string identifyPhysicalDevice(const LayerDeviceFns& fns, const std::string& requested) {
+        if (!requested.empty() && requested != "auto")
+            return requested;
+
+        const std::string pci = devicePciAddress(fns);
+        if (!pci.empty())
+            return pci;
+
+        VkPhysicalDeviceProperties2 props{};
+        props.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
         if (fns.getPhysDevProperties2)
             fns.getPhysDevProperties2(fns.physdev, &props);
 
-        if (hasPci &&
-            (pci.pciDomain || pci.pciBus || pci.pciDevice || pci.pciFunction)) {
-            char buffer[64]{};
-            std::snprintf(buffer, sizeof(buffer), "%04x:%02x:%02x.%x",
-                pci.pciDomain, pci.pciBus, pci.pciDevice, pci.pciFunction);
-            return buffer;
-        }
-
-        if (hasPci)
+        if (hasExtension(fns, VK_EXT_PCI_BUS_INFO_EXTENSION_NAME))
             logLine("%s PCI bus info is empty; using the device name\n", TAG);
         return props.properties.deviceName;
     }
@@ -242,6 +255,7 @@ namespace {
         uint64_t syncValue{};
         uint32_t iteration{};
         uint32_t multiplier{2};
+        double displayRefresh{};
         VkFormat colorFormat{VK_FORMAT_R8G8B8A8_UNORM};
         bool crossGpu{};
         bool timingLogged{};
@@ -330,6 +344,38 @@ namespace {
         state.adaptive = adaptive;
     }
 
+    struct TargetLimit {
+        double fps{};
+        /// The limit comes from max_presented_fps rather than target_fps.
+        bool presented{};
+    };
+
+    // Effective source-rate cap. `target_fps` is the manual source cap;
+    // `max_presented_fps` expresses the same limit in presented frames, so it
+    // automatically tracks the multiplier. -1 means the detected refresh.
+    TargetLimit effectiveTarget(
+        const FgState& state,
+        const openfg::config::Config& config
+    ) {
+        const double manual = config.targetFps > 0
+            ? static_cast<double>(config.targetFps)
+            : 0.0;
+        if (config.maxPresentedFps == 0)
+            return { manual, false };
+
+        const double presented = config.maxPresentedFps < 0
+            ? state.displayRefresh
+            : static_cast<double>(config.maxPresentedFps);
+        if (presented <= 0.0)
+            return { manual, false };
+
+        const double capped =
+            presented / static_cast<double>(std::clamp(config.multiplier, 2u, 4u));
+        if (manual > 0.0 && manual < capped)
+            return { manual, false };
+        return { capped, true };
+    }
+
     bool shouldGenerate(FgState& state, const openfg::config::Config& config) {
         using namespace std::chrono;
         const auto now = steady_clock::now();
@@ -340,7 +386,9 @@ namespace {
             return false;
         }
 
-        if (config.targetFps == 0) {
+        const TargetLimit limit = effectiveTarget(state, config);
+        const double target = limit.fps;
+        if (target <= 0.0) {
             adaptive.generating = true;
             adaptive.lastPresent = now;
             return true;
@@ -377,7 +425,6 @@ namespace {
             sampleMs = 1.0;
 
         const double fps = 1000.0 / sampleMs;
-        const double target = static_cast<double>(config.targetFps);
 
         if (adaptive.generating) {
             if (fps > target * 1.05) {
@@ -389,14 +436,21 @@ namespace {
                     adaptive.belowSince = {};
                     if (config.debug)
                         std::fprintf(stderr,
-                            "%s adaptive: stop generating (%.1f fps, target %u)\n",
-                            TAG, fps, config.targetFps);
+                            "%s adaptive: stop generating (%.1f fps, target %.1f)\n",
+                            TAG, fps, target);
                 }
             } else {
                 adaptive.aboveSince = {};
             }
         } else {
-            if (fps < target * 0.95) {
+            // A manual target starts with 5% headroom. The presented cap is a
+            // physical limit, so generation should start when the source is
+            // at the cap (30 fps on 60 Hz, for example); a tiny tolerance
+            // absorbs measurement jitter.
+            const double startThreshold = limit.presented
+                ? target * 1.005
+                : target * 0.95;
+            if (fps < startThreshold) {
                 if (adaptive.belowSince == steady_clock::time_point{})
                     adaptive.belowSince = now;
                 if (now - adaptive.belowSince >= seconds(1)) {
@@ -406,8 +460,8 @@ namespace {
                     adaptive.belowSince = {};
                     if (config.debug)
                         std::fprintf(stderr,
-                            "%s adaptive: start generating (%.1f fps, target %u)\n",
-                            TAG, fps, config.targetFps);
+                            "%s adaptive: start generating (%.1f fps, target %.1f)\n",
+                            TAG, fps, target);
                 }
             } else {
                 adaptive.belowSince = {};
@@ -820,9 +874,35 @@ bool presentTiming() {
     return activeConfig().presentTiming;
 }
 
-void addSwapchain(const LayerDeviceFns&, const SwapchainInfo& info) {
+void addSwapchain(const LayerDeviceFns& fns, const SwapchainInfo& info) {
+    SwapchainInfo stored = info;
+    if (enabled() && activeConfig().maxPresentedFps < 0 &&
+        info.extent.width && info.extent.height) {
+        const auto display = queryDisplayRefresh(
+            devicePciAddress(fns), info.extent.width, info.extent.height);
+        if (display) {
+            stored.displayRefresh = display->refreshHz;
+            stored.displayConnector = display->connector;
+            if (activeConfig().debug) {
+                if (display->width && display->height) {
+                    logLine("%s display: %s %ux%u @ %.2f Hz\n", TAG,
+                        display->connector.c_str(), display->width,
+                        display->height, display->refreshHz);
+                } else {
+                    logLine("%s display refresh: %.2f Hz (%s)\n", TAG,
+                        display->refreshHz, display->connector.c_str());
+                }
+            }
+        } else {
+            static std::atomic<bool> warned{false};
+            if (!warned.exchange(true)) {
+                logLine("%s display refresh detection failed; "
+                    "max_presented_fps = -1 has no effect\n", TAG);
+            }
+        }
+    }
     std::lock_guard lock(g_mutex);
-    g_swapchains[info.swapchain] = info;
+    g_swapchains[info.swapchain] = std::move(stored);
 }
 
 void removeSwapchain(VkDevice device, VkSwapchainKHR swapchain) {
@@ -991,6 +1071,7 @@ VkResult present(
     state->device = fns.device;
     state->fns = &fns;
     state->swapchain = swapchain;
+    state->displayRefresh = swapInfo.displayRefresh;
     if (activeConfig().presentTiming && !state->timingLogged) {
         state->timingLogged = true;
         logLine("%s present timing: %s (id=%d wait=%p)\n", TAG,

@@ -46,6 +46,7 @@ gpu = "auto"
 cross_gpu = false
 multiplier = 2
 target_fps = 0
+max_presented_fps = -1
 performance_mode = false
 debug = false
 
@@ -72,8 +73,11 @@ between them:
 1. **Same GPU, 2x** — baseline. Compare frame rate and frame time with the
    layer disabled (`enabled = false` or `DISABLE_OPENFG=1`).
 2. **Same GPU, 3x and 4x** — smoothness and added display delay.
-3. **`target_fps`** — on a 120/144/165 Hz display, try 120. Generation starts
-   off and enables only after a sustained drop.
+3. **`max_presented_fps`** — set `-1` to cap at the detected display refresh.
+   Generation starts off and enables only when source fps × multiplier drops
+   below it; the startup log should print `display: ... @ ... Hz`. Use an
+   explicit value if the sandbox hides `/dev/dri/card*`, or `OPENFG_REFRESH`
+   to override the detected rate.
 4. **`performance_mode`** — compare quality and frame time; it skips the
    full-resolution flow refinement.
 5. **Cross-GPU** — only with two GPUs from the same vendor/driver. Set
@@ -145,7 +149,8 @@ openfg-cli show output:
 
 and:
 
-- The exact test: multiplier, `target_fps`, `performance_mode`, cross-GPU.
+- The exact test: multiplier, `target_fps`, `max_presented_fps`,
+  `performance_mode`, cross-GPU.
 - Frame rate and frame time with the layer on and off.
 - `OPENFG_DEBUG=1 your-game 2>openfg.log` (or the player's command) and the
   first 40 lines around startup plus any error lines.

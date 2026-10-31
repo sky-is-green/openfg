@@ -98,8 +98,14 @@ namespace {
             openfg::config::processMatches(result.config) ? "yes" : "no");
         const auto effective = openfg::config::withVideoProfile(
             result.config, names);
-        std::printf("# effective: %ux, target %u fps, performance %s, safe %s\n",
-            effective.multiplier, effective.targetFps,
+        std::string presentedCap{"off"};
+        if (effective.maxPresentedFps < 0)
+            presentedCap = "auto (display refresh)";
+        else if (effective.maxPresentedFps > 0)
+            presentedCap = std::to_string(effective.maxPresentedFps) + " fps";
+        std::printf("# effective: %ux, target %u fps, max presented %s, "
+            "performance %s, safe %s\n",
+            effective.multiplier, effective.targetFps, presentedCap.c_str(),
             effective.performanceMode ? "yes" : "no",
             effective.videoSafe ? "yes" : "no");
         return 0;

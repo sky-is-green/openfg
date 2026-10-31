@@ -86,7 +86,8 @@ install(TARGETS fg-lab openfg-cli openfg-gpu-probe RUNTIME DESTINATION bin)
 
 add_library(openfg-layer SHARED
   "src/layer/layer.cpp"
-  "src/layer/fg.cpp")
+  "src/layer/fg.cpp"
+  "src/layer/display.cpp")
 target_include_directories(openfg-layer PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/src"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/openfg")

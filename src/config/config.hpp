@@ -31,6 +31,9 @@ struct Config {
     unsigned multiplier{2};
     /// Generate only while the application is below this rate. 0 = always.
     unsigned targetFps{0};
+    /// Stop generating when the presented rate would exceed this value.
+    /// -1 = detected display refresh, 0 = off, >0 = explicit presents/s.
+    int maxPresentedFps{0};
     /// Skip the full-resolution flow refinement (faster, softer edges).
     bool performanceMode{false};
     /// "flow", "blend", "hold" or "off" (instrument-only passthrough).

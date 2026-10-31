@@ -30,6 +30,7 @@ used here.
 - [x] Multiple swapchains per device
 - [x] Generator modes: optical flow, blend, hold and timing-only off
 - [x] Opt-in present-timing latency percentiles
+- [x] Refresh-aware presented-frame cap (detected display refresh / multiplier)
 - [x] clang/gcc CI and config tests
 - [x] Arch/CachyOS PKGBUILD (`packaging/`)
 - [ ] AUR/Flatpak packages
@@ -88,6 +89,11 @@ multiplier = 2
 # 0 = always generate. Set near the refresh rate to preserve native latency.
 target_fps = 0
 
+# Cap presented frames per second. The source cap becomes this value divided
+# by the multiplier. -1 = detected display refresh (recommended for latency),
+# 0 = off, or an explicit value such as 165.
+max_presented_fps = 0
+
 # Skip the full-resolution flow refinement: ~14% faster, slightly softer edges.
 performance_mode = false
 
@@ -112,7 +118,8 @@ exclude = []
 ```
 
 `OPENFG_ENABLE`, `OPENFG_GPU`, `OPENFG_CROSS_GPU`, `OPENFG_MULTIPLIER`,
-`OPENFG_TARGET_FPS`, `OPENFG_PERFORMANCE_MODE` and `OPENFG_DEBUG` override
+`OPENFG_TARGET_FPS`, `OPENFG_MAX_PRESENTED_FPS`, `OPENFG_PERFORMANCE_MODE` and
+`OPENFG_DEBUG` override
 individual settings for ad-hoc tests.
 
 The layer is inactive unless `enabled = true` or `OPENFG_ENABLE=1`, and the
@@ -203,16 +210,21 @@ Frame generation has an inherent cost: the generated frame must be shown
 **before** the current real frame, so the real frame is delayed by at least one
 display refresh. The practical options are:
 
-- `target_fps`: stop generating when the game is already near the refresh
-  rate divided by the multiplier. This is the biggest win for latency at high
-  fps. The comparison subtracts the layer's own per-frame
-  copy/generate/present time from the measured interval to estimate the native
-  rate, then applies a 5% hysteresis and a one-second dwell to avoid flapping.
-  Generation starts off for `target_fps > 0`, so a game already above the
-  target never initializes the backend at all; it enables only after a
-  sustained drop. On a 165 Hz display, use about **80 for 2x** or **40 for
-  4x**; `target_fps = 120` with 2x wants 240 presents/s and will add present
-  latency.
+- `max_presented_fps`: stop generating when `source fps × multiplier` would
+  exceed this value. `-1` uses the active display refresh, which is the
+  recommendation for low latency: on a 165 Hz display that means a source cap
+  of 82.5 fps for 2x or 41.25 fps for 4x, and it follows the multiplier
+  automatically. The layer reads the active connector/CRTC mode through DRM;
+  `OPENFG_REFRESH` overrides it when the sandbox hides `/dev/dri/card*`. `0`
+  disables the cap. A game already above the effective target never
+  initializes the backend.
+- `target_fps`: a manual source-rate cap with the same adaptive logic. When
+  both are set, the stricter limit wins. The comparison subtracts the layer's
+  own per-frame copy/generate/present time from the measured interval to
+  estimate the native rate, then applies a 5% hysteresis and a one-second
+  dwell to avoid flapping. Generation starts off for a nonzero target, so a
+  game already above it never initializes the backend; it enables only after a
+  sustained drop.
 - `performance_mode`: skip the full-resolution flow refinement. It measured
   ~16% faster (1.58 → 1.32 ms at 1440p) with a 0.08 dB PSNR change on the pan
   scene and 0.01 dB on the ghost scene.
@@ -231,11 +243,15 @@ display refresh. The practical options are:
 
 Measured with `present_timing = true` on 24 fps video at 165 Hz: 2x and 4x
 added **no** real-frame present latency in the clean run (p50 41.98 ms, same
-as off); the generator cost 0.16–0.27 ms. Under concurrent GPU load 4x slipped
-to ~83 ms, so the display/GPU headroom matters. At high source rates the
-display slots run out; measure at the actual game rate. See [docs/LATENCY.md](docs/LATENCY.md) for the
-methodology, the generator cost/quality table and what is not measured
-(input-to-photon needs external hardware).
+as off); the generator cost 0.16–0.27 ms. At 60 fps, `max_presented_fps = -1`
+disables 4x (240 presents/s would exceed 165 Hz) and keeps the native p50 of
+17 ms. A 90 fps source is likewise left native by the 2x auto cap (p50 11 ms);
+forcing it with `OPENFG_REFRESH=200` made the layer generate and raised p50 to
+33 ms. At the exact boundary, 30 fps on 60 Hz, 2x turns 30 into 60 presented
+fps with the same 33 ms p50 as native. Under concurrent GPU load 4x slipped to
+~83 ms, so display/GPU headroom matters. See [docs/LATENCY.md](docs/LATENCY.md) for the methodology, the
+generator cost/quality table and what is not measured (input-to-photon needs
+external hardware).
 
 For a system-wide install, use CMake directly:
 

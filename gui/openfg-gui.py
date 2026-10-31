@@ -173,6 +173,7 @@ def load_config() -> dict:
         "cross_gpu": False,
         "multiplier": 2,
         "target_fps": 0,
+        "max_presented_fps": 0,
         "performance_mode": False,
         "generator": "flow",
         "present_timing": False,
@@ -199,7 +200,7 @@ def load_config() -> dict:
         config["enabled"] = bool(section.get("enabled", config["enabled"]))
         config["gpu"] = str(section.get("gpu", config["gpu"]))
         config["cross_gpu"] = bool(section.get("cross_gpu", config["cross_gpu"]))
-        for key in ("multiplier", "target_fps"):
+        for key in ("multiplier", "target_fps", "max_presented_fps"):
             try:
                 config[key] = int(section.get(key, config[key]))
             except (TypeError, ValueError):
@@ -255,6 +256,7 @@ gpu = {quote(config['gpu'])}
 cross_gpu = {'true' if config['cross_gpu'] else 'false'}
 multiplier = {config['multiplier']}
 target_fps = {config['target_fps']}
+max_presented_fps = {config['max_presented_fps']}
 performance_mode = {'true' if config['performance_mode'] else 'false'}
 generator = {quote(config['generator'])}
 present_timing = {'true' if config['present_timing'] else 'false'}
@@ -342,9 +344,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         preset_layout.addWidget(preset(
             "Latency-friendly",
-            "2x, same GPU, generate only below half the display refresh, "
-            "quality flow. This keeps native input latency when the game is "
-            "already fast enough.",
+            "2x, same GPU, cap the presented rate at the detected display "
+            "refresh, quality flow. This keeps native input latency when the "
+            "game is already fast enough.",
             lambda: self._apply_preset("latency")))
         preset_layout.addWidget(preset(
             "Always generate · quality",
@@ -470,6 +472,38 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         self.target_note = hint("")
         latency_form.addRow("Target FPS:", self.target_fps)
+
+        self.max_presented = QtWidgets.QComboBox()
+        self.max_presented.addItem("Off", 0)
+        self.max_presented.addItem("Auto (detected display refresh)", -1)
+        self.max_presented.addItem("Custom", 1)
+        self.max_presented.setToolTip(
+            "Stops generation when the presented rate would exceed this value. "
+            "The layer converts it to a source cap by dividing by the "
+            "multiplier. Auto reads the active display mode through DRM; "
+            "set OPENFG_REFRESH to override it in a sandbox."
+        )
+        self.max_presented_spin = QtWidgets.QSpinBox()
+        self.max_presented_spin.setRange(20, 1000)
+        self.max_presented_spin.setSingleStep(5)
+        self.max_presented_spin.setSuffix(" presented fps")
+        screen = QtWidgets.QApplication.primaryScreen()
+        refresh = screen.refreshRate() if screen else 0.0
+        self.max_presented_spin.setValue(
+            round(refresh) if 20 <= refresh <= 1000 else 165)
+        configured_cap = int(self.config["max_presented_fps"])
+        if configured_cap == -1:
+            self.max_presented.setCurrentIndex(1)
+        elif configured_cap >= 20:
+            self.max_presented.setCurrentIndex(2)
+            self.max_presented_spin.setValue(configured_cap)
+        else:
+            self.max_presented.setCurrentIndex(0)
+        cap_row = QtWidgets.QHBoxLayout()
+        cap_row.addWidget(self.max_presented, 1)
+        cap_row.addWidget(self.max_presented_spin)
+        latency_form.addRow("Max presented FPS:", cap_row)
+        self.max_presented_spin.setEnabled(self.max_presented.currentData() == 1)
 
         self.performance = QtWidgets.QCheckBox(
             "Performance mode (half-resolution flow, softer silhouettes)")
@@ -604,6 +638,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.cross_gpu.toggled,
             self.performance.toggled,
             self.target_fps.valueChanged,
+            self.max_presented_spin.valueChanged,
             self.multiplier.currentIndexChanged,
             self.gpu.currentIndexChanged,
             self.gpu.editTextChanged,
@@ -613,6 +648,12 @@ class MainWindow(QtWidgets.QMainWindow):
             signal.connect(self._update_summary)
         self.video_processes.textChanged.connect(self._update_summary)
         self.target_fps.valueChanged.connect(self._update_target_note)
+        self.max_presented.currentIndexChanged.connect(self._update_cap_state)
+        self._update_target_note()
+        self._update_summary()
+
+    def _update_cap_state(self) -> None:
+        self.max_presented_spin.setEnabled(self.max_presented.currentData() == 1)
         self._update_target_note()
         self._update_summary()
 
@@ -642,6 +683,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.enabled.setChecked(True)
         self.cross_gpu.setChecked(False)
         self.multiplier.setCurrentIndex(self.multiplier.findData(2))
+        self.max_presented.setCurrentIndex(self.max_presented.findData(0))
         if name == "video":
             if not self.video_processes.toPlainText().strip():
                 self.video_processes.setPlainText("mpv")
@@ -656,10 +698,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self._update_summary()
             return
         if name == "latency":
-            screen = QtWidgets.QApplication.primaryScreen()
-            refresh = screen.refreshRate() if screen else 0.0
-            self.target_fps.setValue(
-                max(20, round(refresh / 2.0)) if refresh else 120)
+            self.target_fps.setValue(0)
+            self.max_presented.setCurrentIndex(
+                self.max_presented.findData(-1))
             self.performance.setChecked(False)
         elif name == "quality":
             self.target_fps.setValue(0)
@@ -687,9 +728,19 @@ class MainWindow(QtWidgets.QMainWindow):
             gpu_text = "application GPU" if gpu == "auto" else gpu
             cross = "second GPU" if self.cross_gpu.isChecked() else "same GPU"
             target = int(self.target_fps.value())
-            target_text = "always generating" if target == 0 else f"below {target} fps"
+            cap = int(self.max_presented.currentData())
+            if target == 0:
+                target_text = "auto source cap" if cap else "always generating"
+            else:
+                target_text = f"source < {target} fps"
+            if cap == -1:
+                cap_text = " · auto presented cap"
+            elif cap == 1:
+                cap_text = f" · ≤{self.max_presented_spin.value()} presented fps"
+            else:
+                cap_text = ""
             flow = "performance flow" if self.performance.isChecked() else "quality flow"
-            text = f"{multiplier}x · {cross} · {gpu_text} · {target_text} · {flow}"
+            text = f"{multiplier}x · {cross} · {gpu_text} · {target_text}{cap_text} · {flow}"
             video_players = [line.strip() for line in
                              self.video_processes.toPlainText().splitlines() if line.strip()]
             if video_players:
@@ -703,6 +754,21 @@ class MainWindow(QtWidgets.QMainWindow):
             "padding:6px; background:#20242a; border-radius:4px;" % color)
 
     def _update_target_note(self) -> None:
+        cap = int(self.max_presented.currentData())
+        if cap == -1:
+            self.target_note.setText(
+                "The layer reads the active display mode and stops generating "
+                "when source fps × multiplier would exceed it. This is the "
+                "lowest-latency setting on a fixed-refresh display. If the "
+                "layer cannot read DRM, set OPENFG_REFRESH to the refresh "
+                "rate or use a custom cap.")
+            return
+        if cap == 1:
+            self.target_note.setText(
+                f"Generation stops when source fps × multiplier would exceed "
+                f"{self.max_presented_spin.value()} presented fps. The Target "
+                "FPS setting is applied as a second, independent limit.")
+            return
         target = int(self.target_fps.value())
         if target == 0:
             self.target_note.setText(
@@ -724,6 +790,10 @@ class MainWindow(QtWidgets.QMainWindow):
             "cross_gpu": self.cross_gpu.isChecked(),
             "multiplier": int(self.multiplier.currentData()),
             "target_fps": int(self.target_fps.value()),
+            "max_presented_fps": (
+                int(self.max_presented_spin.value())
+                if self.max_presented.currentData() == 1
+                else int(self.max_presented.currentData())),
             "performance_mode": self.performance.isChecked(),
             "generator": self.generator.currentData(),
             "present_timing": self.present_timing.isChecked(),

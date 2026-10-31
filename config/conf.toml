@@ -20,6 +20,11 @@ multiplier = 2
 # Only generate while the application is below this rate. 0 = always.
 target_fps = 0
 
+# Cap presented frames per second. The source cap becomes this value divided
+# by the multiplier. -1 = detected display refresh (recommended for latency),
+# 0 = off, or an explicit value such as 165.
+max_presented_fps = 0
+
 # Skip the full-resolution flow refinement: faster, softer silhouettes.
 performance_mode = false
 

@@ -44,9 +44,41 @@ two intervals (p95 33 ms), and 4x wants 240 presents/s on a 165 Hz display, so
 the real frame lands about three source intervals later (p50 50 ms).
 
 The rule of thumb is **source rate × multiplier ≤ display refresh**. For
-2x on 165 Hz that means `target_fps` around 80, not 120; for 4x it means
-around 40. Set `target_fps` to `refresh / multiplier` for low latency, or
-accept the extra present latency when generating above that.
+2x on 165 Hz that means a source cap around 82, not 120; for 4x it means
+around 41. `max_presented_fps = -1` derives that cap from the detected display
+refresh automatically. `target_fps` remains a manual source cap; when both are
+set, the stricter one wins.
+
+The cap is observable directly. On the same 165 Hz display:
+
+| source | mode | cap | app fps | presented fps | present p50 |
+|---:|---|---:|---:|---:|---:|
+| 90 | 2x flow | auto (165) | 90.2 | 90.2 | **10.99 ms** |
+| 90 | 2x flow | `OPENFG_REFRESH=200` | 90.2 | 165.2 | **33.01 ms** |
+| 60 | 4x flow | auto (165) | 60.2 | 60.2 | **16.99 ms** |
+| 30 | off | — | 30.2 | 30.2 | **33.00 ms** |
+| 30 | 2x flow | auto (60) | 30.2 | 60.0 | **33.00 ms** |
+
+The first row is the intended low-latency behavior: 90 × 2 = 180 presents/s
+would not fit in 165 Hz, so the layer leaves the game native. The second row
+shows what happens without the cap — the real frame lands two refresh
+intervals later. The 60 fps 4x row wants 240 presents/s and is likewise left
+native. `OPENFG_REFRESH` is also the fallback for sandboxes where the DRM card
+nodes are hidden.
+
+The 30 fps/60 Hz rows are the exact-boundary case. The cap is
+`60 / 2 = 30 fps`, so the layer starts generating when the source is at the
+cap (0.5% measurement tolerance) instead of requiring the manual
+`target_fps`'s 5% headroom. 2x doubles the presented rate from 30 to 60 fps
+without adding real-frame present latency: the p50 stays at 33 ms. This is
+the main reason the presented cap is preferable to a hand-computed
+`target_fps`.
+
+The detected refresh is the active CRTC mode of the display card. If the
+swapchain extent matches a mode, that connector wins; otherwise the
+highest-refresh active connector is used. On a mixed-refresh multi-monitor
+setup, a windowed game can therefore be capped for the faster display; set an
+explicit `max_presented_fps` in that case.
 
 With a concurrent GPU load, 4x at 24 fps also slipped to a p50 of ~83 ms.
 Measure at the actual game rate and load.
@@ -85,9 +117,16 @@ baselines, not shipping modes.
 ```toml
 [openfg]
 enabled = true
-generator = "flow"      # flow, blend, hold or off
+generator = "flow"          # flow, blend, hold or off
+max_presented_fps = -1      # detected display refresh; 0 = off
 present_timing = true
 debug = true
+```
+
+The layer logs the detected mode once, for example:
+
+```text
+[openfg] display: DP-1 2560x1440 @ 165.08 Hz
 ```
 
 Run the same fixed scene for each generator and read
