@@ -103,9 +103,10 @@ namespace {
             presentedCap = "auto (display refresh)";
         else if (effective.maxPresentedFps > 0)
             presentedCap = std::to_string(effective.maxPresentedFps) + " fps";
-        std::printf("# effective: %ux, target %u fps, max presented %s, "
+        std::printf("# effective: %ux, pacing %s, target %u fps, max presented %s, "
             "performance %s, safe %s\n",
-            effective.multiplier, effective.targetFps, presentedCap.c_str(),
+            effective.multiplier, effective.pacing.c_str(),
+            effective.targetFps, presentedCap.c_str(),
             effective.performanceMode ? "yes" : "no",
             effective.videoSafe ? "yes" : "no");
         return 0;

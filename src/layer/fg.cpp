@@ -21,6 +21,7 @@
 #include <chrono>
 #include <cstdarg>
 #include <atomic>
+#include <ctime>
 #include <deque>
 #include <cstdio>
 #include <cstdlib>
@@ -55,16 +56,41 @@ namespace {
     std::FILE* g_log{};
 
     void logLine(const char* format, ...) {
+        using namespace std::chrono;
+        char stamp[32];
+        const auto now = system_clock::now();
+        const auto seconds = system_clock::to_time_t(now);
+        const auto millis =
+            duration_cast<milliseconds>(now.time_since_epoch()) % 1000;
+        std::tm local{};
+        localtime_r(&seconds, &local);
+        std::snprintf(stamp, sizeof(stamp), "%02d:%02d:%02d.%03d",
+            local.tm_hour, local.tm_min, local.tm_sec,
+            static_cast<int>(millis.count()));
+
         va_list args;
         va_start(args, format);
+        std::fprintf(stderr, "[%s] ", stamp);
         std::vfprintf(stderr, format, args);
         va_end(args);
         if (g_log) {
             va_start(args, format);
+            std::fprintf(g_log, "[%s] ", stamp);
             std::vfprintf(g_log, format, args);
             va_end(args);
             std::fflush(g_log);
         }
+    }
+
+    // Per-frame tracing is far too noisy for a game session. Keep it behind
+    // an explicit environment variable so debug=true only enables the
+    // periodic file log.
+    bool trace() {
+        static const bool value = [] {
+            const char* text = std::getenv("OPENFG_TRACE");
+            return text && *text && std::strcmp(text, "0") != 0;
+        }();
+        return value;
     }
 
     void openLog() {
@@ -214,6 +240,10 @@ namespace {
         SemaphoreArray copyDone{};
     };
 
+    // 0.1 ms buckets up to 1000 ms; the last bucket also catches longer
+    // stalls. A histogram keeps the session summary cheap to compute.
+    constexpr size_t kLatencyBins = 10001;
+
     struct AdaptiveState {
         std::chrono::steady_clock::time_point lastPresent{};
         std::chrono::steady_clock::time_point aboveSince{};
@@ -226,6 +256,29 @@ namespace {
         std::deque<std::pair<uint64_t, std::chrono::steady_clock::time_point>>
             pendingPresents;
         std::vector<double> presentLatencies;
+        std::vector<double> frameIntervals;
+        double reportGeneratingMs{};
+        double reportNativeMs{};
+        double reportOverheadSum{};
+        uint64_t reportOverheadSamples{};
+
+        // Totals since the first present, reported every 30 seconds and at
+        // device teardown. These survive swapchain recreation.
+        std::chrono::steady_clock::time_point sessionStart{};
+        std::chrono::steady_clock::time_point lastSessionReport{};
+        uint64_t sessionPresents{};
+        uint64_t sessionGenerated{};
+        double sessionGeneratingMs{};
+        double sessionNativeMs{};
+        double sessionOverheadSum{};
+        uint64_t sessionOverheadSamples{};
+        std::array<uint32_t, kLatencyBins> sessionLatencyBins{};
+        std::array<uint32_t, kLatencyBins> sessionFrameBins{};
+        uint64_t sessionLatencySamples{};
+        uint64_t sessionFrameSamples{};
+
+        std::chrono::steady_clock::time_point generationRequested{};
+        bool firstFramePending{false};
         bool generating{false};
         bool resetPending{false};
     };
@@ -266,6 +319,7 @@ namespace {
     };
 
     std::mutex g_mutex;
+    bool g_sessionLogged{};
     // A backend instance is per application device; frame-generation state is
     // per swapchain so applications with more than one swapchain do not
     // destroy and recreate the context on every present.
@@ -338,10 +392,10 @@ namespace {
     /// Tears down per-swapchain resources. The backend instance is owned by
     /// g_instances and survives for the lifetime of the application device.
     void resetState(FgState& state) {
-        auto adaptive = state.adaptive;
+        auto adaptive = std::move(state.adaptive);
         destroyState(state);
         state = FgState{};
-        state.adaptive = adaptive;
+        state.adaptive = std::move(adaptive);
     }
 
     struct TargetLimit {
@@ -376,23 +430,53 @@ namespace {
         return { capped, true };
     }
 
+    size_t latencyBin(double ms) {
+        if (!(ms > 0.0))
+            return 0;
+        const double scaled = ms * 10.0;
+        if (scaled >= static_cast<double>(kLatencyBins - 1))
+            return kLatencyBins - 1;
+        return static_cast<size_t>(scaled);
+    }
+
+    double histogramPercentile(
+        const std::array<uint32_t, kLatencyBins>& bins,
+        uint64_t total,
+        double fraction
+    ) {
+        if (total == 0)
+            return 0.0;
+        const uint64_t target = static_cast<uint64_t>(
+            fraction * static_cast<double>(total - 1));
+        uint64_t seen = 0;
+        for (size_t i = 0; i < bins.size(); i++) {
+            seen += bins[i];
+            if (seen > target)
+                return static_cast<double>(i) / 10.0;
+        }
+        return static_cast<double>(bins.size() - 1) / 10.0;
+    }
+
+    double samplePercentile(const std::vector<double>& samples, double fraction) {
+        if (samples.empty())
+            return 0.0;
+        auto sorted = samples;
+        std::sort(sorted.begin(), sorted.end());
+        const size_t index = std::min(sorted.size() - 1,
+            static_cast<size_t>(fraction * static_cast<double>(sorted.size() - 1)));
+        return sorted[index];
+    }
+
+    void recordOverhead(AdaptiveState& adaptive, double ms) {
+        adaptive.overheadMs = ms;
+        adaptive.reportOverheadSum += ms;
+        adaptive.reportOverheadSamples++;
+    }
+
     bool shouldGenerate(FgState& state, const openfg::config::Config& config) {
         using namespace std::chrono;
         const auto now = steady_clock::now();
         auto& adaptive = state.adaptive;
-
-        if (config.generator == "off") {
-            adaptive.generating = false;
-            return false;
-        }
-
-        const TargetLimit limit = effectiveTarget(state, config);
-        const double target = limit.fps;
-        if (target <= 0.0) {
-            adaptive.generating = true;
-            adaptive.lastPresent = now;
-            return true;
-        }
 
         if (adaptive.lastPresent != steady_clock::time_point{}) {
             const double dt = duration<double, std::milli>(now - adaptive.lastPresent).count();
@@ -403,16 +487,69 @@ namespace {
                 adaptive.aboveSince = {};
                 adaptive.belowSince = {};
                 adaptive.lastPresent = now;
+                if (config.generator == "off")
+                    adaptive.generating = false;
                 return adaptive.generating;
             }
+            adaptive.frameIntervals.push_back(dt);
+            if (adaptive.generating)
+                adaptive.reportGeneratingMs += dt;
+            else
+                adaptive.reportNativeMs += dt;
             adaptive.intervalMs = adaptive.intervalMs <= 0.0
                 ? dt
                 : adaptive.intervalMs * 0.9 + dt * 0.1;
         }
         adaptive.lastPresent = now;
 
-        if (adaptive.intervalMs <= 0.0)
+        if (config.generator == "off") {
+            adaptive.generating = false;
+            return false;
+        }
+
+        const TargetLimit limit = effectiveTarget(state, config);
+        const double target = limit.fps;
+        if (target <= 0.0) {
+            adaptive.generating = true;
+            return true;
+        }
+
+        const bool capped = config.pacing == "capped";
+        // A capped source is expected to sit at the cap. Use a little more
+        // tolerance than the adaptive path so a 60.0 fps cap is not rejected
+        // by measurement jitter around a 60 fps target.
+        const double startThreshold = capped
+            ? target * 1.03
+            : (limit.presented ? target * 1.005 : target * 0.95);
+
+        auto startGenerating = [&](double fps, const char* mode, double dwellMs) {
+            adaptive.generating = true;
+            adaptive.resetPending = true;
+            adaptive.firstFramePending = true;
+            adaptive.generationRequested = now;
+            adaptive.aboveSince = {};
+            adaptive.belowSince = {};
+            if (config.debug) {
+                if (dwellMs >= 0.0) {
+                    logLine("%s adaptive: start generating (%s, %.1f fps, "
+                        "target %.1f, dwell %.0f ms)\n", TAG, mode, fps,
+                        target, dwellMs);
+                } else {
+                    logLine("%s adaptive: start generating (%s, %.1f fps, "
+                        "target %.1f)\n", TAG, mode, fps, target);
+                }
+            }
+        };
+
+        if (adaptive.intervalMs <= 0.0) {
+            // Capped mode trusts the application-side cap: start on the
+            // first present instead of waiting for a measured interval.
+            if (capped && !adaptive.generating) {
+                startGenerating(0.0, "capped mode, first frame", -1.0);
+                return true;
+            }
             return adaptive.generating;
+        }
 
         // When generation is active, the measured interval includes the
         // layer's own copy/generate/present work. Subtract the previous
@@ -427,43 +564,72 @@ namespace {
         const double fps = 1000.0 / sampleMs;
 
         if (adaptive.generating) {
-            if (fps > target * 1.05) {
-                if (adaptive.aboveSince == steady_clock::time_point{})
+            // Ignore the first few presents after a start: decoder/engine
+            // startup can produce one very short interval that looks like an
+            // over-refresh burst and would only generate log noise.
+            const bool justStarted =
+                adaptive.generationRequested != steady_clock::time_point{} &&
+                now - adaptive.generationRequested < milliseconds(200);
+            if (justStarted) {
+                adaptive.aboveSince = {};
+            } else if (fps > target * 1.05) {
+                if (adaptive.aboveSince == steady_clock::time_point{}) {
                     adaptive.aboveSince = now;
+                    // Capped mode is expected to sit near the cap; crossing
+                    // logs there would only show measurement jitter.
+                    if (config.debug && !capped)
+                        logLine("%s adaptive: above stop threshold (%.1f fps, "
+                            "target %.1f, stop %.1f)\n", TAG, fps, target,
+                            target * 1.05);
+                }
                 if (now - adaptive.aboveSince >= seconds(1)) {
                     adaptive.generating = false;
+                    adaptive.firstFramePending = false;
+                    const double dwellMs = duration<double, std::milli>(
+                        now - adaptive.aboveSince).count();
                     adaptive.aboveSince = {};
                     adaptive.belowSince = {};
                     if (config.debug)
-                        std::fprintf(stderr,
-                            "%s adaptive: stop generating (%.1f fps, target %.1f)\n",
-                            TAG, fps, target);
+                        logLine("%s adaptive: stop generating (%.1f fps, target %.1f, "
+                            "dwell %.0f ms)\n", TAG, fps, target, dwellMs);
                 }
             } else {
+                if (adaptive.aboveSince != steady_clock::time_point{} &&
+                    config.debug && !capped)
+                    logLine("%s adaptive: stop cancelled (%.1f fps, target %.1f)\n",
+                        TAG, fps, target);
                 adaptive.aboveSince = {};
+            }
+        } else if (capped) {
+            // No start dwell: the source is expected to be capped, so a
+            // measured rate below the cap is enough to begin immediately.
+            if (fps < startThreshold) {
+                startGenerating(fps, "capped mode", -1.0);
+                return true;
             }
         } else {
             // A manual target starts with 5% headroom. The presented cap is a
             // physical limit, so generation should start when the source is
             // at the cap (30 fps on 60 Hz, for example); a tiny tolerance
             // absorbs measurement jitter.
-            const double startThreshold = limit.presented
-                ? target * 1.005
-                : target * 0.95;
             if (fps < startThreshold) {
-                if (adaptive.belowSince == steady_clock::time_point{})
+                if (adaptive.belowSince == steady_clock::time_point{}) {
                     adaptive.belowSince = now;
-                if (now - adaptive.belowSince >= seconds(1)) {
-                    adaptive.generating = true;
-                    adaptive.resetPending = true;
-                    adaptive.aboveSince = {};
-                    adaptive.belowSince = {};
                     if (config.debug)
-                        std::fprintf(stderr,
-                            "%s adaptive: start generating (%.1f fps, target %.1f)\n",
-                            TAG, fps, target);
+                        logLine("%s adaptive: below start threshold (%.1f fps, "
+                            "target %.1f, start %.1f)\n", TAG, fps, target,
+                            startThreshold);
+                }
+                if (now - adaptive.belowSince >= seconds(1)) {
+                    const double dwellMs = duration<double, std::milli>(
+                        now - adaptive.belowSince).count();
+                    startGenerating(fps, "adaptive", dwellMs);
                 }
             } else {
+                if (adaptive.belowSince != steady_clock::time_point{} &&
+                    config.debug)
+                    logLine("%s adaptive: start cancelled (%.1f fps, target %.1f)\n",
+                        TAG, fps, target);
                 adaptive.belowSince = {};
             }
         }
@@ -853,6 +1019,8 @@ namespace {
 
 namespace openfg_layer {
 
+void logSession(FgState& state, bool force);
+
 bool enabled() {
     return ::enabled();
 }
@@ -920,6 +1088,7 @@ void destroyDevice(VkDevice device) {
     std::lock_guard lock(g_mutex);
     for (auto it = g_states.begin(); it != g_states.end();) {
         if (it->second->device == device) {
+            logSession(*it->second, true);
             resetState(*it->second);
             it = g_states.erase(it);
         } else {
@@ -999,41 +1168,133 @@ void pollPresentLatency(FgState& state, const LayerDeviceFns& fns) {
         state.adaptive.pendingPresents.pop_front();
 }
 
+void logSession(FgState& state, bool force) {
+    if (!activeConfig().debug)
+        return;
+    auto& adaptive = state.adaptive;
+    if (adaptive.sessionStart == std::chrono::steady_clock::time_point{})
+        return;
+    const auto now = std::chrono::steady_clock::now();
+    if (!force && adaptive.lastSessionReport != std::chrono::steady_clock::time_point{} &&
+        now - adaptive.lastSessionReport < std::chrono::seconds(30))
+        return;
+
+    const double elapsed =
+        std::chrono::duration<double>(now - adaptive.sessionStart).count();
+    if (elapsed <= 0.0)
+        return;
+    const uint64_t presented = adaptive.sessionPresents + adaptive.sessionGenerated;
+    const double appFps = static_cast<double>(adaptive.sessionPresents) / elapsed;
+    const double presentedFps = static_cast<double>(presented) / elapsed;
+    const double generatedPct = presented > 0
+        ? 100.0 * static_cast<double>(adaptive.sessionGenerated) /
+            static_cast<double>(presented)
+        : 0.0;
+    const double modeTotalMs =
+        adaptive.sessionGeneratingMs + adaptive.sessionNativeMs;
+    const double generatingPct = modeTotalMs > 0.0
+        ? 100.0 * adaptive.sessionGeneratingMs / modeTotalMs
+        : 0.0;
+    const double overhead = adaptive.sessionOverheadSamples > 0
+        ? adaptive.sessionOverheadSum /
+            static_cast<double>(adaptive.sessionOverheadSamples)
+        : 0.0;
+
+    logLine("%s session: %.1f s, app %.1f fps, presented %.1f fps, "
+        "generated %.0f%%, gen time %.0f%%, overhead avg %.2f ms, "
+        "present p50 %.2f / p95 %.2f / p99 %.2f ms, "
+        "frame p50 %.2f / p95 %.2f ms\n",
+        TAG, elapsed, appFps, presentedFps, generatedPct, generatingPct,
+        overhead,
+        histogramPercentile(adaptive.sessionLatencyBins,
+            adaptive.sessionLatencySamples, 0.50),
+        histogramPercentile(adaptive.sessionLatencyBins,
+            adaptive.sessionLatencySamples, 0.95),
+        histogramPercentile(adaptive.sessionLatencyBins,
+            adaptive.sessionLatencySamples, 0.99),
+        histogramPercentile(adaptive.sessionFrameBins,
+            adaptive.sessionFrameSamples, 0.50),
+        histogramPercentile(adaptive.sessionFrameBins,
+            adaptive.sessionFrameSamples, 0.95));
+    adaptive.lastSessionReport = now;
+}
+
 void reportPerf(FgState& state) {
     if (!activeConfig().debug)
         return;
+    auto& adaptive = state.adaptive;
     const auto now = std::chrono::steady_clock::now();
-    if (state.adaptive.reportTime == std::chrono::steady_clock::time_point{}) {
-        state.adaptive.reportTime = now;
+    if (adaptive.reportTime == std::chrono::steady_clock::time_point{}) {
+        adaptive.reportTime = now;
+        adaptive.sessionStart = now;
+        adaptive.lastSessionReport = now;
         return;
     }
     const double elapsed =
-        std::chrono::duration<double>(now - state.adaptive.reportTime).count();
+        std::chrono::duration<double>(now - adaptive.reportTime).count();
     if (elapsed < 5.0)
         return;
-    const double appFps = static_cast<double>(state.adaptive.reportPresents) / elapsed;
-    const double presentedFps = static_cast<double>(
-        state.adaptive.reportPresents + state.adaptive.reportGenerated) / elapsed;
-    logLine("%s perf: app %.1f fps, presented %.1f fps, overhead %.2f ms, "
-        "generating %s\n",
-        TAG, appFps, presentedFps, state.adaptive.overheadMs,
-        state.adaptive.generating ? "yes" : "no");
-    if (!state.adaptive.presentLatencies.empty()) {
-        auto samples = state.adaptive.presentLatencies;
-        std::sort(samples.begin(), samples.end());
-        auto pct = [&](double p) {
-            const size_t index = std::min(samples.size() - 1,
-                static_cast<size_t>(p * static_cast<double>(samples.size() - 1)));
-            return samples[index];
-        };
-        logLine("%s present latency: p50 %.2f ms, p95 %.2f ms, p99 %.2f ms "
-            "(%zu samples)\n", TAG, pct(0.50), pct(0.95), pct(0.99),
-            samples.size());
-        state.adaptive.presentLatencies.clear();
+
+    adaptive.sessionPresents += adaptive.reportPresents;
+    adaptive.sessionGenerated += adaptive.reportGenerated;
+    adaptive.sessionGeneratingMs += adaptive.reportGeneratingMs;
+    adaptive.sessionNativeMs += adaptive.reportNativeMs;
+    adaptive.sessionOverheadSum += adaptive.reportOverheadSum;
+    adaptive.sessionOverheadSamples += adaptive.reportOverheadSamples;
+    for (const double ms : adaptive.presentLatencies) {
+        adaptive.sessionLatencyBins[latencyBin(ms)]++;
+        adaptive.sessionLatencySamples++;
     }
-    state.adaptive.reportTime = now;
-    state.adaptive.reportPresents = 0;
-    state.adaptive.reportGenerated = 0;
+    for (const double ms : adaptive.frameIntervals) {
+        adaptive.sessionFrameBins[latencyBin(ms)]++;
+        adaptive.sessionFrameSamples++;
+    }
+
+    const uint64_t presented =
+        adaptive.reportPresents + adaptive.reportGenerated;
+    const double appFps =
+        static_cast<double>(adaptive.reportPresents) / elapsed;
+    const double presentedFps = static_cast<double>(presented) / elapsed;
+    const double generatedPct = presented > 0
+        ? 100.0 * static_cast<double>(adaptive.reportGenerated) /
+            static_cast<double>(presented)
+        : 0.0;
+    const double modeTotalMs =
+        adaptive.reportGeneratingMs + adaptive.reportNativeMs;
+    const double generatingPct = modeTotalMs > 0.0
+        ? 100.0 * adaptive.reportGeneratingMs / modeTotalMs
+        : 0.0;
+    const double overhead = adaptive.reportOverheadSamples > 0
+        ? adaptive.reportOverheadSum /
+            static_cast<double>(adaptive.reportOverheadSamples)
+        : 0.0;
+
+    logLine("%s perf: app %.1f fps, presented %.1f fps, generated %.0f%%, "
+        "gen time %.0f%%, overhead avg %.2f ms, frame p50 %.2f ms, "
+        "p95 %.2f ms, generating %s\n",
+        TAG, appFps, presentedFps, generatedPct, generatingPct, overhead,
+        samplePercentile(adaptive.frameIntervals, 0.50),
+        samplePercentile(adaptive.frameIntervals, 0.95),
+        adaptive.generating ? "yes" : "no");
+    if (!adaptive.presentLatencies.empty()) {
+        logLine("%s present latency: p50 %.2f ms, p95 %.2f ms, p99 %.2f ms "
+            "(%zu samples)\n", TAG,
+            samplePercentile(adaptive.presentLatencies, 0.50),
+            samplePercentile(adaptive.presentLatencies, 0.95),
+            samplePercentile(adaptive.presentLatencies, 0.99),
+            adaptive.presentLatencies.size());
+    }
+    logSession(state, false);
+
+    adaptive.reportTime = now;
+    adaptive.reportPresents = 0;
+    adaptive.reportGenerated = 0;
+    adaptive.reportGeneratingMs = 0.0;
+    adaptive.reportNativeMs = 0.0;
+    adaptive.reportOverheadSum = 0.0;
+    adaptive.reportOverheadSamples = 0;
+    adaptive.presentLatencies.clear();
+    adaptive.frameIntervals.clear();
 }
 
 VkResult present(
@@ -1072,6 +1333,22 @@ VkResult present(
     state->fns = &fns;
     state->swapchain = swapchain;
     state->displayRefresh = swapInfo.displayRefresh;
+    if (!g_sessionLogged) {
+        g_sessionLogged = true;
+        const auto& config = activeConfig();
+        std::string cap = "off";
+        if (config.maxPresentedFps < 0)
+            cap = "auto";
+        else if (config.maxPresentedFps > 0)
+            cap = std::to_string(config.maxPresentedFps) + " fps";
+        logLine("%s session: pid %d, %ux %s, max presented %s, display %s @ %.2f Hz\n",
+            TAG, static_cast<int>(getpid()),
+            std::clamp(config.multiplier, 2u, 4u), config.generator.c_str(),
+            cap.c_str(),
+            swapInfo.displayConnector.empty() ? "unknown"
+                                              : swapInfo.displayConnector.c_str(),
+            swapInfo.displayRefresh);
+    }
     if (activeConfig().presentTiming && !state->timingLogged) {
         state->timingLogged = true;
         logLine("%s present timing: %s (id=%d wait=%p)\n", TAG,
@@ -1108,10 +1385,16 @@ VkResult present(
 
     if (!state->ready) {
         bool initialized{false};
+        const auto initStart = std::chrono::steady_clock::now();
         try {
             initialized = initializeState(*state, fns, swapInfo);
         } catch (const std::exception& exception) {
             setError(*state, std::string("backend initialization failed: ") + exception.what());
+        }
+        if (initialized && activeConfig().debug) {
+            logLine("%s backend init: %.1f ms\n", TAG,
+                std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - initStart).count());
         }
         if (!initialized)
             return presentNext(fns, queue, presentInfo, nextPresent);
@@ -1149,8 +1432,20 @@ VkResult present(
     if (generatedCount == 0)
         return presentNext(fns, queue, presentInfo, nextPresent);
 
+    if (state->adaptive.firstFramePending) {
+        state->adaptive.firstFramePending = false;
+        if (activeConfig().debug) {
+            const double sinceStart = std::chrono::duration<double, std::milli>(
+                std::chrono::steady_clock::now() -
+                state->adaptive.generationRequested).count();
+            logLine("%s adaptive: first generated frame (%.1f ms after start, "
+                "%u frame%s)\n", TAG, sinceStart, generatedCount,
+                generatedCount == 1 ? "" : "s");
+        }
+    }
+
     const uint32_t layer = state->iteration % 2;
-    if (activeConfig().debug)
+    if (activeConfig().debug && trace())
         std::fprintf(stderr, "%s frame %u: real=%u first-generated=%u (%u/%u frames), layer=%u\n",
             TAG, state->iteration, presentInfo->pImageIndices[0],
             generatedIndices[0], generatedCount, requestedCount, layer);
@@ -1256,9 +1551,9 @@ VkResult present(
                 if (activeConfig().debug)
                     std::fprintf(stderr, "%s frame %u: generated present failed (%d)\n",
                         TAG, state->iteration, generatedResult);
-                state->adaptive.overheadMs =
+                recordOverhead(state->adaptive,
                     std::chrono::duration<double, std::milli>(
-                        std::chrono::steady_clock::now() - layerStart).count();
+                        std::chrono::steady_clock::now() - layerStart).count());
                 VkPresentInfoKHR originalPresent = *presentInfo;
                 originalPresent.waitSemaphoreCount = 1;
                 originalPresent.pWaitSemaphores = &imageSync.sourceDone;
@@ -1271,8 +1566,9 @@ VkResult present(
     }
 
     state->adaptive.reportGenerated += generatedCount;
-    state->adaptive.overheadMs = std::chrono::duration<double, std::milli>(
-        std::chrono::steady_clock::now() - layerStart).count();
+    recordOverhead(state->adaptive,
+        std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - layerStart).count());
 
     VkPresentInfoKHR originalPresent = *presentInfo;
     originalPresent.waitSemaphoreCount = 1;
@@ -1286,7 +1582,7 @@ VkResult present(
     state->syncValue = generatedSync;
     state->iteration++;
 
-    if (activeConfig().debug)
+    if (activeConfig().debug && trace())
         std::fprintf(stderr, "%s frame %u: present original=%d\n",
             TAG, state->iteration, originalResult);
 

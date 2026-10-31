@@ -38,6 +38,9 @@ struct Config {
     bool performanceMode{false};
     /// "flow", "blend", "hold" or "off" (instrument-only passthrough).
     std::string generator{"flow"};
+    /// "adaptive" waits out the threshold dwell; "capped" assumes the app is
+    /// capped at refresh/multiplier and starts generating immediately.
+    std::string pacing{"adaptive"};
     /// Enable present-id/wait instrumentation. It can make the compositor pace
     /// presents, so it is off by default.
     bool presentTiming{false};

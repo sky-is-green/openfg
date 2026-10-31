@@ -49,6 +49,35 @@ around 41. `max_presented_fps = -1` derives that cap from the detected display
 refresh automatically. `target_fps` remains a manual source cap; when both are
 set, the stricter one wins.
 
+## Pacing modes
+
+`pacing = "adaptive"` is the default. It uses the measured-rate threshold and
+a one-second dwell in both directions. `pacing = "capped"` assumes the
+application itself is capped at `refresh / multiplier`. It starts generating
+on the first frame below the target, with only the over-refresh stop as a
+safety. A variable-rate 30↔90 fps test with a 60 fps target measured:
+
+| event | adaptive | capped |
+|---|---:|---:|
+| below threshold → start decision | 1000 ms | immediate |
+| first generated frame after start | 7 ms first, 2 ms restart | 7 ms first, 2 ms restart |
+| source change → first generated frame | ~1.1 s | ~0.1–0.2 s (EMA detection) |
+| above threshold → stop decision | 1000 ms | 1000 ms safety |
+| source change → generation stops | ~1.17 s | ~1.17 s |
+| 0.5 s excursions | cancelled both directions | dips start at once; spikes ignored by the safety stop |
+
+In a 60 fps capped pipeline (2×, target 60), the first generated frame arrived
+**6.8 ms after the first present**, with presented fps at 120.2 and no safety
+stop. That is the clean-pipeline case: the app cap supplies the pacing, so the
+layer does not need to wait for a threshold dwell. In capped mode a very short
+startup interval can be ignored for the first 200 ms to avoid a spurious
+over-refresh stop.
+
+The capped mode is intended for a game-side FPS limit at the source cap. It
+removes the one-second startup wait and gives a steady generated cadence. The
+adaptive mode remains the right choice when the application is uncapped and
+the layer has to decide from the measured rate.
+
 The cap is observable directly. On the same 165 Hz display:
 
 | source | mode | cap | app fps | presented fps | present p50 |
@@ -119,6 +148,7 @@ baselines, not shipping modes.
 [openfg]
 enabled = true
 generator = "flow"          # flow, blend, hold or off
+pacing = "adaptive"         # adaptive or capped
 max_presented_fps = -1      # detected display refresh; 0 = off
 present_timing = true
 debug = true

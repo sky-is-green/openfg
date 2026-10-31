@@ -176,6 +176,7 @@ def load_config() -> dict:
         "max_presented_fps": 0,
         "performance_mode": False,
         "generator": "flow",
+        "pacing": "adaptive",
         "present_timing": False,
         "debug": False,
         "include": [],
@@ -208,6 +209,7 @@ def load_config() -> dict:
         config["performance_mode"] = bool(
             section.get("performance_mode", config["performance_mode"]))
         config["generator"] = str(section.get("generator", config["generator"]))
+        config["pacing"] = str(section.get("pacing", config["pacing"]))
         config["present_timing"] = bool(
             section.get("present_timing", config["present_timing"]))
         config["debug"] = bool(section.get("debug", config["debug"]))
@@ -259,6 +261,7 @@ target_fps = {config['target_fps']}
 max_presented_fps = {config['max_presented_fps']}
 performance_mode = {'true' if config['performance_mode'] else 'false'}
 generator = {quote(config['generator'])}
+pacing = {quote(config['pacing'])}
 present_timing = {'true' if config['present_timing'] else 'false'}
 debug = {'true' if config['debug'] else 'false'}
 
@@ -344,9 +347,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         preset_layout.addWidget(preset(
             "Latency-friendly",
-            "2x, same GPU, cap the presented rate at the detected display "
-            "refresh, quality flow. This keeps native input latency when the "
-            "game is already fast enough.",
+            "2x, same GPU, capped pipeline. Set the game's own FPS limit to "
+            "half the display refresh (~82 on 165 Hz); the layer starts "
+            "generating immediately instead of waiting for the 1 s threshold.",
             lambda: self._apply_preset("latency")))
         preset_layout.addWidget(preset(
             "Always generate · quality",
@@ -457,6 +460,19 @@ class MainWindow(QtWidgets.QMainWindow):
         latency_layout = QtWidgets.QVBoxLayout(latency)
         latency_form = QtWidgets.QFormLayout()
         latency_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
+
+        self.pacing = QtWidgets.QComboBox()
+        self.pacing.addItem("Adaptive (1 s threshold dwell)", "adaptive")
+        self.pacing.addItem("Capped source (start immediately)", "capped")
+        index = self.pacing.findData(self.config["pacing"])
+        self.pacing.setCurrentIndex(index if index >= 0 else 0)
+        self.pacing.setToolTip(
+            "Adaptive waits for the measured rate to stay below the target for "
+            "one second. Capped assumes the game itself is capped at "
+            "refresh / multiplier; generation starts on the first frame and "
+            "only a sustained over-refresh condition stops it."
+        )
+        latency_form.addRow("Pacing:", self.pacing)
 
         self.target_fps = QtWidgets.QSpinBox()
         self.target_fps.setRange(0, 1000)
@@ -637,6 +653,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.enabled.toggled,
             self.cross_gpu.toggled,
             self.performance.toggled,
+            self.pacing.currentIndexChanged,
             self.target_fps.valueChanged,
             self.max_presented_spin.valueChanged,
             self.multiplier.currentIndexChanged,
@@ -649,6 +666,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.video_processes.textChanged.connect(self._update_summary)
         self.target_fps.valueChanged.connect(self._update_target_note)
         self.max_presented.currentIndexChanged.connect(self._update_cap_state)
+        self.pacing.currentIndexChanged.connect(self._update_target_note)
         self._update_target_note()
         self._update_summary()
 
@@ -684,6 +702,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.cross_gpu.setChecked(False)
         self.multiplier.setCurrentIndex(self.multiplier.findData(2))
         self.max_presented.setCurrentIndex(self.max_presented.findData(0))
+        self.pacing.setCurrentIndex(self.pacing.findData("adaptive"))
         if name == "video":
             if not self.video_processes.toPlainText().strip():
                 self.video_processes.setPlainText("mpv")
@@ -701,6 +720,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.target_fps.setValue(0)
             self.max_presented.setCurrentIndex(
                 self.max_presented.findData(-1))
+            self.pacing.setCurrentIndex(self.pacing.findData("capped"))
             self.performance.setChecked(False)
         elif name == "quality":
             self.target_fps.setValue(0)
@@ -729,6 +749,8 @@ class MainWindow(QtWidgets.QMainWindow):
             cross = "second GPU" if self.cross_gpu.isChecked() else "same GPU"
             target = int(self.target_fps.value())
             cap = int(self.max_presented.currentData())
+            pacing = self.pacing.currentData()
+            pacing_text = "capped source" if pacing == "capped" else "adaptive"
             if target == 0:
                 target_text = "auto source cap" if cap else "always generating"
             else:
@@ -740,7 +762,8 @@ class MainWindow(QtWidgets.QMainWindow):
             else:
                 cap_text = ""
             flow = "performance flow" if self.performance.isChecked() else "quality flow"
-            text = f"{multiplier}x · {cross} · {gpu_text} · {target_text}{cap_text} · {flow}"
+            text = (f"{multiplier}x · {cross} · {gpu_text} · {pacing_text} · "
+                    f"{target_text}{cap_text} · {flow}")
             video_players = [line.strip() for line in
                              self.video_processes.toPlainText().splitlines() if line.strip()]
             if video_players:
@@ -754,6 +777,16 @@ class MainWindow(QtWidgets.QMainWindow):
             "padding:6px; background:#20242a; border-radius:4px;" % color)
 
     def _update_target_note(self) -> None:
+        if self.pacing.currentData() == "capped":
+            self.target_note.setText(
+                "Capped mode starts generating on the first frame below the "
+                "effective target, so cap the game itself at refresh / "
+                "multiplier: about 82 fps for 2x or 41 fps for 4x on 165 Hz. "
+                "The Target FPS and Max presented values below still define "
+                "the cap; a 1 s over-refresh safety stop remains. If auto "
+                "display detection fails, set the cap explicitly or use "
+                "OPENFG_REFRESH.")
+            return
         cap = int(self.max_presented.currentData())
         if cap == -1:
             self.target_note.setText(
@@ -796,6 +829,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 else int(self.max_presented.currentData())),
             "performance_mode": self.performance.isChecked(),
             "generator": self.generator.currentData(),
+            "pacing": self.pacing.currentData(),
             "present_timing": self.present_timing.isChecked(),
             "debug": self.debug.isChecked(),
             "include": [line.strip() for line in self.include.toPlainText().splitlines()

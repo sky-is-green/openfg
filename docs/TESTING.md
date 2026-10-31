@@ -47,6 +47,7 @@ cross_gpu = false
 multiplier = 2
 target_fps = 0
 max_presented_fps = -1
+pacing = "adaptive"
 performance_mode = false
 debug = false
 
@@ -78,6 +79,12 @@ between them:
    below it; the startup log should print `display: ... @ ... Hz`. Use an
    explicit value if the sandbox hides `/dev/dri/card*`, or `OPENFG_REFRESH`
    to override the detected rate.
+4. **`pacing`** — `adaptive` waits for the threshold dwell; `capped` assumes
+   the game itself is limited to refresh / multiplier and starts generating
+   immediately. For capped, set the game's FPS limit to about 82 fps for 2x or
+   41 fps for 4x on 165 Hz. The layer should log
+   `start generating (capped mode, first frame, ...)` and keep `generating yes`
+   while the game stays at the cap.
 4. **`performance_mode`** — compare quality and frame time; it skips the
    full-resolution flow refinement.
 5. **Cross-GPU** — only with two GPUs from the same vendor/driver. Set
@@ -149,7 +156,7 @@ openfg-cli show output:
 
 and:
 
-- The exact test: multiplier, `target_fps`, `max_presented_fps`,
+- The exact test: multiplier, `target_fps`, `max_presented_fps`, `pacing`,
   `performance_mode`, cross-GPU.
 - Frame rate and frame time with the layer on and off.
 - `OPENFG_DEBUG=1 your-game 2>openfg.log` (or the player's command) and the

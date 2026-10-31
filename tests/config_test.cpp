@@ -28,6 +28,7 @@ target_fps = 120
 max_presented_fps = -1
 performance_mode = false
 generator = "blend"
+pacing = "capped"
 present_timing = true
 debug = false
 
@@ -58,7 +59,13 @@ int main() {
     expect(parsed.config.video.safe, "video safe parsed");
     expect(parsed.config.multiplier == 2, "global multiplier stays separate");
     expect(parsed.config.generator == "blend", "generator parsed");
+    expect(parsed.config.pacing == "capped", "pacing parsed");
     expect(parsed.config.presentTiming, "present timing parsed");
+
+    const auto defaults = parse("[openfg]\nenabled = true\n", "defaults.toml");
+    expect(defaults.error.empty(), "minimal config parses");
+    expect(defaults.config.pacing == "adaptive",
+        "pacing defaults to adaptive");
     expect(parsed.config.maxPresentedFps == -1, "max presented fps parsed");
 
     const auto video = withVideoProfile(parsed.config, { "mpv" });
@@ -82,6 +89,15 @@ int main() {
     expect(roundTrip.config.video.safe, "round-trip keeps the cut guard");
     expect(roundTrip.config.maxPresentedFps == -1,
         "round-trip keeps the presented-frame cap");
+    expect(roundTrip.config.pacing == "capped",
+        "round-trip keeps the pacing mode");
+
+    std::string badPacing{CONFIG};
+    const auto pacingPosition = badPacing.find("pacing = \"capped\"");
+    badPacing.replace(pacingPosition,
+        std::string("pacing = \"capped\"").size(), "pacing = \"nope\"");
+    expect(!parse(badPacing, "bad-pacing.toml").error.empty(),
+        "an invalid pacing mode is rejected");
 
     std::string badCap{CONFIG};
     const auto capPosition = badCap.find("max_presented_fps = -1");

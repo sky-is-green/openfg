@@ -32,6 +32,11 @@ performance_mode = false
 # current frame), or off (layer loaded but no generation; useful for timing).
 generator = "flow"
 
+# Generation pacing. "adaptive" waits out the measured threshold dwell;
+# "capped" assumes the app is capped at refresh / multiplier and starts
+# generating immediately, with only the over-refresh stop as a safety.
+pacing = "adaptive"
+
 # Enable present-id/wait instrumentation. This can make the compositor pace
 # presents, so leave it off for normal use.
 present_timing = false

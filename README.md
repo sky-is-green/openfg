@@ -29,6 +29,7 @@ used here.
 - [x] 10-bit/HDR half-float swapchain path
 - [x] Multiple swapchains per device
 - [x] Generator modes: optical flow, blend, hold and timing-only off
+- [x] Adaptive and app-capped pacing modes
 - [x] Opt-in present-timing latency percentiles
 - [x] Refresh-aware presented-frame cap (detected display refresh / multiplier)
 - [x] clang/gcc CI and config tests
@@ -100,6 +101,10 @@ performance_mode = false
 # "flow" (optical flow), "blend" (linear A/B), "hold" (repeat current frame),
 # or "off" (layer loaded but no generation; for latency baselines).
 generator = "flow"
+
+# "adaptive" waits for the measured threshold dwell; "capped" assumes the
+# app is capped at refresh / multiplier and starts generating immediately.
+pacing = "adaptive"
 
 # Present-id/wait instrumentation for latency percentiles. It can make the
 # compositor pace presents; use only for benchmarking.
@@ -210,6 +215,14 @@ Frame generation has an inherent cost: the generated frame must be shown
 **before** the current real frame, so the real frame is delayed by at least one
 display refresh. The practical options are:
 
+- `pacing`: `adaptive` is the default: it waits for the measured rate to stay
+  below the target for one second before generating, and stops after one
+  second above it. `capped` is for a clean pipeline: the user caps the game
+  itself at `refresh / multiplier`, and the layer starts generating on the
+  first frame below the target. Backend setup is 1–7 ms, so the first
+  generated frame is nearly immediate. A one-second over-refresh safety stop
+  remains. On a 165 Hz display the app caps are about 82 fps for 2x and 41 fps
+  for 4x.
 - `max_presented_fps`: stop generating when `source fps × multiplier` would
   exceed this value. `-1` uses the active display refresh, which is the
   recommendation for low latency: on a 165 Hz display that means a source cap
