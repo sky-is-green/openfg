@@ -85,8 +85,8 @@ between them:
    41 fps for 4x on 165 Hz. The layer should log
    `start generating (capped mode, first frame, ...)` and keep `generating yes`
    while the game stays at the cap.
-4. **`performance_mode`** — compare quality and frame time; it skips the
-   full-resolution flow refinement.
+4. **`performance_mode`** — compare quality and frame time; it uses
+   half-resolution flow and a 3×3 refinement window (~1.5 → 0.8 ms at 1440p).
 5. **Cross-GPU** — only with two GPUs from the same vendor/driver. Set
    `cross_gpu = true` and `gpu` to the second card's PCI address.
 6. **Video** — the `[video]` profile with mpv, including a scene cut.

@@ -357,8 +357,9 @@ class MainWindow(QtWidgets.QMainWindow):
             lambda: self._apply_preset("quality")))
         preset_layout.addWidget(preset(
             "Always generate · performance",
-            "2x, generate on every real frame with the half-resolution flow. "
-            "About 15% faster interpolation, slightly softer silhouettes.",
+            "2x, generate on every real frame with half-resolution flow and a "
+            "3×3 refine window. About 48% faster (1.5 → 0.8 ms at 1440p), "
+            "slightly softer silhouettes.",
             lambda: self._apply_preset("performance")))
         preset_layout.addWidget(preset(
             "Video · 4x",
@@ -522,12 +523,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.max_presented_spin.setEnabled(self.max_presented.currentData() == 1)
 
         self.performance = QtWidgets.QCheckBox(
-            "Performance mode (half-resolution flow, softer silhouettes)")
+            "Performance mode (half-res flow + 3×3 refine)")
         self.performance.setChecked(self.config["performance_mode"])
         self.performance.setToolTip(
-            "Skips the full-resolution flow refinement. About 15% faster at "
-            "1440p with a 0.04 dB pan / 0.02 dB ghost PSNR change. Only matters "
-            "while frames are being generated."
+            "Uses half-resolution flow and a 3×3 refinement window. At 1440p "
+            "it measured 1.52 → 0.79 ms, pan 32.825 → 32.499 dB and ghost "
+            "26.485 → 26.449 dB. Only matters while frames are being generated."
         )
         latency_form.addRow("", self.performance)
 
@@ -540,10 +541,11 @@ class MainWindow(QtWidgets.QMainWindow):
         latency_layout.addLayout(latency_form)
         latency_layout.addWidget(self.target_note)
         latency_layout.addWidget(hint(
-            "Performance mode skips the full-resolution flow refinement: about "
-            "15% faster at 1440p with a 0.04 dB pan / 0.02 dB ghost PSNR change. "
-            "The target comparison subtracts the layer's copy/generate/present "
-            "time, so it approximates the game's native rate."
+            "Performance mode uses half-resolution flow and a 3×3 refine "
+            "window: about 1.52 → 0.79 ms at 1440p, with pan 32.825 → 32.499 dB "
+            "and ghost 26.485 → 26.449 dB. The target comparison subtracts the "
+            "layer's copy/generate/present time, so it approximates the native "
+            "rate."
         ))
         latency_layout.addWidget(hint(
             "Measured on the dual RX 7900 XT test system (Helldivers 2, 1440p): "

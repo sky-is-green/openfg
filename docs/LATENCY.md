@@ -135,12 +135,15 @@ is present-bound; the useful number is the layer work per real frame.
 
 | generator | pan ms | pan dB | ghost dB | what it is |
 |---|---:|---:|---:|---|
-| flow | 1.41 | 32.83 | 26.49 | full optical flow |
+| flow | 1.52 | 32.83 | 26.49 | 5×5 refinement |
+| flow performance | 0.79 | 32.50 | 26.45 | half-res flow + 3×3 refine |
 | blend | 0.02 | 20.81 | 22.53 | linear A/B blend |
 | hold | 0.02 | 18.86 | 20.57 | repeat the current frame |
 
-Flow is clearly worth its cost for quality. Blend and hold are comparison
-baselines, not shipping modes.
+Quality flow is ~0.33 dB better on the pan scene for about twice the cost of
+performance mode; ghosting is essentially unchanged (26.485 → 26.449 dB).
+Performance mode is now the efficiency choice, while quality mode remains the
+default. Blend and hold are comparison baselines, not shipping modes.
 
 ## Reproducing
 

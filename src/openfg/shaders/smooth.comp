@@ -30,8 +30,9 @@ void main() {
 
     vec2 sum = vec2(0.0);
     float wsum = 0.0;
-    for (int dy = -3; dy <= 3; dy++) {
-        for (int dx = -3; dx <= 3; dx++) {
+    const int radius = int(pc.pad2);
+    for (int dy = -radius; dy <= radius; dy++) {
+        for (int dx = -radius; dx <= radius; dx++) {
             ivec2 q = clampCoord(p + ivec2(dx, dy), size);
             vec2 uvn = (vec2(q) + 0.5) / vec2(size);
             float g = texture(sampler2D(uTex1, uSampler), uvn).r;

@@ -826,7 +826,7 @@ target_fps = 0
 # 0 = off, or an explicit value such as 165.
 max_presented_fps = 0
 
-# Skip the full-resolution flow refinement: faster, softer silhouettes.
+# Half-resolution flow + 3x3 refine: ~2x faster, softer edges.
 performance_mode = false
 
 # Generator: flow (optical flow), blend (linear A/B), hold (repeat the

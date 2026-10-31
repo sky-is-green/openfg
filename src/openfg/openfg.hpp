@@ -137,6 +137,10 @@ private:
     bool m_tileMaskEnabled{true};
     bool m_performanceMode{false};
     bool m_videoSafe{false};
+    int m_blockRadius{8};
+    int m_refineIterations{4};
+    int m_refineRadius{2};
+    int m_smoothRadius{3};
     vk::Format m_colorFormat{vk::Format::eR8G8B8A8Unorm};
     bool m_hdr{false};
     Generator m_generator{Generator::Flow};

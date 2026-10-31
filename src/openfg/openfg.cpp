@@ -54,6 +54,7 @@ namespace {
             std::max(1U, (extent.height + 1) / 2)
         };
     }
+
 }
 
 Interpolator::Interpolator(
@@ -80,6 +81,12 @@ Interpolator::Interpolator(
     this->m_bidirectional = std::getenv("OPENFG_BIDIRECTIONAL") != nullptr;
     this->m_occlusionFlow = std::getenv("OPENFG_OCCLUSION") != nullptr;
     this->m_tileMaskEnabled = std::getenv("OPENFG_NO_TILE_MASK") == nullptr;
+    this->m_blockRadius = 8;
+    this->m_refineIterations = 4;
+    // The performance mode also narrows the refinement window. That removes
+    // most of the per-iteration texture traffic at a small quality cost.
+    this->m_refineRadius = performanceMode ? 1 : 2;
+    this->m_smoothRadius = 3;
     this->m_performanceMode = performanceMode;
     this->m_videoSafe = videoSafe;
     this->m_colorFormat = colorFormat;
@@ -623,7 +630,9 @@ void Interpolator::analyze(const vk::CommandBuffer& cmdbuf, uint32_t layerA, uin
     pc.width = this->m_levels.at(4).width;
     pc.height = this->m_levels.at(4).height;
     pc.level = 4;
-    pc.radius = 8;
+    pc.radius = this->m_blockRadius;
+    pc.pad0 = this->m_refineIterations;
+    pc.pad2 = static_cast<uint32_t>(this->m_smoothRadius);
     if (this->m_tileMaskEnabled)
         pc.flags |= 256;
 
@@ -638,7 +647,9 @@ void Interpolator::analyze(const vk::CommandBuffer& cmdbuf, uint32_t layerA, uin
         pc.width = this->m_levels.at(level).width;
         pc.height = this->m_levels.at(level).height;
         pc.level = level;
-        pc.radius = 0;
+        pc.radius = this->m_refineRadius;
+        pc.pad0 = this->m_refineIterations;
+        pc.pad2 = static_cast<uint32_t>(this->m_smoothRadius);
 
         this->dispatch(cmdbuf, "refine", this->m_setRefine.at(level),
             this->m_levels.at(level), pc);
@@ -679,7 +690,9 @@ void Interpolator::analyze(const vk::CommandBuffer& cmdbuf, uint32_t layerA, uin
     pc.width = this->m_levels.at(4).width;
     pc.height = this->m_levels.at(4).height;
     pc.level = 4;
-    pc.radius = 8;
+    pc.radius = this->m_blockRadius;
+    pc.pad0 = this->m_refineIterations;
+    pc.pad2 = static_cast<uint32_t>(this->m_smoothRadius);
     if (this->m_tileMaskEnabled)
         pc.flags |= 256;
     this->dispatch(cmdbuf, "blockmatch", this->m_setBlockBA, this->m_levels.at(4), pc);
@@ -694,7 +707,9 @@ void Interpolator::analyze(const vk::CommandBuffer& cmdbuf, uint32_t layerA, uin
         pc.width = this->m_levels.at(level).width;
         pc.height = this->m_levels.at(level).height;
         pc.level = level;
-        pc.radius = 0;
+        pc.radius = this->m_refineRadius;
+        pc.pad0 = this->m_refineIterations;
+        pc.pad2 = static_cast<uint32_t>(this->m_smoothRadius);
 
         this->dispatch(cmdbuf, "refine", this->m_setRefineBA.at(level),
             this->m_levels.at(level), pc);

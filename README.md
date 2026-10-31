@@ -95,7 +95,7 @@ target_fps = 0
 # 0 = off, or an explicit value such as 165.
 max_presented_fps = 0
 
-# Skip the full-resolution flow refinement: ~14% faster, slightly softer edges.
+# Half-resolution flow + 3x3 refine: ~2x faster, softer edges.
 performance_mode = false
 
 # "flow" (optical flow), "blend" (linear A/B), "hold" (repeat current frame),
@@ -238,9 +238,10 @@ display refresh. The practical options are:
   dwell to avoid flapping. Generation starts off for a nonzero target, so a
   game already above it never initializes the backend; it enables only after a
   sustained drop.
-- `performance_mode`: skip the full-resolution flow refinement. It measured
-  ~16% faster (1.58 → 1.32 ms at 1440p) with a 0.08 dB PSNR change on the pan
-  scene and 0.01 dB on the ghost scene.
+- `performance_mode`: half-resolution flow plus a 3×3 refinement window. At
+  1440p it measured **1.52 → 0.79 ms** (about 48% faster): pan 32.825 → 32.499
+  dB and ghost 26.485 → 26.449 dB. Ghosting is effectively unchanged; the
+  sharper pan detail is the trade.
 - `generator`: `flow` is the real optical-flow path; `blend` and `hold` are
   cheap comparison baselines; `off` keeps the layer loaded but generates
   nothing, giving a layer-off timing baseline.
@@ -352,8 +353,8 @@ Performance mode with `--performance` at 1440p:
 
 ```
 scene    normal ms   perf ms   normal dB   perf dB
-pan         1.56       1.32      32.8252    32.7843
-ghost       1.56       1.31      26.4850    26.4693
+pan         1.52       0.79      32.8252    32.4990
+ghost       1.51       0.79      26.4850    26.4494
 ```
 
 The half-float path (`fg-lab --hdr`, used for 10-bit/HDR swapchains) costs

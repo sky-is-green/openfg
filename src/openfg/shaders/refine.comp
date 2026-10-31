@@ -7,14 +7,27 @@ layout(set = 0, binding = 8, r8) uniform image2D uA;
 layout(set = 0, binding = 9, rg16f) uniform image2D uCoarse;
 layout(set = 0, binding = 10, rg16f) uniform image2D uOut;
 
+// An 8x8 workgroup needs a 12x12 patch of A for its 5x5 windows. Loading it
+// once to shared memory removes the 25 image reads per pixel per iteration.
+shared float aPatch[12][12];
+
 void main() {
     ivec2 p = ivec2(gl_GlobalInvocationID.xy);
     ivec2 size = ivec2(pc.width, pc.height);
+    ivec2 as = imageSize(uA);
+    ivec2 local = ivec2(gl_LocalInvocationID.xy);
+    ivec2 base = ivec2(gl_WorkGroupID.xy) * 8 - 2;
+    for (int i = int(gl_LocalInvocationIndex); i < 144; i += 64) {
+        int ly = i / 12;
+        int lx = i % 12;
+        aPatch[ly][lx] = imageLoad(
+            uA, clampCoord(base + ivec2(lx, ly), as)).r;
+    }
+    barrier();
+
     if (any(greaterThanEqual(p, size)))
         return;
 
-
-    ivec2 as = imageSize(uA);
     ivec2 bs = imageSize(uOut);
     // Flow from the coarser level, in coarse pixels; convert to this level.
     ivec2 csize = imageSize(uCoarse);
@@ -50,14 +63,15 @@ void main() {
         return;
     }
 
-    for (int iter = 0; iter < 4; iter++) {
+    for (int iter = 0; iter < pc.pad0; iter++) {
         vec2 q = vec2(p) + f;
 
         float a11 = 0.0, a12 = 0.0, a22 = 0.0, b1 = 0.0, b2 = 0.0;
-        for (int oy = -2; oy <= 2; oy++) {
-            for (int ox = -2; ox <= 2; ox++) {
+        const int radius = pc.radius;
+        for (int oy = -radius; oy <= radius; oy++) {
+            for (int ox = -radius; ox <= radius; ox++) {
                 ivec2 o = ivec2(ox, oy);
-                float a = imageLoad(uA, clampCoord(p + o, as)).r;
+                float a = aPatch[local.y + oy + 2][local.x + ox + 2];
 
                 vec2 qq = clamp(q + vec2(o) + 0.5, vec2(0.5), vec2(bs) - 0.5);
                 vec2 uvq = qq / vec2(bs);
