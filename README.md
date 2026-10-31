@@ -412,7 +412,10 @@ by more than 0.25 px from the local median; at 1.5 px it was leaving visible
 outliers on subpixel motion.
 
 `ghost` (extra edges in the ground-truth edge band) is the acceptance gate for
-any detail-restoration or sharpening pass: it must not increase.
+any detail-restoration or sharpening pass: it must not increase. Performance
+mode (3×3 refine) lands at 26.64 dB edge / 2.350 MAD / 1.951 excess, still at
+or above the old Lossless Scaling reference (26.54 / 1.98) while costing about
+half as much.
 
 ## License
 
