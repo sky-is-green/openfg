@@ -66,9 +66,10 @@ intervals later. The 60 fps 4x row wants 240 presents/s and is likewise left
 native. `OPENFG_REFRESH` is also the fallback for sandboxes where the DRM card
 nodes are hidden.
 
-The 30 fps/60 Hz rows are the exact-boundary case. The cap is
-`60 / 2 = 30 fps`, so the layer starts generating when the source is at the
-cap (0.5% measurement tolerance) instead of requiring the manual
+The 30 fps/60 Hz rows are the exact-boundary case, measured on the same
+165 Hz panel with `OPENFG_REFRESH=60` rather than a physical 60 Hz mode. The
+cap is `60 / 2 = 30 fps`, so the layer starts generating when the source is
+at the cap (0.5% measurement tolerance) instead of requiring the manual
 `target_fps`'s 5% headroom. 2x doubles the presented rate from 30 to 60 fps
 without adding real-frame present latency: the p50 stays at 33 ms. This is
 the main reason the presented cap is preferable to a hand-computed
