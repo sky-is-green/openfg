@@ -171,8 +171,14 @@ Run the same fixed scene for each generator and read
 
 ```text
 [openfg] perf: app 24.0 fps, presented 48.0 fps, overhead 0.16 ms, generating yes
+[openfg] path: source 0.05 ms, generate 0.07 ms, copies 0.00 ms, present 0.01 ms (301 frames)
 [openfg] present latency: p50 41.98 ms, p95 42.01 ms, p99 42.02 ms (120 samples)
 ```
+
+The `path` line splits the layer work into source copy, generator submission,
+generated-frame copies and the final present. At 60 fps it is about 0.13 ms
+total; at a synthetic 1,400 fps the `source` segment includes waiting for the
+previous generated copy, which is present backpressure rather than CPU cost.
 
 For the layer-free generator numbers, use
 `fg-lab --generator flow|blend|hold`, `tools/bench.py --generator ...` and

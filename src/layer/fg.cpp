@@ -261,6 +261,11 @@ namespace {
         double reportNativeMs{};
         double reportOverheadSum{};
         uint64_t reportOverheadSamples{};
+        double reportSourceMs{};
+        double reportGenerateMs{};
+        double reportCopyMs{};
+        double reportPresentMs{};
+        uint64_t reportPathSamples{};
 
         // Totals since the first present, reported every 30 seconds and at
         // device teardown. These survive swapchain recreation.
@@ -1276,6 +1281,16 @@ void reportPerf(FgState& state) {
         samplePercentile(adaptive.frameIntervals, 0.50),
         samplePercentile(adaptive.frameIntervals, 0.95),
         adaptive.generating ? "yes" : "no");
+    if (adaptive.reportPathSamples > 0) {
+        const double count = static_cast<double>(adaptive.reportPathSamples);
+        logLine("%s path: source %.2f ms, generate %.2f ms, copies %.2f ms, "
+            "present %.2f ms (%llu frames)\n", TAG,
+            adaptive.reportSourceMs / count,
+            adaptive.reportGenerateMs / count,
+            adaptive.reportCopyMs / count,
+            adaptive.reportPresentMs / count,
+            static_cast<unsigned long long>(adaptive.reportPathSamples));
+    }
     if (!adaptive.presentLatencies.empty()) {
         logLine("%s present latency: p50 %.2f ms, p95 %.2f ms, p99 %.2f ms "
             "(%zu samples)\n", TAG,
@@ -1293,6 +1308,11 @@ void reportPerf(FgState& state) {
     adaptive.reportNativeMs = 0.0;
     adaptive.reportOverheadSum = 0.0;
     adaptive.reportOverheadSamples = 0;
+    adaptive.reportSourceMs = 0.0;
+    adaptive.reportGenerateMs = 0.0;
+    adaptive.reportCopyMs = 0.0;
+    adaptive.reportPresentMs = 0.0;
+    adaptive.reportPathSamples = 0;
     adaptive.presentLatencies.clear();
     adaptive.frameIntervals.clear();
 }
@@ -1485,6 +1505,7 @@ VkResult present(
         setError(*state, "failed to submit source copy");
         return presentNext(fns, queue, presentInfo, nextPresent);
     }
+    const auto sourceEnd = std::chrono::steady_clock::now();
 
     uint64_t generatedSync = sourceSync;
     try {
@@ -1564,20 +1585,33 @@ VkResult present(
     } catch (const std::exception& exception) {
         setError(*state, std::string("frame generation failed: ") + exception.what());
     }
+    const auto generateEnd = std::chrono::steady_clock::now();
 
     state->adaptive.reportGenerated += generatedCount;
-    recordOverhead(state->adaptive,
-        std::chrono::duration<double, std::milli>(
-            std::chrono::steady_clock::now() - layerStart).count());
 
     VkPresentInfoKHR originalPresent = *presentInfo;
     originalPresent.waitSemaphoreCount = 1;
     originalPresent.pWaitSemaphores = &imageSync.sourceDone;
     uint64_t appPresentId{};
+    const auto copyEnd = std::chrono::steady_clock::now();
     const VkResult originalResult = presentNext(
         fns, queue, &originalPresent, nextPresent, &appPresentId);
     if (appPresentId)
         state->adaptive.pendingPresents.emplace_back(appPresentId, layerStart);
+    const auto presentEnd = std::chrono::steady_clock::now();
+
+    auto& path = state->adaptive;
+    path.reportSourceMs += std::chrono::duration<double, std::milli>(
+        sourceEnd - layerStart).count();
+    path.reportGenerateMs += std::chrono::duration<double, std::milli>(
+        generateEnd - sourceEnd).count();
+    path.reportCopyMs += std::chrono::duration<double, std::milli>(
+        copyEnd - generateEnd).count();
+    path.reportPresentMs += std::chrono::duration<double, std::milli>(
+        presentEnd - copyEnd).count();
+    path.reportPathSamples++;
+    recordOverhead(path, std::chrono::duration<double, std::milli>(
+        presentEnd - layerStart).count());
 
     state->syncValue = generatedSync;
     state->iteration++;
