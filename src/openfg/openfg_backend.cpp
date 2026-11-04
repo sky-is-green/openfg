@@ -8,7 +8,6 @@
 
 #include <array>
 #include <cstdint>
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -58,7 +57,7 @@ namespace {
             vk::SubgroupFeatureFlagBits::eQuad
         };
         if ((subgroup.supportedStages & vk::ShaderStageFlagBits::eCompute) ==
-            vk::ShaderStageFlagBits{})
+            vk::ShaderStageFlags{})
             return false;
         if ((subgroup.supportedOperations & REQUIRED) != REQUIRED)
             return false;
@@ -246,14 +245,11 @@ Context::Context(
     const Instance& instance,
     uint32_t width,
     uint32_t height,
-    float flowScale,
     bool performanceMode,
     bool videoSafe,
     vk::Format colorFormat,
     Generator generator
 ) {
-    (void)flowScale;
-
     const auto& vk{instance.m_impl->vk};
     const vk::Extent2D extent{width, height};
 

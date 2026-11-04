@@ -1,5 +1,5 @@
 pkgbase = openfg-git
-	pkgdesc = Clean-room optical-flow frame generation for Vulkan on Linux
+	pkgdesc = Open frame generation for Vulkan on Linux
 	pkgver = r0.0000000
 	pkgrel = 1
 	url = https://github.com/sky-is-green/openfg
@@ -9,6 +9,7 @@ pkgbase = openfg-git
 	makedepends = cmake
 	makedepends = ninja
 	makedepends = shaderc
+	makedepends = glslang
 	makedepends = python
 	depends = gcc-libs
 	depends = vulkan-icd-loader

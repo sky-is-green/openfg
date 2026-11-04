@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: MIT */
 
-// Frame generation for the clean-room layer.
+// Frame generation for the openfg layer.
 //
 // One backend instance per device (kept across swapchain recreation) and one
 // context per swapchain. The application presents normally; the layer copies
@@ -856,7 +856,6 @@ namespace {
             *instance,
             swapchain.extent.width,
             swapchain.extent.height,
-            1.0F,
             activeConfig().performanceMode,
             activeConfig().videoSafe,
             static_cast<vk::Format>(state.colorFormat),

@@ -250,7 +250,6 @@ private:
 
     vk::UniqueBuffer m_ffxCb;
     vk::UniqueDeviceMemory m_ffxCbMemory;
-    void* m_ffxCbMapped{};
     uint32_t m_ffxCbStride{};
 
     FfxPass m_ffxPrepare;

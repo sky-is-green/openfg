@@ -1,34 +1,5 @@
-// Half-resolution colour downsample for the FidelityFX backend on
-// RGBA16F (10-bit/HDR) sources. The RGBA8 variant is ffx_color_half.comp.
+// RGBA16F variant of the FidelityFX half-resolution colour downsample.
+// See ffx_color_half_body.glsl.
 #version 460
-
-layout(local_size_x = 8, local_size_y = 8) in;
-
-layout(set = 0, binding = 0) uniform sampler uSampler;
-layout(set = 0, binding = 1) uniform texture2D uSource;
-layout(set = 0, binding = 8, rgba16f) uniform image2D uOut;
-
-layout(push_constant) uniform PC {
-    uint width;
-    uint height;
-    float t;
-    float flowScale;
-    int level;
-    int radius;
-    int flags;
-    int pad0;
-    uint layerA;
-    uint layerB;
-    uint dstLayer;
-    uint pad2;
-} pc;
-
-void main() {
-    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
-    ivec2 size = ivec2(pc.width, pc.height);
-    if (any(greaterThanEqual(p, size)))
-        return;
-
-    vec2 uv = (vec2(p) + 0.5) / vec2(size);
-    imageStore(uOut, p, texture(sampler2D(uSource, uSampler), uv));
-}
+#define OPENFG_HDR 1
+#include "ffx_color_half_body.glsl"

@@ -107,7 +107,8 @@ def main():
     ap.add_argument("--generator", choices=("flow", "ffx", "blend", "hold"),
                     default="flow")
     ap.add_argument("--performance", action="store_true",
-                    help="use half-resolution flow + 3x3 refine")
+                    help="use the cheaper flow path (narrower refinement or "
+                         "half-size FidelityFX pyramid)")
     args = ap.parse_args()
 
     prefix = repo / "tools" / "testdata" / f"{args.scene}_{args.width}x{args.height}"
@@ -118,15 +119,16 @@ def main():
     openfg_path, ms = run_openfg(
         repo, args.scene, args.width, args.height, args.gpu, args.iterations,
         args.generator, args.performance)
-    rows = [("openfg", openfg_path, ms)]
+    name = f"openfg-{args.generator}" + (" perf" if args.performance else "")
+    rows = [(name, openfg_path, ms)]
 
-    print(f"{'backend':8} {'full dB':>8} {'edge dB':>8} {'edge MAD':>9} "
+    print(f"{'backend':14} {'full dB':>8} {'edge dB':>8} {'edge MAD':>9} "
           f"{'ghost':>7} {'moving dB':>10} {'ms':>6}")
     images = []
     for name, path, ms in rows:
         c = read_rgba(path, args.width, args.height)
         m = metrics(c, gt, a, b)
-        print(f"{name:8} {m['full']:8.2f} {m['edge']:8.2f} {m['edge_mad']:9.3f} "
+        print(f"{name:14} {m['full']:8.2f} {m['edge']:8.2f} {m['edge_mad']:9.3f} "
               f"{m['ghost']:7.3f} {m['moving']:10.2f} "
               f"{ms if ms is not None else float('nan'):6.2f}")
         images.append(c)

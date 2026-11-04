@@ -480,10 +480,18 @@ OPTIONS:
     -n, --iterations <INT>  Timed iterations (default 20)
         --gpu <STRING>      Physical device (name, vendor:device, PCI id)
         --shaders <PATH>    Load .spv files from PATH (default: embedded)
-        --dump-flow <PATH>  Write the half-resolution RG16F flow field
+        --dump-flow <PATH>  Write the flow field (dense RG16F by default)
+        --flow-level <INT>  Dump the given openfg flow pyramid level
+        --ffx-flow-level <INT>
+                            Dump a FidelityFX internal flow level
+        --ffx-luma <INT>    Dump FidelityFX level luma to
+                            /tmp/opencode/ffx_luma_[ab].r8
+        --flow-raw          Dump the raw generator output (for ffx: rg16i)
+        --flow-reverse      Dump the second/reverse flow buffer
         --debug-source      Output the current source layer (sanity check)
         --dump-luma <LVL>   Write R8 luma pyramids at this level to PATH.a/.b
-        --performance       Half-resolution flow (faster, softer silhouettes)
+        --performance       Cheaper flow search (fewer/narrower refinement
+                            passes, or the half-size FidelityFX pyramid)
         --video-safe        Fall back to the current frame on a hard cut
         --hdr               Use RGBA16F source/destination images
         --generator <NAME>  flow, ffx, blend or hold (default: flow)

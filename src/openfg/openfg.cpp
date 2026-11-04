@@ -335,10 +335,10 @@ void Interpolator::createFfxResources() {
         nullptr, static_cast<size_t>(cbSize));
     this->m_ffxCb = std::move(buffer);
     this->m_ffxCbMemory = std::move(memory);
-    this->m_ffxCbMapped = this->m_device.mapMemory(
+    void* mapped = this->m_device.mapMemory(
         *this->m_ffxCbMemory, 0, cbSize, {}, this->m_dld);
 
-    auto* bytes = static_cast<uint8_t*>(this->m_ffxCbMapped);
+    auto* bytes = static_cast<uint8_t*>(mapped);
     for (uint32_t level = 0; level < 7; level++) {
         const FfxCb cb{
             .inputLumaResolution = {
@@ -367,6 +367,7 @@ void Interpolator::createFfxResources() {
         .pad = { 0, 0, 0 }
     };
     std::memcpy(bytes + size_t(7) * this->m_ffxCbStride, &spd, sizeof(spd));
+    this->m_device.unmapMemory(*this->m_ffxCbMemory, this->m_dld);
 }
 
 void Interpolator::createPipelines() {

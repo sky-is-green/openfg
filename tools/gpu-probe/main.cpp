@@ -138,7 +138,7 @@ namespace {
                 nullptr
             );
             openfg::Context context(
-                instance, extent, extent, 1.0F, false, false,
+                instance, extent, extent, false, false,
                 hdr ? vk::Format::eR16G16B16A16Sfloat
                     : vk::Format::eR8G8B8A8Unorm,
                 generator);

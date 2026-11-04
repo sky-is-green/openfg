@@ -60,7 +60,6 @@ public:
         const Instance& instance,
         uint32_t width,
         uint32_t height,
-        float flowScale,
         bool performanceMode,
         bool videoSafe = false,
         vk::Format colorFormat = vk::Format::eR8G8B8A8Unorm,
