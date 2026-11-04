@@ -66,7 +66,11 @@ namespace {
         const auto supports = [&](vk::Format format, bool atomic) {
             const auto features{physdev.getFormatProperties(format, dld)
                 .optimalTilingFeatures};
-            if (!(features & vk::FormatFeatureFlagBits::eStorageImage))
+            constexpr vk::FormatFeatureFlags REQUIRED_FORMAT{
+                vk::FormatFeatureFlagBits::eSampledImage |
+                vk::FormatFeatureFlagBits::eStorageImage
+            };
+            if ((features & REQUIRED_FORMAT) != REQUIRED_FORMAT)
                 return false;
             return !atomic ||
                 static_cast<bool>(features & vk::FormatFeatureFlagBits::eStorageImageAtomic);

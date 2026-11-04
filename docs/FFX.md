@@ -54,6 +54,12 @@ Performance mode first downsamples the colour frame to half resolution. There
 are RGBA8 and RGBA16F variants, so 10-bit and HDR swapchains get the faster
 path too.
 
+The luma pass currently uses FidelityFX's linear-SDR transfer function. That is
+correct for SDR and 10-bit linear content; a true HDR10/PQ source would need the
+layer to pass its transfer function and luminance range for ideal motion
+estimation. The existing openfg flow path also derives luma from the raw
+values, so this is not a regression, but it is a known limitation.
+
 ## Try it
 
 ```sh
