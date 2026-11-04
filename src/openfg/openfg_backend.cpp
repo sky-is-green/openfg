@@ -77,7 +77,8 @@ namespace {
         };
         return supports(vk::Format::eR8Uint, false) &&
             supports(vk::Format::eR16G16Sint, false) &&
-            supports(vk::Format::eR32Uint, true);
+            supports(vk::Format::eR32Uint, true) &&
+            supports(vk::Format::eR32Sfloat, false);
     }
 
     std::pair<vk::UniqueDevice, vk::Queue> createDevice(
