@@ -21,6 +21,7 @@ enum class Generator {
     Flow,
     Blend,
     Hold,
+    Ffx,
     Off
 };
 
@@ -101,6 +102,34 @@ public:
     [[nodiscard]] vk::Extent2D levelExtent(uint32_t level) const {
         return this->m_levels.at(level);
     }
+    [[nodiscard]] vk::Image ffxDenseImage() const {
+        return *this->m_ffxDense.image;
+    }
+    [[nodiscard]] vk::Extent2D ffxDenseExtent() const {
+        return this->m_ffxDense.extent;
+    }
+    [[nodiscard]] vk::Image ffxFlowOutImage() const {
+        return *this->m_ffxFlowOut.image;
+    }
+    [[nodiscard]] vk::Extent2D ffxFlowOutExtent() const {
+        return this->m_ffxFlowOut.extent;
+    }
+    [[nodiscard]] vk::Image ffxLumaImage(uint32_t level, bool current) const {
+        return current
+            ? *this->m_ffxLumaCurrent.at(level).image
+            : *this->m_ffxLumaPrevious.at(level).image;
+    }
+    [[nodiscard]] vk::Extent2D ffxLumaExtent(uint32_t level) const {
+        return this->m_ffxLumaExtent.at(level);
+    }
+    [[nodiscard]] vk::Image ffxFlowImage(uint32_t level, bool second) const {
+        return second
+            ? *this->m_ffxFlowB.at(level).image
+            : *this->m_ffxFlowA.at(level).image;
+    }
+    [[nodiscard]] vk::Extent2D ffxFlowExtent(uint32_t level) const {
+        return this->m_ffxFlowExtent.at(level);
+    }
 
 private:
     struct Image {
@@ -111,13 +140,23 @@ private:
         vk::Format format;
     };
 
+    struct FfxPass {
+        vk::UniqueDescriptorSetLayout setLayout;
+        vk::UniquePipelineLayout pipelineLayout;
+        vk::UniquePipeline pipeline;
+    };
+
     Image createImage(vk::Extent2D extent, vk::Format format, vk::ImageUsageFlags usage);
     void createPipelines();
     void createDescriptors();
+    void createFfxResources();
+    void createFfxPipelines();
+    void createFfxDescriptors();
     vk::DescriptorSet makeSet(
         const std::array<vk::ImageView, 5>& sampled,
         const std::array<vk::ImageView, 4>& storage
     );
+    vk::DescriptorSet allocFfxSet(vk::DescriptorSetLayout layout);
     void dispatch(
         const vk::CommandBuffer& cmdbuf,
         std::string_view pipeline,
@@ -125,7 +164,28 @@ private:
         vk::Extent2D extent,
         const PushConstants& pc
     );
+    void dispatchFfx(
+        const vk::CommandBuffer& cmdbuf,
+        const vk::Pipeline& pipeline,
+        const vk::PipelineLayout& layout,
+        vk::DescriptorSet set,
+        const std::vector<uint32_t>& offsets,
+        vk::Extent3D groups
+    );
     void barrier(const vk::CommandBuffer& cmdbuf) const;
+    void analyzeFfx(
+        const vk::CommandBuffer& cmdbuf,
+        uint32_t layerA,
+        uint32_t layerB
+    );
+    void generateFfx(
+        const vk::CommandBuffer& cmdbuf,
+        uint32_t layerA,
+        uint32_t layerB,
+        float t,
+        uint32_t flags,
+        uint32_t destinationLayer
+    );
 
     const vk::detail::DispatchLoaderDynamic& m_dld;
     const vk::PhysicalDevice m_physdev;
@@ -160,16 +220,65 @@ private:
 
     vk::UniqueImageView m_srcView;
     vk::UniqueImageView m_dstView;
+    std::array<vk::UniqueImageView, 2> m_srcLayerView{};
 
     Image m_dummyR8;
     Image m_dummyRg16f;
     Image m_dummyRgba8;
 
+    // FidelityFX Optical Flow state. Both luma pyramids are rebuilt from the
+    // two source layers on each analyze call; the scene-change detector keeps
+    // its previous histogram between calls.
+    vk::Extent2D m_ffxExtent{};
+    uint32_t m_ffxFlowScale{1};
+    uint32_t m_ffxLevels{5};
+    std::array<vk::Extent2D, 7> m_ffxLumaExtent{};
+    std::array<vk::Extent2D, 7> m_ffxFlowExtent{};
+    std::array<Image, 7> m_ffxLumaCurrent{};
+    std::array<Image, 7> m_ffxLumaPrevious{};
+    std::array<Image, 7> m_ffxFlowA{};
+    std::array<Image, 7> m_ffxFlowB{};
+    Image m_ffxFlowOut;
+    Image m_ffxDense;
+    Image m_ffxScd;
+    Image m_ffxScdHistogram;
+    Image m_ffxScdPreviousHistogram;
+    Image m_ffxScdTemp;
+    Image m_ffxColorHalf;
+    bool m_ffxHalfColor{false};
+    bool m_ffxInitialized{false};
+
+    vk::UniqueBuffer m_ffxCb;
+    vk::UniqueDeviceMemory m_ffxCbMemory;
+    void* m_ffxCbMapped{};
+    uint32_t m_ffxCbStride{};
+
+    FfxPass m_ffxPrepare;
+    FfxPass m_ffxPyramid;
+    FfxPass m_ffxSearch;
+    FfxPass m_ffxFilter;
+    FfxPass m_ffxScale;
+    FfxPass m_ffxScdHistogramPass;
+    FfxPass m_ffxScdDivergencePass;
+    vk::UniqueDescriptorPool m_ffxPool;
+    std::array<vk::DescriptorSet, 2> m_ffxPrepareSetCurrent{};
+    std::array<vk::DescriptorSet, 2> m_ffxPrepareSetPrevious{};
+    vk::DescriptorSet m_ffxPrepareHalfSetCurrent{};
+    vk::DescriptorSet m_ffxPrepareHalfSetPrevious{};
+    std::array<vk::DescriptorSet, 2> m_setFfxDownsample{};
+    vk::DescriptorSet m_ffxPyramidSetCurrent{};
+    vk::DescriptorSet m_ffxPyramidSetPrevious{};
+    std::array<vk::DescriptorSet, 7> m_ffxSearchSet{};
+    std::array<vk::DescriptorSet, 7> m_ffxFilterSet{};
+    std::array<vk::DescriptorSet, 7> m_ffxScaleSet{};
+    vk::DescriptorSet m_ffxScdHistogramSet{};
+    vk::DescriptorSet m_ffxScdDivergenceSet{};
+
     vk::UniqueSampler m_sampler;
     vk::UniqueDescriptorSetLayout m_setLayout;
     vk::UniquePipelineLayout m_pipelineLayout;
     vk::UniqueDescriptorPool m_pool;
-    std::array<vk::UniquePipeline, 11> m_pipelines{};
+    std::array<vk::UniquePipeline, 15> m_pipelines{};
     std::vector<vk::UniqueShaderModule> m_modules;
 
     vk::DescriptorSet m_setLumaA{};
@@ -181,6 +290,9 @@ private:
     std::array<vk::DescriptorSet, 6> m_setRefine{};
     std::array<vk::DescriptorSet, 6> m_setRefineBA{};
     vk::DescriptorSet m_setInterp{};
+    vk::DescriptorSet m_setInterpFfx{};
+    vk::DescriptorSet m_setFfxDense{};
+    vk::DescriptorSet m_setFfxCut{};
     vk::DescriptorSet m_setRefineFull{};
     vk::DescriptorSet m_setTileMask{};
     vk::DescriptorSet m_setCut{};

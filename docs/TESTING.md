@@ -123,10 +123,12 @@ For a method comparison, set `debug = true` and `present_timing = true`, then
 run the same scene with:
 
 ```toml
+# Pick one per run.
 generator = "off"    # layer loaded, no generation: latency baseline
-generator = "hold"   # repeat the current frame
-generator = "blend"  # linear A/B blend, no flow
-generator = "flow"   # optical flow
+# generator = "hold"   # repeat the current frame
+# generator = "blend"  # linear A/B blend, no flow
+# generator = "flow"   # openfg optical flow
+# generator = "ffx"    # AMD FidelityFX optical flow (MIT, faster)
 ```
 
 `present_timing` enables `VK_KHR_present_id`/`present_wait`; the debug log adds
@@ -136,8 +138,10 @@ presents, so use a fixed scene and identical settings for every row. The log’s
 matrix.
 
 For the generator itself without the layer, `fg-lab` accepts
-`--generator flow|blend|hold`; combine it with `tools/bench.py --generator` and
-`tools/ghost_bench.py --generator` for quality and GPU time.
+`--generator flow|ffx|blend|hold`; combine it with `tools/bench.py --generator`
+and `tools/ghost_bench.py --generator` for quality and GPU time. `ffx` is the
+FidelityFX optical-flow backend and is the one to compare against `flow` on
+real games.
 
 ## What to report
 

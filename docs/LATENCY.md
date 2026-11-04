@@ -138,22 +138,26 @@ background load.
 
 | generator | pan ms | pan dB | ghost dB | what it is |
 |---|---:|---:|---:|---|
-| flow | 1.52 | 32.83 | 26.49 | 5×5 refinement |
-| flow performance | 0.79 | 32.50 | 26.45 | half-res flow + 3×3 refine |
+| flow | 1.56 | 32.83 | 26.49 | 5×5 refinement |
+| flow performance | 0.85 | 32.50 | 26.45 | half-res flow + 3×3 refine |
+| ffx | 0.90 | 33.27 | 26.60 | FidelityFX 8×8 block flow |
+| ffx performance | 0.45 | 33.07 | 26.56 | FidelityFX half-size flow |
 | blend | 0.02 | 20.81 | 22.53 | linear A/B blend |
 | hold | 0.02 | 18.86 | 20.57 | repeat the current frame |
 
-Quality flow is ~0.33 dB better on the pan scene for about twice the cost of
-performance mode; ghosting is essentially unchanged (26.485 → 26.449 dB).
-Performance mode is now the efficiency choice, while quality mode remains the
-default. Blend and hold are comparison baselines, not shipping modes.
+The FidelityFX path is about 1.7–1.9× faster than openfg flow at the same
+setting and slightly better on pan and ghost. Its only synthetic regression is
+the occlusion scene (21.19 vs 21.30 dB), which is within the range where block
+motion cannot separate a thin occluder from its background. The ghost gate is
+better in both modes (excess 1.904 vs 1.925 quality, 1.938 vs 1.951
+performance). Blend and hold are comparison baselines, not shipping modes.
 
 ## Reproducing
 
 ```toml
 [openfg]
 enabled = true
-generator = "flow"          # flow, blend, hold or off
+generator = "flow"          # flow, ffx, blend, hold or off
 pacing = "adaptive"         # adaptive or capped
 max_presented_fps = -1      # detected display refresh; 0 = off
 present_timing = true
@@ -181,7 +185,7 @@ total; at a synthetic 1,400 fps the `source` segment includes waiting for the
 previous generated copy, which is present backpressure rather than CPU cost.
 
 For the layer-free generator numbers, use
-`fg-lab --generator flow|blend|hold`, `tools/bench.py --generator ...` and
+`fg-lab --generator flow|ffx|blend|hold`, `tools/bench.py --generator ...` and
 `tools/ghost_bench.py --generator ...`.
 
 Some applications create a device where the present-id features are not

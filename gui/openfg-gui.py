@@ -421,7 +421,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.generator = QtWidgets.QComboBox()
         for value, label in (
-            ("flow", "Optical flow (quality)"),
+            ("flow", "openfg optical flow (quality)"),
+            ("ffx", "FidelityFX optical flow (fast)"),
             ("blend", "Linear blend (no flow; fast baseline)"),
             ("hold", "Hold current frame (no interpolation)"),
             ("off", "Off / timing only"),
@@ -430,8 +431,9 @@ class MainWindow(QtWidgets.QMainWindow):
         index = self.generator.findData(self.config["generator"])
         self.generator.setCurrentIndex(index if index >= 0 else 0)
         self.generator.setToolTip(
-            "Image-based generator. blend and hold are comparison baselines; "
-            "off keeps the layer loaded for present/latency timing only."
+            "Image-based generator. ffx uses AMD's MIT FidelityFX optical flow "
+            "(lower GPU cost, block motion); blend and hold are comparison "
+            "baselines; off keeps the layer loaded for timing only."
         )
         form.addRow("Generator:", self.generator)
 

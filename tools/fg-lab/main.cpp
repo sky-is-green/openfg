@@ -43,6 +43,8 @@ namespace {
         bool dumpFlowReverse{false};
         std::filesystem::path dumpLuma;
         int dumpLumaLevel{-1};
+        int ffxFlowLevel{-1};
+        int ffxLumaLevel{-1};
         std::string gpu;
         std::filesystem::path shaders;
         uint32_t width{0};
@@ -484,7 +486,7 @@ OPTIONS:
         --performance       Half-resolution flow (faster, softer silhouettes)
         --video-safe        Fall back to the current frame on a hard cut
         --hdr               Use RGBA16F source/destination images
-        --generator <NAME>  flow, blend or hold (default: flow)
+        --generator <NAME>  flow, ffx, blend or hold (default: flow)
 )";
     }
 }
@@ -492,7 +494,7 @@ OPTIONS:
 int main(int argc, char** argv) {
     Options opts{};
 
-    const std::array<option, 22> GETOPT{{
+    const std::array<option, 24> GETOPT{{
         { "a", required_argument, nullptr, 'a' },
         { "b", required_argument, nullptr, 'b' },
         { "out", required_argument, nullptr, 'o' },
@@ -514,6 +516,8 @@ int main(int argc, char** argv) {
         { "video-safe", no_argument, nullptr, 11 },
         { "hdr", no_argument, nullptr, 12 },
         { "generator", required_argument, nullptr, 13 },
+        { "ffx-flow-level", required_argument, nullptr, 14 },
+        { "ffx-luma", required_argument, nullptr, 15 },
         { nullptr, 0, nullptr, 0 }
     }};
 
@@ -544,6 +548,8 @@ int main(int argc, char** argv) {
             case 11: opts.videoSafe = true; break;
             case 12: opts.hdr = true; break;
             case 13: opts.generator = optarg; break;
+            case 14: opts.ffxFlowLevel = std::stoi(optarg); break;
+            case 15: opts.ffxLumaLevel = std::stoi(optarg); break;
             default:
                 usage(argv[0]);
                 return EXIT_FAILURE;
@@ -621,6 +627,8 @@ int main(int argc, char** argv) {
             generator = openfg::Generator::Blend;
         else if (opts.generator == "hold")
             generator = openfg::Generator::Hold;
+        else if (opts.generator == "ffx")
+            generator = openfg::Generator::Ffx;
         else if (opts.generator != "flow")
             throw std::runtime_error("unknown generator: " + opts.generator);
 
@@ -656,7 +664,8 @@ int main(int argc, char** argv) {
             cmdbuf->writeTimestamp(
                 vk::PipelineStageFlagBits::eComputeShader,
                 *queryPool, i * 2, dld);
-            if (generator == openfg::Generator::Flow)
+            if (generator == openfg::Generator::Flow ||
+                generator == openfg::Generator::Ffx)
                 interpolator.analyze(*cmdbuf, 0, 1);
             interpolator.generate(*cmdbuf, 0, 1, opts.t, opts.debugFlags);
             cmdbuf->writeTimestamp(
@@ -713,14 +722,42 @@ int main(int argc, char** argv) {
 
         if (!opts.dumpFlow.empty()) {
             const auto level{static_cast<uint32_t>(opts.dumpFlowLevel)};
-            const auto image{opts.dumpFlowReverse
-                ? interpolator.flowReverseImage(level)
-                : (opts.dumpFlowRaw
-                    ? interpolator.flowRawImage(level)
-                    : interpolator.flowImage(level))};
+            vk::Image image{};
+            vk::Extent2D extent{};
+            if (generator == openfg::Generator::Ffx) {
+                if (opts.ffxFlowLevel >= 0) {
+                    const auto ffxLevel{static_cast<uint32_t>(opts.ffxFlowLevel)};
+                    image = interpolator.ffxFlowImage(ffxLevel, opts.dumpFlowReverse);
+                    extent = interpolator.ffxFlowExtent(ffxLevel);
+                } else if (opts.dumpFlowRaw) {
+                    image = interpolator.ffxFlowOutImage();
+                    extent = interpolator.ffxFlowOutExtent();
+                } else {
+                    image = interpolator.ffxDenseImage();
+                    extent = interpolator.ffxDenseExtent();
+                }
+            } else {
+                image = opts.dumpFlowReverse
+                    ? interpolator.flowReverseImage(level)
+                    : (opts.dumpFlowRaw
+                        ? interpolator.flowRawImage(level)
+                        : interpolator.flowImage(level));
+                extent = interpolator.flowExtent(level);
+            }
             const auto flow{readImage(dld, physdev, *device, queue,
-                *pool, image, interpolator.flowExtent(level), 4)};
+                *pool, image, extent, 4)};
             writeFile(opts.dumpFlow, flow);
+        }
+
+        if (opts.ffxLumaLevel >= 0) {
+            const auto level{static_cast<uint32_t>(opts.ffxLumaLevel)};
+            const auto extent{interpolator.ffxLumaExtent(level)};
+            const auto a{readImage(dld, physdev, *device, queue, *pool,
+                interpolator.ffxLumaImage(level, false), extent, 1)};
+            const auto b{readImage(dld, physdev, *device, queue, *pool,
+                interpolator.ffxLumaImage(level, true), extent, 1)};
+            writeFile("/tmp/opencode/ffx_luma_a.r8", a);
+            writeFile("/tmp/opencode/ffx_luma_b.r8", b);
         }
 
         if (opts.dumpLumaLevel >= 0) {

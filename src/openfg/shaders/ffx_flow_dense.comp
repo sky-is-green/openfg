@@ -1,0 +1,57 @@
+// Expand FidelityFX's 8x8 block motion field into a full-resolution flow
+// image for the existing openfg interpolation pass.
+//
+// FidelityFX stores one rg16i vector per 8x8 block, in flow-resolution pixels
+// and with `previous = current + v`. The interpolation pass wants a dense
+// RG16F field in full-resolution pixels, so sample the block grid bilinearly
+// and convert the units here.
+#version 460
+#extension GL_EXT_samplerless_texture_functions : require
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 1) uniform itexture2D uBlockFlow;
+layout(set = 0, binding = 8, rg16f) uniform image2D uDense;
+
+// Same 48-byte layout as common.glsl.
+layout(push_constant) uniform PC {
+    uint width;
+    uint height;
+    float t;
+    float flowScale;
+    int level;
+    int radius;
+    int flags;
+    int pad0;
+    uint layerA;
+    uint layerB;
+    uint dstLayer;
+    uint pad2;
+} pc;
+
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = ivec2(pc.width, pc.height);
+    if (any(greaterThanEqual(p, size)))
+        return;
+
+    // pc.flowScale is output pixels per flow-resolution pixel, so a full-res
+    // pixel's block-grid coordinate is y / (8 * flowScale).
+    vec2 y = vec2(p) + 0.5;
+    vec2 b = y / (8.0 * pc.flowScale) - 0.5;
+    ivec2 b0 = ivec2(floor(b));
+    vec2 f = b - vec2(b0);
+    ivec2 last = textureSize(uBlockFlow, 0) - 1;
+    ivec2 b1 = min(b0 + 1, last);
+    b0 = max(b0, ivec2(0));
+
+    vec2 v00 = vec2(texelFetch(uBlockFlow, ivec2(b0.x, b0.y), 0).xy);
+    vec2 v10 = vec2(texelFetch(uBlockFlow, ivec2(b1.x, b0.y), 0).xy);
+    vec2 v01 = vec2(texelFetch(uBlockFlow, ivec2(b0.x, b1.y), 0).xy);
+    vec2 v11 = vec2(texelFetch(uBlockFlow, b1, 0).xy);
+
+    // openfg's interpolation uses v = current - previous, while FidelityFX
+    // stores previous = current + v. Flip the sign at the boundary.
+    vec2 v = mix(mix(v00, v10, f.x), mix(v01, v11, f.x), f.y) * pc.flowScale;
+    imageStore(uDense, p, vec4(-v, 0.0, 1.0));
+}

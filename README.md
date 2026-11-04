@@ -2,17 +2,20 @@
 
 [![build](https://github.com/sky-is-green/openfg/actions/workflows/build.yml/badge.svg)](https://github.com/sky-is-green/openfg/actions/workflows/build.yml)
 
-Open frame generation for Linux. This is the clean-room, MIT-licensed tree:
-an original optical-flow interpolator, a standalone harness, and a Vulkan layer.
+Open frame generation for Linux. This is the MIT-licensed tree: an original
+optical-flow interpolator, an optional AMD FidelityFX Optical Flow backend,
+a standalone harness, and a Vulkan layer.
 
 No Lossless Scaling assets, no `lsfg-vk.dll`, and no lsfg-vk source code are
-used here.
+used here. The FidelityFX SDK's MIT-licensed optical-flow shaders are vendored
+under `src/openfg/shaders/ffx/`; see [THIRD_PARTY.md](THIRD_PARTY.md).
 
 ## Status
 
 - [x] `vkutil` — original Vulkan helper library
 - [x] `openfg` backend — luma pyramid, block matching, LK refinement, full-res
       refinement, tile mask, optional soft occlusion
+- [x] Optional AMD FidelityFX Optical Flow backend (MIT shaders)
 - [x] `fg-lab` — standalone 2-frame harness with GT PSNR/timing
 - [x] Layer bootstrap — loader interface, instance/device/swapchain/present
       hooks
@@ -43,8 +46,9 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j"$(nproc)"
 ```
 
-Requirements: C++20 compiler, CMake 3.20+, Ninja, `glslc` (shaderc), Vulkan
-headers (vendored), Python 3 (shader embedding).
+Requirements: C++20 compiler, CMake 3.20+, Ninja, `glslc` (shaderc),
+`glslangValidator` (glslang), Vulkan headers (vendored), Python 3 (shader
+embedding).
 
 An Arch/CachyOS package recipe is in [`packaging/`](packaging/README.md)
 (`makepkg -si`).
@@ -238,13 +242,19 @@ display refresh. The practical options are:
   dwell to avoid flapping. Generation starts off for a nonzero target, so a
   game already above it never initializes the backend; it enables only after a
   sustained drop.
-- `performance_mode`: half-resolution flow plus a 3×3 refinement window. At
-  1440p it measured **1.52 → 0.79 ms** (about 48% faster): pan 32.825 → 32.499
-  dB and ghost 26.485 → 26.449 dB. Ghosting is effectively unchanged; the
-  sharper pan detail is the trade.
-- `generator`: `flow` is the real optical-flow path; `blend` and `hold` are
-  cheap comparison baselines; `off` keeps the layer loaded but generates
-  nothing, giving a layer-off timing baseline.
+- `performance_mode`: halves the flow resolution. For `flow` it also narrows
+  the refinement window; for `ffx` it runs FidelityFX's five-level half-size
+  search. At 1440p the original flow path measured about **1.56 → 0.85 ms**,
+  pan 32.825 → 32.499 dB and ghost 26.485 → 26.449 dB. The FidelityFX path
+  measured about **0.88 → 0.42 ms** with pan 33.27 → 33.07 dB and ghost
+  26.60 → 26.56 dB. Ghosting stays effectively unchanged either way.
+- `generator`: `flow` is openfg's own optical-flow path; `ffx` uses AMD's
+  MIT-licensed FidelityFX Optical Flow and is roughly twice as fast on the
+  test system, with equal or better quality on every synthetic scene except a
+  small occlusion-scene regression. See [docs/FFX.md](docs/FFX.md) for the
+  design, measurements and licensing notes. `blend` and `hold` are cheap
+  comparison baselines; `off` keeps the layer loaded but generates nothing,
+  giving a layer-off timing baseline.
 - `present_timing`: opt-in `VK_KHR_present_id`/`present_wait` measurement. The
   debug log then reports real-frame present latency percentiles. It can make
   the compositor pace presents, so leave it off for normal play.
@@ -352,10 +362,17 @@ byte-for-byte on the same inputs (32.8252 dB on the 1440p pan scene).
 Performance mode with `--performance` at 1440p:
 
 ```
-scene    normal ms   perf ms   normal dB   perf dB
-pan         1.52       0.79      32.8252    32.4990
-ghost       1.51       0.79      26.4850    26.4494
+generator   scene   normal ms  perf ms  normal dB  perf dB
+flow        pan         1.56      0.85    32.8252   32.4990
+flow        ghost       1.57      0.85    26.4850   26.4494
+ffx         pan         0.90      0.45    33.2668   33.0687
+ffx         ghost       0.88      0.42    26.6027   26.5590
 ```
+
+The FidelityFX backend is selected with `--generator ffx`; it uses the same
+colour frames and interpolation pass but replaces openfg's per-pixel flow
+with FidelityFX's eight-pixel block search. It is about twice as fast on the
+test system and slightly better on the ghost gate.
 
 The half-float path (`fg-lab --hdr`, used for 10-bit/HDR swapchains) costs
 about 2% at 1440p: pan 1.609 ms / 32.816 dB versus 1.569 ms / 32.8252 dB.
@@ -379,10 +396,15 @@ python3 tools/ghost_bench.py --scene ghost --width 2560 --height 1440
 ```
 
 ```
-backend   full dB  edge dB  edge MAD   ghost  moving dB     ms
-openfg      26.48    26.67     2.238   1.925      26.33   1.46
-openfg perf 26.45    26.64     2.350   1.951      26.30   1.06
+backend       full dB  edge dB  edge MAD   ghost  moving dB     ms
+openfg          26.48    26.67     2.238   1.925      26.33   1.46
+openfg perf     26.45    26.64     2.350   1.951      26.30   1.06
+openfg ffx      26.60    26.85     2.081   1.904      26.41   1.12
+openfg ffx perf 26.56    26.78     2.136   1.938      26.40   0.46
 ```
+
+The `ffx` rows use `--generator ffx`; the ghost-excess gate improves from
+1.925 to 1.904 in quality mode and from 1.951 to 1.938 in performance mode.
 
 Tile-mask early-out:
 

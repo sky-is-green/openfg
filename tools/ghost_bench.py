@@ -104,7 +104,7 @@ def main():
     ap.add_argument("--height", type=int, default=1440)
     ap.add_argument("--gpu", default="0000:07:00.0")
     ap.add_argument("--iterations", type=int, default=10)
-    ap.add_argument("--generator", choices=("flow", "blend", "hold"),
+    ap.add_argument("--generator", choices=("flow", "ffx", "blend", "hold"),
                     default="flow")
     ap.add_argument("--performance", action="store_true",
                     help="use half-resolution flow + 3x3 refine")

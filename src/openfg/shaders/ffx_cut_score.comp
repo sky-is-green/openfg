@@ -1,0 +1,36 @@
+// Convert FidelityFX's scene-change history bit into openfg's R8 cut score.
+// The interpolation pass then reuses its existing video-safe fallback (show
+// the current frame instead of blending across a hard cut).
+#version 460
+#extension GL_EXT_samplerless_texture_functions : require
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 1) uniform utexture2D uScd;
+layout(set = 0, binding = 8, r8) uniform image2D uOut;
+
+layout(push_constant) uniform PC {
+    uint width;
+    uint height;
+    float t;
+    float flowScale;
+    int level;
+    int radius;
+    int flags;
+    int pad0;
+    uint layerA;
+    uint layerB;
+    uint dstLayer;
+    uint pad2;
+} pc;
+
+void main() {
+    if (gl_GlobalInvocationID.x != 0u || gl_GlobalInvocationID.y != 0u)
+        return;
+
+    // SCD_OUTPUT_HISTORY_BITS_SLOT is slot 1; the low four bits are the recent
+    // scene-change history.
+    const uint bits = texelFetch(uScd, ivec2(1, 0), 0).x;
+    imageStore(uOut, ivec2(0, 0),
+        vec4((bits & 0xfu) != 0u ? 1.0 : 0.0, 0.0, 0.0, 1.0));
+}

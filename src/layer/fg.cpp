@@ -845,7 +845,9 @@ namespace {
         }
         state.instance = instance;
         openfg::Generator generator{openfg::Generator::Flow};
-        if (activeConfig().generator == "blend")
+        if (activeConfig().generator == "ffx")
+            generator = openfg::Generator::Ffx;
+        else if (activeConfig().generator == "blend")
             generator = openfg::Generator::Blend;
         else if (activeConfig().generator == "hold")
             generator = openfg::Generator::Hold;

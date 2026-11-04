@@ -448,9 +448,10 @@ bool validate(const Config& config, std::string& error) {
             "0 (off) or between 20 and 1000";
         return false;
     }
-    if (config.generator != "flow" && config.generator != "blend" &&
-        config.generator != "hold" && config.generator != "off") {
-        error = "openfg.generator must be flow, blend, hold or off";
+    if (config.generator != "flow" && config.generator != "ffx" &&
+        config.generator != "blend" && config.generator != "hold" &&
+        config.generator != "off") {
+        error = "openfg.generator must be flow, ffx, blend, hold or off";
         return false;
     }
     if (config.pacing != "adaptive" && config.pacing != "capped") {
@@ -826,11 +827,13 @@ target_fps = 0
 # 0 = off, or an explicit value such as 165.
 max_presented_fps = 0
 
-# Half-resolution flow + 3x3 refine: ~2x faster, softer edges.
+# Half-resolution flow: for flow it also narrows refinement; for ffx it runs
+# the five-level half-size FidelityFX search. About 2x faster, softer edges.
 performance_mode = false
 
-# Generator: flow (optical flow), blend (linear A/B), hold (repeat the
-# current frame), or off (layer loaded but no generation; useful for timing).
+# Generator: flow (openfg optical flow), ffx (AMD FidelityFX optical flow),
+# blend (linear A/B), hold (repeat the current frame), or off (layer loaded
+# but no generation; useful for timing).
 generator = "flow"
 
 # Generation pacing. "adaptive" waits out the measured threshold dwell;

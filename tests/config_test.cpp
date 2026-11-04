@@ -62,6 +62,14 @@ int main() {
     expect(parsed.config.pacing == "capped", "pacing parsed");
     expect(parsed.config.presentTiming, "present timing parsed");
 
+    std::string ffxConfig{CONFIG};
+    const auto ffxPosition = ffxConfig.find("generator = \"blend\"");
+    ffxConfig.replace(ffxPosition,
+        std::string("generator = \"blend\"").size(), "generator = \"ffx\"");
+    const auto ffx = parse(ffxConfig, "ffx.toml");
+    expect(ffx.error.empty(), "the FidelityFX generator is accepted");
+    expect(ffx.config.generator == "ffx", "FidelityFX generator parsed");
+
     const auto defaults = parse("[openfg]\nenabled = true\n", "defaults.toml");
     expect(defaults.error.empty(), "minimal config parses");
     expect(defaults.config.pacing == "adaptive",

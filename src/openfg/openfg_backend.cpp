@@ -42,6 +42,40 @@ namespace {
         return words;
     }
 
+    bool supportsFfx(
+        const vk::detail::DispatchLoaderDynamic& dld,
+        const vk::PhysicalDevice& physdev
+    ) {
+        vk::PhysicalDeviceSubgroupProperties subgroup{};
+        vk::PhysicalDeviceProperties2 properties{
+            .pNext = &subgroup
+        };
+        physdev.getProperties2(&properties, dld);
+
+        constexpr vk::SubgroupFeatureFlags REQUIRED{
+            vk::SubgroupFeatureFlagBits::eBasic |
+            vk::SubgroupFeatureFlagBits::eArithmetic |
+            vk::SubgroupFeatureFlagBits::eQuad
+        };
+        if ((subgroup.supportedStages & vk::ShaderStageFlagBits::eCompute) ==
+            vk::ShaderStageFlagBits{})
+            return false;
+        if ((subgroup.supportedOperations & REQUIRED) != REQUIRED)
+            return false;
+
+        const auto supports = [&](vk::Format format, bool atomic) {
+            const auto features{physdev.getFormatProperties(format, dld)
+                .optimalTilingFeatures};
+            if (!(features & vk::FormatFeatureFlagBits::eStorageImage))
+                return false;
+            return !atomic ||
+                static_cast<bool>(features & vk::FormatFeatureFlagBits::eStorageImageAtomic);
+        };
+        return supports(vk::Format::eR8Uint, false) &&
+            supports(vk::Format::eR16G16Sint, false) &&
+            supports(vk::Format::eR32Uint, true);
+    }
+
     std::pair<vk::UniqueDevice, vk::Queue> createDevice(
         vk::detail::DispatchLoaderDynamic& dld,
         const vk::PhysicalDevice& physdev,
@@ -218,6 +252,15 @@ Context::Context(
     const auto& vk{instance.m_impl->vk};
     const vk::Extent2D extent{width, height};
 
+    if (generator == Generator::Ffx && !supportsFfx(*vk.dld, vk.physdev)) {
+        generator = Generator::Flow;
+        if (instance.m_impl->logCallback) {
+            instance.m_impl->logCallback(
+                "openfg: FidelityFX optical flow is unsupported on this device; "
+                "falling back to flow");
+        }
+    }
+
     auto [sourceImage, sourceMemory] = createExternalImage(
         *vk.dld, vk.physdev, *vk.device, extent,
         vk::ImageUsageFlagBits::eSampled | vk::ImageUsageFlagBits::eTransferDst,
@@ -322,7 +365,8 @@ void Context::dispatch(uint32_t total, bool unsignaled) {
     ctx.analyzeCmdbuf->reset({}, *vk.dld);
     ctx.analyzeCmdbuf->begin(
         { .flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit }, *vk.dld);
-    if (ctx.generator == Generator::Flow)
+    if (ctx.generator == Generator::Flow ||
+        ctx.generator == Generator::Ffx)
         ctx.interpolator->analyze(*ctx.analyzeCmdbuf, ctx.layerA, ctx.layerB);
     ctx.analyzeCmdbuf->end(*vk.dld);
 

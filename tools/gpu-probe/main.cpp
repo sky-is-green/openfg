@@ -113,17 +113,21 @@ namespace {
         bool crossGpu{};
         bool hdr{};
         bool hdrCross{};
+        bool ffx{};
         std::string sameError;
         std::string crossError;
         std::string hdrError;
         std::string hdrCrossError;
+        std::string ffxError;
     };
 
     bool testBackend(
         const std::string& deviceId,
         bool crossGpu,
         bool hdr,
-        std::string& error
+        std::string& error,
+        openfg::Generator generator = openfg::Generator::Flow,
+        uint32_t extent = 64
     ) {
         try {
             openfg::Instance instance(
@@ -134,9 +138,10 @@ namespace {
                 nullptr
             );
             openfg::Context context(
-                instance, 64, 64, 1.0F, false, false,
+                instance, extent, extent, 1.0F, false, false,
                 hdr ? vk::Format::eR16G16B16A16Sfloat
-                    : vk::Format::eR8G8B8A8Unorm);
+                    : vk::Format::eR8G8B8A8Unorm,
+                generator);
             const auto fds = context.exportFds();
             if (fds.sourceFd >= 0)
                 ::close(fds.sourceFd);
@@ -228,6 +233,33 @@ namespace {
         std::printf("  formats       : r8-storage=%s rg16f-storage=%s rgba8=%s\n",
             boolText(storageR8), boolText(storageRg16f), boolText(colorRgba8));
 
+        VkPhysicalDeviceSubgroupProperties subgroup{};
+        subgroup.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES;
+        VkPhysicalDeviceProperties2 subgroupProperties{};
+        subgroupProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+        subgroupProperties.pNext = &subgroup;
+        dld.vkGetPhysicalDeviceProperties2(physdev, &subgroupProperties);
+        const VkSubgroupFeatureFlags subgroupOps =
+            VK_SUBGROUP_FEATURE_BASIC_BIT |
+            VK_SUBGROUP_FEATURE_ARITHMETIC_BIT |
+            VK_SUBGROUP_FEATURE_QUAD_BIT;
+        const bool subgroupOk =
+            (subgroup.supportedStages & VK_SHADER_STAGE_COMPUTE_BIT) != 0 &&
+            (subgroup.supportedOperations & subgroupOps) == subgroupOps;
+        const bool storageR8Uint = formatSupports(
+            physdev, dld, vk::Format::eR8Uint, true);
+        const bool storageRg16i = formatSupports(
+            physdev, dld, vk::Format::eR16G16Sint, true);
+        const bool storageR32uiAtomic =
+            (physdev.getFormatProperties(vk::Format::eR32Uint, dld)
+                .optimalTilingFeatures &
+             vk::FormatFeatureFlagBits::eStorageImageAtomic) !=
+            vk::FormatFeatureFlags{};
+        std::printf("  ffx           : %s (subgroups=%s r8ui=%s rg16i=%s r32ui-atomic=%s)\n",
+            boolText(subgroupOk && storageR8Uint && storageRg16i && storageR32uiAtomic),
+            boolText(subgroupOk), boolText(storageR8Uint),
+            boolText(storageRg16i), boolText(storageR32uiAtomic));
+
         const bool opaqueImage = externalImageSupports(
             physdev, dld,
             vk::ExternalMemoryHandleTypeFlagBits::eOpaqueFd,
@@ -261,6 +293,9 @@ namespace {
         report.crossGpu = testBackend(deviceId, true, false, report.crossError);
         report.hdr = testBackend(deviceId, false, true, report.hdrError);
         report.hdrCross = testBackend(deviceId, true, true, report.hdrCrossError);
+        report.ffx = testBackend(
+            deviceId, false, false, report.ffxError,
+            openfg::Generator::Ffx, 256);
 
         std::printf("  runtime same  : %s", boolText(report.sameGpu));
         if (!report.sameError.empty())
@@ -277,6 +312,10 @@ namespace {
         std::printf("  runtime hdr x : %s", boolText(report.hdrCross));
         if (!report.hdrCrossError.empty())
             std::printf(" (%s)", report.hdrCrossError.c_str());
+        std::printf("\n");
+        std::printf("  runtime ffx   : %s", boolText(report.ffx));
+        if (!report.ffxError.empty())
+            std::printf(" (%s)", report.ffxError.c_str());
         std::printf("\n");
         std::printf("\n");
         return report;

@@ -48,7 +48,7 @@ def main():
     ap.add_argument("--height", type=int, default=1440)
     ap.add_argument("--gpu", default="auto")
     ap.add_argument("--iterations", type=int, default=100)
-    ap.add_argument("--generator", choices=("flow", "blend", "hold"),
+    ap.add_argument("--generator", choices=("flow", "ffx", "blend", "hold"),
                     default="flow")
     ap.add_argument("--testdata", type=Path,
                     default=Path(__file__).resolve().parent / "testdata")

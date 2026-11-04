@@ -8,6 +8,8 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -18,7 +20,7 @@
 using namespace openfg;
 
 namespace {
-    constexpr std::array<std::string_view, 11> PIPELINE_NAMES{
+    constexpr std::array<std::string_view, 15> PIPELINE_NAMES{
         "luma",
         "downsample",
         "blockmatch",
@@ -29,7 +31,11 @@ namespace {
         "refine_full",
         "interpolate",
         "interpolate_hdr",
-        "cutdetect"
+        "cutdetect",
+        "ffx_flow_dense",
+        "ffx_color_half",
+        "ffx_color_half_hdr",
+        "ffx_cut_score"
     };
 
     enum PipelineIndex : size_t {
@@ -43,7 +49,11 @@ namespace {
         REFINE_FULL = 7,
         INTERPOLATE = 8,
         INTERPOLATE_HDR = 9,
-        CUTDETECT = 10
+        CUTDETECT = 10,
+        FFX_FLOW_DENSE = 11,
+        FFX_COLOR_HALF = 12,
+        FFX_COLOR_HALF_HDR = 13,
+        FFX_CUT_SCORE = 14
     };
 
     constexpr uint32_t LOCAL_SIZE = 8;
@@ -54,6 +64,50 @@ namespace {
             std::max(1U, (extent.height + 1) / 2)
         };
     }
+
+    uint32_t alignUp(uint32_t value, uint32_t alignment) {
+        return alignment == 0 ? value : (value + alignment - 1) / alignment * alignment;
+    }
+
+    vk::UniqueImageView layerView(
+        const vk::detail::DispatchLoaderDynamic& dld,
+        const vk::Device& device,
+        const vk::Image& image,
+        vk::Format format,
+        uint32_t layer
+    ) {
+        const vk::ImageViewCreateInfo info{
+            .image = image,
+            .viewType = vk::ImageViewType::e2D,
+            .format = format,
+            .subresourceRange = {
+                .aspectMask = vk::ImageAspectFlagBits::eColor,
+                .levelCount = 1,
+                .baseArrayLayer = layer,
+                .layerCount = 1
+            }
+        };
+        return device.createImageViewUnique(info, nullptr, dld);
+    }
+
+    struct FfxCb {
+        int32_t inputLumaResolution[2];
+        uint32_t pyramidLevel;
+        uint32_t pyramidLevelCount;
+        uint32_t frameIndex;
+        uint32_t backbufferTransferFunction;
+        float minMaxLuminance[2];
+    };
+    static_assert(sizeof(FfxCb) == 32);
+
+    struct FfxSpdCb {
+        uint32_t mips;
+        uint32_t numWorkGroups;
+        uint32_t workGroupOffset[2];
+        uint32_t numWorkGroupsPyramid;
+        uint32_t pad[3];
+    };
+    static_assert(sizeof(FfxSpdCb) == 32);
 
 }
 
@@ -156,6 +210,16 @@ Interpolator::Interpolator(
         false
     );
 
+    if (this->m_generator == Generator::Ffx) {
+        this->m_srcLayerView.at(0) = layerView(
+            this->m_dld, this->m_device, source, this->m_colorFormat, 0);
+        this->m_srcLayerView.at(1) = layerView(
+            this->m_dld, this->m_device, source, this->m_colorFormat, 1);
+        this->createFfxResources();
+        this->createFfxPipelines();
+        this->createFfxDescriptors();
+    }
+
     this->createPipelines();
     this->createDescriptors();
 }
@@ -197,6 +261,112 @@ Interpolator::Image Interpolator::createImage(
         this->m_dld, this->m_device, *image.image, format, 1);
 
     return image;
+}
+
+void Interpolator::createFfxResources() {
+    constexpr vk::ImageUsageFlags USAGE{
+        vk::ImageUsageFlagBits::eStorage |
+        vk::ImageUsageFlagBits::eSampled |
+        vk::ImageUsageFlagBits::eTransferSrc |
+        vk::ImageUsageFlagBits::eTransferDst
+    };
+
+    this->m_ffxHalfColor = this->m_performanceMode;
+    this->m_ffxExtent = this->m_ffxHalfColor
+        ? halve(this->m_extent)
+        : this->m_extent;
+    this->m_ffxFlowScale = this->m_ffxHalfColor ? 2U : 1U;
+    this->m_ffxLevels = this->m_ffxHalfColor ? 5U : 7U;
+
+    for (uint32_t level = 0; level < 7; level++) {
+        this->m_ffxLumaExtent.at(level) = vk::Extent2D{
+            std::max(1U, this->m_ffxExtent.width >> level),
+            std::max(1U, this->m_ffxExtent.height >> level)
+        };
+        if (level == 0) {
+            this->m_ffxFlowExtent.at(level) = vk::Extent2D{
+                (this->m_ffxExtent.width + 7U) / 8U,
+                (this->m_ffxExtent.height + 7U) / 8U
+            };
+        } else {
+            this->m_ffxFlowExtent.at(level) = vk::Extent2D{
+                std::max(1U, (this->m_ffxFlowExtent.at(level - 1).width + 1U) / 2U),
+                std::max(1U, (this->m_ffxFlowExtent.at(level - 1).height + 1U) / 2U)
+            };
+        }
+
+        this->m_ffxLumaCurrent.at(level) = this->createImage(
+            this->m_ffxLumaExtent.at(level), vk::Format::eR8Uint, USAGE);
+        this->m_ffxLumaPrevious.at(level) = this->createImage(
+            this->m_ffxLumaExtent.at(level), vk::Format::eR8Uint, USAGE);
+        this->m_ffxFlowA.at(level) = this->createImage(
+            this->m_ffxFlowExtent.at(level), vk::Format::eR16G16Sint, USAGE);
+        this->m_ffxFlowB.at(level) = this->createImage(
+            this->m_ffxFlowExtent.at(level), vk::Format::eR16G16Sint, USAGE);
+    }
+
+    this->m_ffxFlowOut = this->createImage(
+        this->m_ffxFlowExtent.at(0), vk::Format::eR16G16Sint, USAGE);
+    this->m_ffxDense = this->createImage(
+        this->m_extent, vk::Format::eR16G16Sfloat, USAGE);
+    this->m_ffxScd = this->createImage(
+        { 3, 1 }, vk::Format::eR32Uint, USAGE);
+    this->m_ffxScdHistogram = this->createImage(
+        { 256 * 3 * 3, 1 }, vk::Format::eR32Uint, USAGE);
+    this->m_ffxScdPreviousHistogram = this->createImage(
+        { 256 * 3 * 3, 1 }, vk::Format::eR32Sfloat, USAGE);
+    this->m_ffxScdTemp = this->createImage(
+        { 3, 1 }, vk::Format::eR32Uint, USAGE);
+    if (this->m_ffxHalfColor) {
+        this->m_ffxColorHalf = this->createImage(
+            this->m_ffxExtent, this->m_colorFormat, USAGE);
+    }
+
+    const auto& limits{this->m_physdev.getProperties(this->m_dld).limits};
+    this->m_ffxCbStride = alignUp(
+        static_cast<uint32_t>(sizeof(FfxCb)),
+        static_cast<uint32_t>(limits.minUniformBufferOffsetAlignment));
+    const vk::DeviceSize cbSize{
+        static_cast<vk::DeviceSize>(this->m_ffxCbStride) * 8U
+    };
+    auto [buffer, memory] = vkutil::createBuffer(
+        this->m_dld, this->m_device, this->m_physdev,
+        vk::BufferUsageFlagBits::eUniformBuffer,
+        nullptr, static_cast<size_t>(cbSize));
+    this->m_ffxCb = std::move(buffer);
+    this->m_ffxCbMemory = std::move(memory);
+    this->m_ffxCbMapped = this->m_device.mapMemory(
+        *this->m_ffxCbMemory, 0, cbSize, {}, this->m_dld);
+
+    auto* bytes = static_cast<uint8_t*>(this->m_ffxCbMapped);
+    for (uint32_t level = 0; level < 7; level++) {
+        const FfxCb cb{
+            .inputLumaResolution = {
+                static_cast<int32_t>(this->m_ffxExtent.width),
+                static_cast<int32_t>(this->m_ffxExtent.height)
+            },
+            .pyramidLevel = level,
+            .pyramidLevelCount = this->m_ffxLevels,
+            // Past the SDK's six-frame scene-change warm-up. The first
+            // divergence is discarded (see analyzeFfx); later frames use the
+            // detector normally.
+            .frameIndex = 10,
+            .backbufferTransferFunction = 0,
+            .minMaxLuminance = { 1.0F, 1.0F }
+        };
+        std::memcpy(bytes + size_t(level) * this->m_ffxCbStride, &cb, sizeof(cb));
+    }
+
+    const uint32_t tilesX{(this->m_ffxExtent.width - 1U) / 64U + 1U};
+    const uint32_t tilesY{(this->m_ffxExtent.height - 1U) / 64U + 1U};
+    const FfxSpdCb spd{
+        .mips = 6,
+        .numWorkGroups = tilesX * tilesY,
+        .workGroupOffset = { 0, 0 },
+        .numWorkGroupsPyramid = tilesX * tilesY,
+        .pad = { 0, 0, 0 }
+    };
+    std::memcpy(bytes + size_t(7) * this->m_ffxCbStride, &spd, sizeof(spd));
 }
 
 void Interpolator::createPipelines() {
@@ -253,6 +423,84 @@ void Interpolator::createPipelines() {
                 "openfg: failed to create pipeline '" + std::string(PIPELINE_NAMES.at(i)) + "'");
         this->m_pipelines.at(i) = std::move(result.value);
     }
+}
+
+void Interpolator::createFfxPipelines() {
+    const auto makePass = [this](
+        std::string_view name,
+        const std::vector<vk::DescriptorType>& types
+    ) {
+        FfxPass pass{};
+
+        std::vector<vk::DescriptorSetLayoutBinding> bindings;
+        bindings.reserve(types.size());
+        for (uint32_t i = 0; i < types.size(); i++) {
+            bindings.push_back({
+                .binding = i,
+                .descriptorType = types.at(i),
+                .descriptorCount = 1,
+                .stageFlags = vk::ShaderStageFlagBits::eCompute
+            });
+        }
+
+        pass.setLayout = this->m_device.createDescriptorSetLayoutUnique({
+            .bindingCount = static_cast<uint32_t>(bindings.size()),
+            .pBindings = bindings.data()
+        }, nullptr, this->m_dld);
+
+        pass.pipelineLayout = this->m_device.createPipelineLayoutUnique({
+            .setLayoutCount = 1,
+            .pSetLayouts = &*pass.setLayout
+        }, nullptr, this->m_dld);
+
+        const auto code{this->m_loader(name)};
+        if (code.empty())
+            throw std::runtime_error(
+                "openfg: missing shader '" + std::string(name) + "'");
+        this->m_modules.push_back(vkutil::createShaderModule(
+            this->m_dld, this->m_device, std::span<const uint32_t>(code)));
+
+        const vk::ComputePipelineCreateInfo info{
+            .stage = {
+                .stage = vk::ShaderStageFlagBits::eCompute,
+                .module = *this->m_modules.back(),
+                .pName = "main"
+            },
+            .layout = *pass.pipelineLayout
+        };
+        auto result{this->m_device.createComputePipelineUnique(
+            nullptr, info, nullptr, this->m_dld)};
+        if (result.result != vk::Result::eSuccess)
+            throw std::runtime_error(
+                "openfg: failed to create FidelityFX pipeline '" +
+                std::string(name) + "'");
+        pass.pipeline = std::move(result.value);
+        return pass;
+    };
+
+    constexpr auto S{vk::DescriptorType::eSampledImage};
+    constexpr auto U{vk::DescriptorType::eStorageImage};
+    constexpr auto B{vk::DescriptorType::eUniformBufferDynamic};
+
+    this->m_ffxPrepare = makePass("ffx_prepare_luma", { S, U, B });
+    this->m_ffxPyramid = makePass("ffx_luminance_pyramid", {
+        U, U, U, U, U, U, U, B, B
+    });
+    this->m_ffxSearch = makePass("ffx_search", { S, S, U, U, B });
+    this->m_ffxFilter = makePass("ffx_filter", { S, U, B });
+    this->m_ffxScale = makePass("ffx_scale", { S, S, S, U, U, B });
+    this->m_ffxScdHistogramPass =
+        makePass("ffx_scd_histogram", { S, U, B });
+    this->m_ffxScdDivergencePass =
+        makePass("ffx_scd_divergence", { U, U, U, U, B });
+}
+
+vk::DescriptorSet Interpolator::allocFfxSet(vk::DescriptorSetLayout layout) {
+    return this->m_device.allocateDescriptorSets({
+        .descriptorPool = *this->m_ffxPool,
+        .descriptorSetCount = 1,
+        .pSetLayouts = &layout
+    }, this->m_dld).at(0);
 }
 
 vk::DescriptorSet Interpolator::makeSet(
@@ -320,6 +568,181 @@ vk::DescriptorSet Interpolator::makeSet(
 
     this->m_device.updateDescriptorSets(writes, {}, this->m_dld);
     return set;
+}
+
+void Interpolator::createFfxDescriptors() {
+    const std::array<vk::DescriptorPoolSize, 3> sizes{{
+        { .type = vk::DescriptorType::eSampledImage, .descriptorCount = 64 },
+        { .type = vk::DescriptorType::eStorageImage, .descriptorCount = 64 },
+        { .type = vk::DescriptorType::eUniformBufferDynamic, .descriptorCount = 32 }
+    }};
+    this->m_ffxPool = this->m_device.createDescriptorPoolUnique({
+        .maxSets = 32,
+        .poolSizeCount = static_cast<uint32_t>(sizes.size()),
+        .pPoolSizes = sizes.data()
+    }, nullptr, this->m_dld);
+
+    std::vector<vk::DescriptorImageInfo> imageInfos;
+    std::vector<vk::DescriptorBufferInfo> bufferInfos;
+    std::vector<vk::WriteDescriptorSet> writes;
+    imageInfos.reserve(256);
+    bufferInfos.reserve(64);
+    writes.reserve(256);
+
+    const auto image = [&](
+        vk::DescriptorSet set,
+        uint32_t binding,
+        vk::DescriptorType type,
+        vk::ImageView view
+    ) {
+        imageInfos.push_back({
+            .imageView = view,
+            .imageLayout = vk::ImageLayout::eGeneral
+        });
+        writes.push_back({
+            .dstSet = set,
+            .dstBinding = binding,
+            .descriptorCount = 1,
+            .descriptorType = type,
+            .pImageInfo = &imageInfos.back()
+        });
+    };
+
+    const auto buffer = [&](vk::DescriptorSet set, uint32_t binding) {
+        bufferInfos.push_back({
+            .buffer = *this->m_ffxCb,
+            .offset = 0,
+            .range = sizeof(FfxCb)
+        });
+        writes.push_back({
+            .dstSet = set,
+            .dstBinding = binding,
+            .descriptorCount = 1,
+            .descriptorType = vk::DescriptorType::eUniformBufferDynamic,
+            .pBufferInfo = &bufferInfos.back()
+        });
+    };
+
+    for (uint32_t layer = 0; layer < 2; layer++) {
+        this->m_ffxPrepareSetCurrent.at(layer) =
+            this->allocFfxSet(*this->m_ffxPrepare.setLayout);
+        image(this->m_ffxPrepareSetCurrent.at(layer), 0,
+            vk::DescriptorType::eSampledImage, *this->m_srcLayerView.at(layer));
+        image(this->m_ffxPrepareSetCurrent.at(layer), 1,
+            vk::DescriptorType::eStorageImage, *this->m_ffxLumaCurrent.at(0).view);
+        buffer(this->m_ffxPrepareSetCurrent.at(layer), 2);
+
+        this->m_ffxPrepareSetPrevious.at(layer) =
+            this->allocFfxSet(*this->m_ffxPrepare.setLayout);
+        image(this->m_ffxPrepareSetPrevious.at(layer), 0,
+            vk::DescriptorType::eSampledImage, *this->m_srcLayerView.at(layer));
+        image(this->m_ffxPrepareSetPrevious.at(layer), 1,
+            vk::DescriptorType::eStorageImage, *this->m_ffxLumaPrevious.at(0).view);
+        buffer(this->m_ffxPrepareSetPrevious.at(layer), 2);
+    }
+
+    if (this->m_ffxHalfColor) {
+        this->m_ffxPrepareHalfSetCurrent =
+            this->allocFfxSet(*this->m_ffxPrepare.setLayout);
+        image(this->m_ffxPrepareHalfSetCurrent, 0,
+            vk::DescriptorType::eSampledImage, *this->m_ffxColorHalf.view);
+        image(this->m_ffxPrepareHalfSetCurrent, 1,
+            vk::DescriptorType::eStorageImage, *this->m_ffxLumaCurrent.at(0).view);
+        buffer(this->m_ffxPrepareHalfSetCurrent, 2);
+
+        this->m_ffxPrepareHalfSetPrevious =
+            this->allocFfxSet(*this->m_ffxPrepare.setLayout);
+        image(this->m_ffxPrepareHalfSetPrevious, 0,
+            vk::DescriptorType::eSampledImage, *this->m_ffxColorHalf.view);
+        image(this->m_ffxPrepareHalfSetPrevious, 1,
+            vk::DescriptorType::eStorageImage, *this->m_ffxLumaPrevious.at(0).view);
+        buffer(this->m_ffxPrepareHalfSetPrevious, 2);
+    }
+
+    this->m_ffxPyramidSetCurrent = this->allocFfxSet(*this->m_ffxPyramid.setLayout);
+    this->m_ffxPyramidSetPrevious = this->allocFfxSet(*this->m_ffxPyramid.setLayout);
+    for (uint32_t level = 0; level < 7; level++) {
+        image(this->m_ffxPyramidSetCurrent, level,
+            vk::DescriptorType::eStorageImage, *this->m_ffxLumaCurrent.at(level).view);
+        image(this->m_ffxPyramidSetPrevious, level,
+            vk::DescriptorType::eStorageImage, *this->m_ffxLumaPrevious.at(level).view);
+    }
+    buffer(this->m_ffxPyramidSetCurrent, 7);
+    buffer(this->m_ffxPyramidSetCurrent, 8);
+    buffer(this->m_ffxPyramidSetPrevious, 7);
+    buffer(this->m_ffxPyramidSetPrevious, 8);
+
+    // FidelityFX alternates the two flow images by pyramid level: the search
+    // writes one, the filter the other, and the scale pass hands the filtered
+    // result to the next level by writing the search image of that level.
+    const auto searchImage = [this](uint32_t level) -> vk::ImageView {
+        return (level & 1U) != 0
+            ? *this->m_ffxFlowB.at(level).view
+            : *this->m_ffxFlowA.at(level).view;
+    };
+    const auto filterImage = [this](uint32_t level) -> vk::ImageView {
+        return (level & 1U) != 0
+            ? *this->m_ffxFlowA.at(level).view
+            : *this->m_ffxFlowB.at(level).view;
+    };
+
+    for (uint32_t level = 0; level < 7; level++) {
+        this->m_ffxSearchSet.at(level) = this->allocFfxSet(*this->m_ffxSearch.setLayout);
+        image(this->m_ffxSearchSet.at(level), 0,
+            vk::DescriptorType::eSampledImage, *this->m_ffxLumaCurrent.at(level).view);
+        image(this->m_ffxSearchSet.at(level), 1,
+            vk::DescriptorType::eSampledImage, *this->m_ffxLumaPrevious.at(level).view);
+        image(this->m_ffxSearchSet.at(level), 2,
+            vk::DescriptorType::eStorageImage, searchImage(level));
+        image(this->m_ffxSearchSet.at(level), 3,
+            vk::DescriptorType::eStorageImage, *this->m_ffxScd.view);
+        buffer(this->m_ffxSearchSet.at(level), 4);
+
+        this->m_ffxFilterSet.at(level) = this->allocFfxSet(*this->m_ffxFilter.setLayout);
+        image(this->m_ffxFilterSet.at(level), 0,
+            vk::DescriptorType::eSampledImage, searchImage(level));
+        image(this->m_ffxFilterSet.at(level), 1,
+            vk::DescriptorType::eStorageImage,
+            level == 0 ? *this->m_ffxFlowOut.view : filterImage(level));
+        buffer(this->m_ffxFilterSet.at(level), 2);
+    }
+
+    for (uint32_t level = 1; level < 7; level++) {
+        this->m_ffxScaleSet.at(level - 1) = this->allocFfxSet(*this->m_ffxScale.setLayout);
+        image(this->m_ffxScaleSet.at(level - 1), 0,
+            vk::DescriptorType::eSampledImage, *this->m_ffxLumaCurrent.at(level).view);
+        image(this->m_ffxScaleSet.at(level - 1), 1,
+            vk::DescriptorType::eSampledImage, *this->m_ffxLumaPrevious.at(level).view);
+        image(this->m_ffxScaleSet.at(level - 1), 2,
+            vk::DescriptorType::eSampledImage, filterImage(level));
+        image(this->m_ffxScaleSet.at(level - 1), 3,
+            vk::DescriptorType::eStorageImage, searchImage(level - 1));
+        image(this->m_ffxScaleSet.at(level - 1), 4,
+            vk::DescriptorType::eStorageImage, *this->m_ffxScd.view);
+        buffer(this->m_ffxScaleSet.at(level - 1), 5);
+    }
+
+    this->m_ffxScdHistogramSet =
+        this->allocFfxSet(*this->m_ffxScdHistogramPass.setLayout);
+    image(this->m_ffxScdHistogramSet, 0,
+        vk::DescriptorType::eSampledImage, *this->m_ffxLumaCurrent.at(0).view);
+    image(this->m_ffxScdHistogramSet, 1,
+        vk::DescriptorType::eStorageImage, *this->m_ffxScdHistogram.view);
+    buffer(this->m_ffxScdHistogramSet, 2);
+
+    this->m_ffxScdDivergenceSet =
+        this->allocFfxSet(*this->m_ffxScdDivergencePass.setLayout);
+    image(this->m_ffxScdDivergenceSet, 0,
+        vk::DescriptorType::eStorageImage, *this->m_ffxScdHistogram.view);
+    image(this->m_ffxScdDivergenceSet, 1,
+        vk::DescriptorType::eStorageImage, *this->m_ffxScdPreviousHistogram.view);
+    image(this->m_ffxScdDivergenceSet, 2,
+        vk::DescriptorType::eStorageImage, *this->m_ffxScdTemp.view);
+    image(this->m_ffxScdDivergenceSet, 3,
+        vk::DescriptorType::eStorageImage, *this->m_ffxScd.view);
+    buffer(this->m_ffxScdDivergenceSet, 4);
+
+    this->m_device.updateDescriptorSets(writes, {}, this->m_dld);
 }
 
 void Interpolator::createDescriptors() {
@@ -529,6 +952,67 @@ void Interpolator::createDescriptors() {
     }};
     this->m_setInterp = this->makeSet(interpSampled, interpStorage);
 
+    if (this->m_generator == Generator::Ffx) {
+        std::array<vk::ImageView, 5> ffxSampled{{
+            *this->m_dummyRg16f.view,
+            *this->m_cutScore.view,
+            *this->m_ffxDense.view,
+            *this->m_dummyR8.view, // replaced by the tile mask in makeSet
+            *this->m_srcView
+        }};
+        this->m_setInterpFfx = this->makeSet(ffxSampled, interpStorage);
+
+        std::array<vk::ImageView, 5> denseSampled{{
+            *this->m_ffxFlowOut.view,
+            *this->m_dummyR8.view,
+            *this->m_dummyR8.view,
+            *this->m_dummyR8.view,
+            *this->m_srcView
+        }};
+        std::array<vk::ImageView, 4> denseStorage{{
+            *this->m_ffxDense.view,
+            *this->m_dummyR8.view,
+            *this->m_dummyRg16f.view,
+            *this->m_dummyRgba8.view
+        }};
+        this->m_setFfxDense = this->makeSet(denseSampled, denseStorage);
+
+        std::array<vk::ImageView, 5> cutSampledFfx{{
+            *this->m_ffxScd.view,
+            *this->m_dummyR8.view,
+            *this->m_dummyR8.view,
+            *this->m_dummyR8.view,
+            *this->m_srcView
+        }};
+        std::array<vk::ImageView, 4> cutStorageFfx{{
+            *this->m_cutScore.view,
+            *this->m_dummyR8.view,
+            *this->m_dummyRg16f.view,
+            *this->m_dummyRgba8.view
+        }};
+        this->m_setFfxCut = this->makeSet(cutSampledFfx, cutStorageFfx);
+
+        if (this->m_ffxHalfColor) {
+            for (uint32_t layer = 0; layer < 2; layer++) {
+                std::array<vk::ImageView, 5> downSampled{{
+                    *this->m_srcLayerView.at(layer),
+                    *this->m_dummyR8.view,
+                    *this->m_dummyR8.view,
+                    *this->m_dummyR8.view,
+                    *this->m_srcView
+                }};
+                std::array<vk::ImageView, 4> downStorage{{
+                    *this->m_ffxColorHalf.view,
+                    *this->m_dummyR8.view,
+                    *this->m_dummyRg16f.view,
+                    *this->m_dummyRgba8.view
+                }};
+                this->m_setFfxDownsample.at(layer) =
+                    this->makeSet(downSampled, downStorage);
+            }
+        }
+    }
+
     std::array<vk::ImageView, 5> cutSampled{{
         *this->m_lumaA.at(4).view,
         *this->m_lumaB.at(4).view,
@@ -594,7 +1078,219 @@ void Interpolator::barrier(const vk::CommandBuffer& cmdbuf) const {
     );
 }
 
+void Interpolator::dispatchFfx(
+    const vk::CommandBuffer& cmdbuf,
+    const vk::Pipeline& pipeline,
+    const vk::PipelineLayout& layout,
+    vk::DescriptorSet set,
+    const std::vector<uint32_t>& offsets,
+    vk::Extent3D groups
+) {
+    cmdbuf.bindPipeline(vk::PipelineBindPoint::eCompute, pipeline, this->m_dld);
+    cmdbuf.bindDescriptorSets(
+        vk::PipelineBindPoint::eCompute, layout, 0, { set }, offsets, this->m_dld);
+    cmdbuf.dispatch(groups.width, groups.height, groups.depth, this->m_dld);
+}
+
+void Interpolator::analyzeFfx(
+    const vk::CommandBuffer& cmdbuf,
+    uint32_t layerA,
+    uint32_t layerB
+) {
+    const bool firstUse{!this->m_ffxInitialized};
+    if (firstUse) {
+        const vk::ClearColorValue zero{};
+        const vk::ImageSubresourceRange range{
+            .aspectMask = vk::ImageAspectFlagBits::eColor,
+            .levelCount = 1,
+            .layerCount = 1
+        };
+        cmdbuf.clearColorImage(
+            *this->m_ffxScd.image, vk::ImageLayout::eGeneral, zero, { range }, this->m_dld);
+        cmdbuf.clearColorImage(*this->m_ffxScdHistogram.image,
+            vk::ImageLayout::eGeneral, zero, { range }, this->m_dld);
+        // A uniform previous histogram keeps the first divergence finite. Its
+        // verdict is discarded below anyway.
+        vk::ClearColorValue uniform{};
+        for (auto& value : uniform.float32)
+            value = 1.0F / 256.0F;
+        cmdbuf.clearColorImage(*this->m_ffxScdPreviousHistogram.image,
+            vk::ImageLayout::eGeneral, uniform, { range }, this->m_dld);
+        cmdbuf.clearColorImage(*this->m_ffxScdTemp.image,
+            vk::ImageLayout::eGeneral, zero, { range }, this->m_dld);
+        for (uint32_t level = 0; level < 7; level++) {
+            cmdbuf.clearColorImage(*this->m_ffxFlowA.at(level).image,
+                vk::ImageLayout::eGeneral, zero, { range }, this->m_dld);
+            cmdbuf.clearColorImage(*this->m_ffxFlowB.at(level).image,
+                vk::ImageLayout::eGeneral, zero, { range }, this->m_dld);
+        }
+        cmdbuf.clearColorImage(
+            *this->m_ffxFlowOut.image, vk::ImageLayout::eGeneral, zero, { range }, this->m_dld);
+        const vk::MemoryBarrier clearBarrier{
+            .srcAccessMask = vk::AccessFlagBits::eTransferWrite,
+            .dstAccessMask = vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite
+        };
+        cmdbuf.pipelineBarrier(
+            vk::PipelineStageFlagBits::eTransfer,
+            vk::PipelineStageFlagBits::eComputeShader,
+            {}, { clearBarrier }, {}, {}, this->m_dld);
+        this->m_ffxInitialized = true;
+    }
+
+    const vk::Extent3D prepareGroups{
+        ((this->m_ffxExtent.width + 1U) / 2U + 15U) / 16U,
+        ((this->m_ffxExtent.height + 1U) / 2U + 15U) / 16U,
+        1
+    };
+    const vk::Extent3D pyramidGroups{
+        (this->m_ffxExtent.width - 1U) / 64U + 1U,
+        (this->m_ffxExtent.height - 1U) / 64U + 1U,
+        1
+    };
+
+    if (this->m_ffxHalfColor) {
+        PushConstants down{};
+        down.width = this->m_ffxExtent.width;
+        down.height = this->m_ffxExtent.height;
+        this->dispatch(cmdbuf,
+            this->m_hdr ? "ffx_color_half_hdr" : "ffx_color_half",
+            this->m_setFfxDownsample.at(layerA), this->m_ffxExtent, down);
+        this->barrier(cmdbuf);
+    }
+    this->dispatchFfx(
+        cmdbuf, *this->m_ffxPrepare.pipeline, *this->m_ffxPrepare.pipelineLayout,
+        this->m_ffxHalfColor
+            ? this->m_ffxPrepareHalfSetPrevious
+            : this->m_ffxPrepareSetPrevious.at(layerA),
+        { 0 }, prepareGroups);
+    this->barrier(cmdbuf);
+    this->dispatchFfx(
+        cmdbuf, *this->m_ffxPyramid.pipeline, *this->m_ffxPyramid.pipelineLayout,
+        this->m_ffxPyramidSetPrevious, { 0, 7U * this->m_ffxCbStride }, pyramidGroups);
+    this->barrier(cmdbuf);
+
+    if (this->m_ffxHalfColor) {
+        PushConstants down{};
+        down.width = this->m_ffxExtent.width;
+        down.height = this->m_ffxExtent.height;
+        this->dispatch(cmdbuf,
+            this->m_hdr ? "ffx_color_half_hdr" : "ffx_color_half",
+            this->m_setFfxDownsample.at(layerB), this->m_ffxExtent, down);
+        this->barrier(cmdbuf);
+    }
+    this->dispatchFfx(
+        cmdbuf, *this->m_ffxPrepare.pipeline, *this->m_ffxPrepare.pipelineLayout,
+        this->m_ffxHalfColor
+            ? this->m_ffxPrepareHalfSetCurrent
+            : this->m_ffxPrepareSetCurrent.at(layerB),
+        { 0 }, prepareGroups);
+    this->barrier(cmdbuf);
+    this->dispatchFfx(
+        cmdbuf, *this->m_ffxPyramid.pipeline, *this->m_ffxPyramid.pipelineLayout,
+        this->m_ffxPyramidSetCurrent, { 0, 7U * this->m_ffxCbStride }, pyramidGroups);
+    this->barrier(cmdbuf);
+
+    // Scene-change detector: histogram the level-0 luma, compare it with the
+    // previous frame's histogram, and let the search/scale passes see the
+    // resulting history bit.
+    const uint32_t strataWidth{
+        std::max(1U, this->m_ffxLumaExtent.at(0).width / 4U / 3U)
+    };
+    this->dispatchFfx(
+        cmdbuf, *this->m_ffxScdHistogramPass.pipeline,
+        *this->m_ffxScdHistogramPass.pipelineLayout,
+        this->m_ffxScdHistogramSet, { 0 },
+        { (strataWidth + 31U) / 32U, 16, 9 });
+    this->barrier(cmdbuf);
+    this->dispatchFfx(
+        cmdbuf, *this->m_ffxScdDivergencePass.pipeline,
+        *this->m_ffxScdDivergencePass.pipelineLayout,
+        this->m_ffxScdDivergenceSet, { 0 }, { 9, 3, 1 });
+    this->barrier(cmdbuf);
+
+    if (firstUse) {
+        // The first comparison has no history yet. Keep its updated histogram
+        // but clear the verdict so the very first frame still gets flow.
+        const vk::ClearColorValue zero{};
+        const vk::ImageSubresourceRange range{
+            .aspectMask = vk::ImageAspectFlagBits::eColor,
+            .levelCount = 1,
+            .layerCount = 1
+        };
+        cmdbuf.clearColorImage(
+            *this->m_ffxScd.image, vk::ImageLayout::eGeneral, zero, { range }, this->m_dld);
+        const vk::MemoryBarrier barrier{
+            .srcAccessMask = vk::AccessFlagBits::eTransferWrite,
+            .dstAccessMask = vk::AccessFlagBits::eShaderRead | vk::AccessFlagBits::eShaderWrite
+        };
+        cmdbuf.pipelineBarrier(
+            vk::PipelineStageFlagBits::eTransfer,
+            vk::PipelineStageFlagBits::eComputeShader,
+            {}, { barrier }, {}, {}, this->m_dld);
+    }
+
+    if (this->m_videoSafe) {
+        PushConstants cut{};
+        cut.width = 1;
+        cut.height = 1;
+        this->dispatch(cmdbuf, "ffx_cut_score", this->m_setFfxCut, { 1, 1 }, cut);
+        this->barrier(cmdbuf);
+    }
+
+    for (uint32_t k = this->m_ffxLevels; k-- > 0;) {
+        const vk::Extent2D luma{this->m_ffxLumaExtent.at(k)};
+        const vk::Extent2D flow{this->m_ffxFlowExtent.at(k)};
+        const uint32_t offset{k * this->m_ffxCbStride};
+
+        this->dispatchFfx(
+            cmdbuf, *this->m_ffxSearch.pipeline, *this->m_ffxSearch.pipelineLayout,
+            this->m_ffxSearchSet.at(k), { offset },
+            {
+                ((luma.width + 3U) / 4U * 16U + 63U) / 64U,
+                (luma.height + 15U) / 16U,
+                1
+            });
+        this->barrier(cmdbuf);
+        this->dispatchFfx(
+            cmdbuf, *this->m_ffxFilter.pipeline, *this->m_ffxFilter.pipelineLayout,
+            this->m_ffxFilterSet.at(k), { offset },
+            {
+                (flow.width + 15U) / 16U,
+                (flow.height + 3U) / 4U,
+                1
+            });
+        this->barrier(cmdbuf);
+
+        if (k > 0) {
+            const vk::Extent2D next{this->m_ffxFlowExtent.at(k - 1)};
+            this->dispatchFfx(
+                cmdbuf, *this->m_ffxScale.pipeline, *this->m_ffxScale.pipelineLayout,
+                this->m_ffxScaleSet.at(k - 1), { offset },
+                {
+                    (next.width + 3U) / 4U,
+                    (next.height + 3U) / 4U,
+                    1
+                });
+            this->barrier(cmdbuf);
+        }
+    }
+
+    PushConstants pc{};
+    pc.width = this->m_extent.width;
+    pc.height = this->m_extent.height;
+    pc.flowScale = static_cast<float>(this->m_ffxFlowScale);
+    this->dispatch(
+        cmdbuf, "ffx_flow_dense", this->m_setFfxDense, this->m_extent, pc);
+    this->barrier(cmdbuf);
+}
+
 void Interpolator::analyze(const vk::CommandBuffer& cmdbuf, uint32_t layerA, uint32_t layerB) {
+    if (this->m_generator == Generator::Ffx) {
+        // FidelityFX reads the two layers through their own 2D views.
+        this->analyzeFfx(cmdbuf, layerA, layerB);
+        return;
+    }
+
     PushConstants pc{};
     pc.width = this->m_extent.width;
     pc.height = this->m_extent.height;
@@ -723,6 +1419,32 @@ void Interpolator::analyze(const vk::CommandBuffer& cmdbuf, uint32_t layerA, uin
     }
 }
 
+void Interpolator::generateFfx(
+    const vk::CommandBuffer& cmdbuf,
+    uint32_t layerA,
+    uint32_t layerB,
+    float t,
+    uint32_t flags,
+    uint32_t destinationLayer
+) {
+    PushConstants pc{};
+    pc.width = this->m_extent.width;
+    pc.height = this->m_extent.height;
+    pc.t = t;
+    pc.flowScale = 1.0F;
+    pc.flags = static_cast<int32_t>(flags);
+    if (this->m_videoSafe)
+        pc.flags |= 4096;
+    pc.layerA = layerA;
+    pc.layerB = layerB;
+    pc.dstLayer = destinationLayer;
+
+    this->dispatch(cmdbuf,
+        this->m_hdr ? "interpolate_hdr" : "interpolate",
+        this->m_setInterpFfx, this->m_extent, pc);
+    this->barrier(cmdbuf);
+}
+
 void Interpolator::generate(
     const vk::CommandBuffer& cmdbuf,
     uint32_t layerA,
@@ -731,6 +1453,11 @@ void Interpolator::generate(
     uint32_t flags,
     uint32_t destinationLayer
 ) {
+    if (this->m_generator == Generator::Ffx) {
+        this->generateFfx(cmdbuf, layerA, layerB, t, flags, destinationLayer);
+        return;
+    }
+
     PushConstants pc{};
     pc.width = this->m_extent.width;
     pc.height = this->m_extent.height;

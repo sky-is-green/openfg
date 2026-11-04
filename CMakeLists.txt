@@ -13,6 +13,7 @@ add_compile_options(-O3 -DNDEBUG -Wall -Wextra)
 include_directories(SYSTEM "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty")
 
 find_program(GLSLC_EXECUTABLE NAMES glslc REQUIRED)
+find_program(GLSLANG_EXECUTABLE NAMES glslangValidator glslang REQUIRED)
 
 set(SHADER_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/openfg/shaders")
 set(SHADER_BIN "${CMAKE_CURRENT_BINARY_DIR}/openfg-shaders")
@@ -28,6 +29,33 @@ foreach(shader ${SHADER_FILES})
     COMMAND "${GLSLC_EXECUTABLE}" -O -I"${SHADER_SRC}" -o "${spv}" "${shader}"
     DEPENDS "${shader}" ${SHADER_INCLUDES}
     COMMENT "glslc ${name}.comp")
+  list(APPEND SHADER_SPV "${spv}")
+endforeach()
+
+# FidelityFX Optical Flow passes. The SDK ships these as GLSL with include
+# directives and subgroup intrinsics, so they are compiled with glslang.
+set(FFX_SRC "${SHADER_SRC}/ffx")
+file(GLOB_RECURSE FFX_HEADERS CONFIGURE_DEPENDS "${FFX_SRC}/*.h")
+set(FFX_PASSES
+  "ffx_prepare_luma:${FFX_SRC}/passes/ffx_opticalflow_prepare_luma_pass.glsl"
+  "ffx_luminance_pyramid:${FFX_SRC}/passes/ffx_opticalflow_compute_luminance_pyramid_pass.glsl"
+  "ffx_search:${FFX_SRC}/passes/ffx_opticalflow_compute_optical_flow_advanced_pass_v5.glsl"
+  "ffx_filter:${FFX_SRC}/passes/ffx_opticalflow_filter_optical_flow_pass_v5.glsl"
+  "ffx_scale:${FFX_SRC}/passes/ffx_opticalflow_scale_optical_flow_advanced_pass_v5.glsl"
+  "ffx_scd_histogram:${FFX_SRC}/passes/ffx_opticalflow_generate_scd_histogram_pass.glsl"
+  "ffx_scd_divergence:${FFX_SRC}/passes/ffx_opticalflow_compute_scd_divergence_pass.glsl")
+foreach(pass ${FFX_PASSES})
+  string(REPLACE ":" ";" fields "${pass}")
+  list(GET fields 0 name)
+  list(GET fields 1 source)
+  set(spv "${SHADER_BIN}/${name}.spv")
+  add_custom_command(OUTPUT "${spv}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${SHADER_BIN}"
+    COMMAND "${GLSLANG_EXECUTABLE}" -V --target-env vulkan1.1 -S comp
+            -DFFX_GPU=1 -DFFX_GLSL=1 -DFFX_OPTICALFLOW_OPTION_HDR_COLOR_INPUT=0
+            "-I${FFX_SRC}" -o "${spv}" "${source}"
+    DEPENDS "${source}" ${FFX_HEADERS}
+    COMMENT "glslang ${name}")
   list(APPEND SHADER_SPV "${spv}")
 endforeach()
 
@@ -115,3 +143,11 @@ install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/config/conf.toml"
   DESTINATION share/doc/openfg)
 install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/docs"
   DESTINATION share/doc/openfg)
+install(FILES
+  "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE"
+  "${CMAKE_CURRENT_SOURCE_DIR}/THIRD_PARTY.md"
+  DESTINATION share/licenses/openfg)
+install(FILES
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/openfg/shaders/ffx/LICENSE.txt"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/openfg/shaders/ffx/NOTICE.md"
+  DESTINATION share/licenses/openfg/ffx)
