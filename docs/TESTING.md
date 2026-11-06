@@ -141,7 +141,8 @@ For the generator itself without the layer, `fg-lab` accepts
 `--generator flow|ffx|blend|hold`; combine it with `tools/bench.py --generator`
 and `tools/ghost_bench.py --generator` for quality and GPU time. `ffx` is the
 FidelityFX optical-flow backend and is the one to compare against `flow` on
-real games.
+real games. `tools/hud_bench.py` is the targeted regression test for the
+static-UI mask that removes doubled HUD text on generated frames.
 
 ## What to report
 

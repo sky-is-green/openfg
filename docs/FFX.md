@@ -78,10 +78,13 @@ before this pass.
 three of a 4×4 sample grid contain high-contrast detail that is identical in
 both source frames: luma difference below 0.015 and a local luma gradient above
 0.15. `ui_mask_dilate.comp` then dilates the block mask by one texel. The
-interpolation pass samples the final mask bilinearly and, where it is set,
-uses the unwarped pair `mix(a0, b0, t)` instead of the flow-warped samples. The
-text stays sharp and its ghost halo disappears; only the small background band
-inside the masked halo is cross-faded instead of warped.
+interpolation pass samples the final mask bilinearly at the output position
+and at both warped source positions. Testing the source positions is what
+covers fast pans: the ghost copy of a glyph sits wherever the warp read it
+from, which can be further away than any fixed halo. Where the mask is set,
+the pass uses the unwarped pair `mix(a0, b0, t)` instead of the flow-warped
+samples. The text stays sharp and its ghost halo disappears; only the small
+background band inside the masked halo is cross-faded instead of warped.
 
 The mask costs about 0.1 ms at 1440p in performance mode (two small compute
 passes). It is deliberately conservative — false positives freeze moving
@@ -99,6 +102,10 @@ existing static-detail test. Known limits:
   motion-compensated. Keeping the halo tight is what makes that trade
   invisible in practice.
 
+`tools/hud_bench.py` is the regression test: a 48-pixel pan with static text
+(ghost 24 pixels out, beyond the fixed halo) must lose at least half of its
+halo edge energy with the mask enabled, without losing full-frame PSNR.
+
 ## Try it
 
 ```sh
@@ -106,6 +113,7 @@ existing static-detail test. Known limits:
 python3 tools/bench.py --gpu 0000:03:00.0 --iterations 100 --generator ffx
 python3 tools/ghost_bench.py --scene ghost --generator ffx
 python3 tools/ghost_bench.py --scene ghost --generator ffx --performance
+python3 tools/hud_bench.py --gpu 0000:03:00.0
 
 # Real game
 #   ~/.config/openfg/conf.toml

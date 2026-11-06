@@ -153,7 +153,19 @@ void main() {
     // glyphs into the surrounding background, so fall back to the unwarped
     // pair over the whole masked area. The mask is block-dilated upstream.
     if ((pc.flags & 262144) != 0) {
-        float ui = texture(sampler2D(uTex0, uSampler), uv).r;
+        // The mask at the output position covers the glyphs and a small halo.
+        // The warped samples can come from further away when the pan is fast,
+        // so also test the mask at the source positions: if either warp read
+        // from static UI, the ghost copy is already inside the sample and the
+        // whole pixel must use the unwarped pair.
+        float ui = max(texture(sampler2D(uTex0, uSampler), uv).r,
+            max(texture(sampler2D(uTex0, uSampler), uva).r,
+                texture(sampler2D(uTex0, uSampler), uvb).r));
+        // Lab-only dump of the mask, used by tools/hud_bench.py.
+        if ((pc.flags & 524288) != 0) {
+            imageStore(uOut, ivec3(p, int(pc.dstLayer)), vec4(vec3(ui), 1.0));
+            return;
+        }
         c = mix(c, mix(a0, b0, t), clamp(ui, 0.0, 1.0));
     }
 
