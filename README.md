@@ -3,8 +3,8 @@
 [![build](https://github.com/sky-is-green/openfg/actions/workflows/build.yml/badge.svg)](https://github.com/sky-is-green/openfg/actions/workflows/build.yml)
 
 Open frame generation for Linux. This is the MIT-licensed tree: an original
-optical-flow interpolator, an optional AMD FidelityFX Optical Flow backend,
-a standalone harness, and a Vulkan layer.
+optical-flow interpolator, the default AMD FidelityFX Optical Flow backend with
+an automatic fallback, a standalone harness, and a Vulkan layer.
 
 No Lossless Scaling assets, no `lsfg-vk.dll`, and no lsfg-vk source code are
 used here. The FidelityFX SDK's MIT-licensed optical-flow shaders are vendored
@@ -15,7 +15,9 @@ under `src/openfg/shaders/ffx/`; see [THIRD_PARTY.md](THIRD_PARTY.md).
 - [x] `vkutil` — original Vulkan helper library
 - [x] `openfg` backend — luma pyramid, block matching, LK refinement, full-res
       refinement, tile mask, optional soft occlusion
-- [x] Optional AMD FidelityFX Optical Flow backend (MIT shaders)
+- [x] Default AMD FidelityFX Optical Flow backend (MIT shaders), with
+      automatic fallback to the original flow path
+- [x] Static-UI mask that removes doubled HUD text (FFX backend)
 - [x] `fg-lab` — standalone 2-frame harness with GT PSNR/timing
 - [x] Layer bootstrap — loader interface, instance/device/swapchain/present
       hooks
@@ -31,7 +33,8 @@ under `src/openfg/shaders/ffx/`; see [THIRD_PARTY.md](THIRD_PARTY.md).
 - [x] Video-player support notes and an mpv smoke test
 - [x] 10-bit/HDR half-float swapchain path
 - [x] Multiple swapchains per device
-- [x] Generator modes: optical flow, blend, hold and timing-only off
+- [x] Generator modes: FidelityFX (default), optical flow, blend, hold and
+      timing-only off
 - [x] Adaptive and app-capped pacing modes
 - [x] Opt-in present-timing latency percentiles
 - [x] Refresh-aware presented-frame cap (detected display refresh / multiplier)
@@ -99,7 +102,8 @@ target_fps = 0
 # 0 = off, or an explicit value such as 165.
 max_presented_fps = 0
 
-# Half-resolution flow + 3x3 refine: ~2x faster, softer edges.
+# Half-resolution flow: narrower refine for flow, half-size FFX pyramid.
+# About 2x faster, softer edges.
 performance_mode = false
 
 # "ffx" (AMD FidelityFX, default), "flow" (openfg optical flow),
@@ -130,8 +134,8 @@ exclude = []
 
 `OPENFG_ENABLE`, `OPENFG_GPU`, `OPENFG_CROSS_GPU`, `OPENFG_MULTIPLIER`,
 `OPENFG_TARGET_FPS`, `OPENFG_MAX_PRESENTED_FPS`, `OPENFG_PERFORMANCE_MODE` and
-`OPENFG_DEBUG` override
-individual settings for ad-hoc tests.
+`OPENFG_DEBUG` override individual settings for ad-hoc tests.
+`OPENFG_NO_UI_MASK=1` disables the static-UI mask for A/B comparisons.
 
 The layer is inactive unless `enabled = true` or `OPENFG_ENABLE=1`, and the
 process matches the include/exclude lists. The file is read once per process,
@@ -174,13 +178,13 @@ vkcube
 
 ## Limitations
 
-- One swapchain is tracked per device. Applications with several simultaneous
-  swapchains fall back to passthrough.
 - The present queue and the blit commands must share a queue family. Separate
   present queue families fall back to passthrough.
 - Extra swapchain images are acquired with a zero timeout, so a frame is shown
   without interpolation when no image is free. This avoids blocking the
   application's own event loop on Wayland.
+- The static-UI mask is FFX-only and only covers screen-locked text. Moving or
+  animated UI, and all UI on the `flow` fallback path, can still ghost.
 - The backend's Vulkan device/instance is intentionally leaked at process exit:
   destroying it while the application device still has imports can hang RADV.
   Per-swapchain images, semaphores and command pools are still destroyed.
@@ -248,10 +252,11 @@ display refresh. The practical options are:
   the refinement window; for `ffx` it runs FidelityFX's five-level half-size
   search. At 1440p the original flow path measured about **1.56 → 0.85 ms**,
   pan 32.825 → 32.499 dB and ghost 26.485 → 26.449 dB. The FidelityFX path
-  measured about **0.88 → 0.42 ms** with pan 33.27 → 33.07 dB and ghost
-  26.60 → 26.56 dB. Ghosting stays effectively unchanged either way.
+  measured about **1.03 → 0.52 ms** with pan 33.23 → 33.05 dB and ghost
+  26.60 → 26.56 dB. Ghosting stays effectively unchanged either way, and the
+  FFX timings include the static-UI mask.
 - `generator`: `ffx` is the default. It uses AMD's MIT-licensed FidelityFX
-  Optical Flow and is roughly twice as fast on the test system, with equal or
+  Optical Flow and is about 1.5–1.6× faster on the test system, with equal or
   better quality on every synthetic scene except a small occlusion-scene
   regression. Devices that lack its subgroup or storage-format requirements
   fall back to `flow` and log the reason. `flow` is openfg's own optical-flow
@@ -315,9 +320,11 @@ unrelated, instead of blending them. On a real video cut this moved PSNR from
 12.21 dB (blend) to 99 dB (current frame) while normal motion stayed at
 49.85 dB. The guard costs about 0.08 ms per frame pair at 1440p. See
 [docs/VIDEO.md](docs/VIDEO.md) for the mpv command, measured results and the
-remaining video limitations (PTS/cadence and subtitles). 10-bit and HDR
-swapchains use a half-float path; HDR10 PQ is interpolated in code values, not
-linear light, so a fully color-managed HDR path is still open.
+remaining video limitations (PTS/cadence, HDR and moving subtitles). Static
+HUD/OSD text is protected by the static-UI mask on the FFX backend; animated
+subtitles still go through the motion-compensated blend. 10-bit and HDR
+swapchains use a half-float path; HDR10 PQ is interpolated in code values, not linear light, so
+a fully color-managed HDR path is still open.
 
 ## GPU support
 
@@ -368,14 +375,15 @@ Performance mode with `--performance` at 1440p:
 generator   scene   normal ms  perf ms  normal dB  perf dB
 flow        pan         1.56      0.85    32.8252   32.4990
 flow        ghost       1.57      0.85    26.4850   26.4494
-ffx         pan         0.90      0.45    33.2668   33.0687
-ffx         ghost       0.88      0.42    26.6027   26.5590
+ffx         pan         1.03      0.52    33.2342   33.0453
+ffx         ghost       1.05      0.53    26.5979   26.5561
 ```
 
-The FidelityFX backend is selected with `--generator ffx`; it uses the same
-colour frames and interpolation pass but replaces openfg's per-pixel flow
-with FidelityFX's eight-pixel block search. It is about twice as fast on the
-test system and slightly better on the ghost gate.
+`fg-lab` selects the FidelityFX backend with `--generator ffx`; the layer now
+defaults to it. It uses the same colour frames and interpolation pass but
+replaces openfg's per-pixel flow with FidelityFX's eight-pixel block search. It
+is about 1.5–1.6× faster on the test system, slightly better on the ghost gate,
+and the only backend with the static-UI mask. The FFX rows include that mask.
 
 The half-float path (`fg-lab --hdr`, used for 10-bit/HDR swapchains) costs
 about 2% at 1440p: pan 1.609 ms / 32.816 dB versus 1.569 ms / 32.8252 dB.
@@ -390,7 +398,9 @@ table (normal and performance mode) with:
 python3 tools/bench.py --gpu 0000:03:00.0 --iterations 100
 ```
 
-Add `--ghost` for the ghost/edge metrics.
+Add `--ghost` for the ghost/edge metrics. The scripts default to `flow` so
+existing comparisons stay comparable; pass `--generator ffx` for the shipped
+default.
 
 Ghosting on the `ghost` scene at 1440p (dual RX 7900 XT):
 
@@ -400,14 +410,25 @@ python3 tools/ghost_bench.py --scene ghost --width 2560 --height 1440
 
 ```
 backend       full dB  edge dB  edge MAD   ghost  moving dB     ms
-openfg          26.48    26.67     2.238   1.925      26.33   1.46
-openfg perf     26.45    26.64     2.350   1.951      26.30   1.06
-openfg ffx      26.60    26.85     2.081   1.904      26.41   1.12
-openfg ffx perf 26.56    26.78     2.136   1.938      26.40   0.46
+openfg          26.48    26.67     2.238   1.925      26.33   2.32
+openfg perf     26.45    26.64     2.350   1.951      26.30   1.16
+openfg ffx      26.60    26.84     2.094   1.917      26.41   1.36
+openfg ffx perf 26.55    26.78     2.147   1.947      26.39   0.62
 ```
 
 The `ffx` rows use `--generator ffx`; the ghost-excess gate improves from
-1.925 to 1.904 in quality mode and from 1.951 to 1.938 in performance mode.
+1.925 to 1.917 in quality mode and from 1.951 to 1.947 in performance mode.
+The mask leaves this scene within run-to-run noise; the targeted HUD test
+below is the actual regression gate.
+
+The targeted HUD regression test runs a 48-pixel pan with static text:
+
+```sh
+python3 tools/hud_bench.py --gpu 0000:03:00.0
+```
+
+It must report at least a 50% reduction in halo edge energy with the mask on
+and no full-frame PSNR loss; the current run reports 95.6% and +2.61 dB.
 
 Tile-mask early-out:
 

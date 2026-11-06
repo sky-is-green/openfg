@@ -29,10 +29,10 @@ full-resolution refinement pass.
 |---|---:|---:|---:|---:|---:|---:|
 | `flow` | 1.56 | 32.83 | 28.49 | 21.30 | 26.49 | 1.925 |
 | `flow` performance | 0.85 | 32.50 | 28.34 | 21.24 | 26.45 | 1.951 |
-| `ffx` | 1.03 | 33.23 | 31.94 | 21.19 | 26.60 | **1.915** |
-| `ffx` performance | 0.52 | 33.05 | 31.79 | 21.17 | 26.56 | 1.945 |
+| `ffx` | 1.03 | 33.23 | 31.94 | 21.19 | 26.60 | **1.917** |
+| `ffx` performance | 0.52 | 33.05 | 31.79 | 21.17 | 26.55 | 1.947 |
 
-FidelityFX is roughly twice as fast at the same setting and improves the
+FidelityFX is about 1.5–1.6× faster at the same setting and improves the
 ghost-excess gate in both modes. The only synthetic regression is the thin
 occluder scene (about 0.1 dB), where an 8×8 block contains both the occluder
 and its background. Thin geometry is the known weak point of a block field.

@@ -114,7 +114,7 @@ that present through a Vulkan swapchain.
 |---|---|---|
 | Scene cuts | Global cut score; the pair falls back to the current frame. | Done. Similar-scene cuts can still slip through. |
 | Cadence / timestamps | Layer always uses `t=0.5` between presented frames (and 0.25/0.5/0.75 for 4x). | PTS-aware interpolation, especially 24 → 60/120/165 Hz. |
-| Subtitles / OSD | Burned-in text is part of the frame. Static text is protected by the tile mask; moving text can ghost. | Subtitle-aware masking or a stronger confidence threshold. |
+| Subtitles / OSD | Burned-in text is part of the frame. The FFX backend's static-UI mask keeps screen-locked text sharp; moving/animated subtitles can still ghost. | Extend the mask to the flow backend and to moving text. |
 | HDR / 10-bit | 10-bit and HDR swapchains use an RGBA16F path; HDR10 PQ is interpolated in code values, not linear light. | Linear-light PQ/HLG decode and encode, plus HDR metadata handling. |
 | Film grain / noise | Optical flow can chase grain. | Optional prefilter or a higher flow confidence threshold. |
 | 24 fps to high refresh | 4x gives ~96 fps, then the display holds frames. | Dynamic frame count/timestamps from the player or compositor. |
@@ -131,6 +131,8 @@ low-fps and not GPU-bound; `false` is the better starting point for quality.
   for 24 fps (24 × 4 = 96 > 60); use `0` there if you prefer the extra
   generated frames over the added latency.
 - `performance_mode = false`
+- `generator = "ffx"` (the default; includes the static-UI mask). This is a
+  global `[openfg]` setting; the `[video]` profile inherits it.
 - `safe = true` (scene-cut guard)
 - Name the player in `video.processes` (it is matched in addition to
   `processes.include`)

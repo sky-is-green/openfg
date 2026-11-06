@@ -69,10 +69,11 @@ create/export path the backend uses works. The runtime line is authoritative.
 have not run it here. “Unsupported” means the current design has a hard
 technical blocker, not just an untested path.
 
-The optional `generator = "ffx"` backend additionally needs compute subgroups
+The default `generator = "ffx"` backend additionally needs compute subgroups
 with basic, arithmetic and quad operations, plus storage images for R8_UINT,
 R16G16_SINT and R32_UINT atomics. `openfg-gpu-probe` prints the `ffx` line; the
-layer falls back to `flow` when the device does not meet those requirements.
+layer logs the reason and falls back to `flow` when the device does not meet
+those requirements.
 
 ## Why mixed-vendor cross-GPU does not work
 

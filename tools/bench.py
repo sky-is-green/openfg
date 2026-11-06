@@ -76,6 +76,7 @@ def main():
             sys.executable, str(repo / "tools" / "ghost_bench.py"),
             "--width", str(args.width), "--height", str(args.height),
             "--gpu", args.gpu, "--iterations", str(max(10, args.iterations // 4)),
+            "--generator", args.generator,
         ], check=True)
 
 

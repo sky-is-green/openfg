@@ -19,7 +19,7 @@ from pathlib import Path
 from PySide6 import QtCore, QtGui, QtWidgets
 
 APP_NAME = "openfg Control"
-VERSION = "0.1.0"
+VERSION = "0.1.0-preview1"
 
 
 def repo_root() -> Path:
@@ -353,18 +353,20 @@ class MainWindow(QtWidgets.QMainWindow):
             lambda: self._apply_preset("latency")))
         preset_layout.addWidget(preset(
             "Always generate · quality",
-            "2x, generate on every real frame with the full-resolution flow.",
+            "2x, generate on every real frame with full-resolution optical "
+            "flow (FFX by default).",
             lambda: self._apply_preset("quality")))
         preset_layout.addWidget(preset(
             "Always generate · performance",
-            "2x, generate on every real frame with half-resolution flow and a "
-            "3×3 refine window. About 48% faster (1.5 → 0.8 ms at 1440p), "
-            "slightly softer silhouettes.",
+            "2x, generate on every real frame with half-resolution flow "
+            "(narrower refine for flow, half-size FFX pyramid). About 50% "
+            "faster (1.03 → 0.52 ms at 1440p with FFX), slightly softer edges.",
             lambda: self._apply_preset("performance")))
         preset_layout.addWidget(preset(
             "Video · 4x",
-            "4x, always generate, quality flow. Use this with a Vulkan video "
-            "player (mpv/gpu-next); the preset adds mpv to the video profile.",
+            "4x, always generate, quality optical flow. Use this with a Vulkan "
+            "video player (mpv/gpu-next); the preset adds mpv to the video "
+            "profile.",
             lambda: self._apply_preset("video")))
         root.addWidget(presets)
 
@@ -421,8 +423,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.generator = QtWidgets.QComboBox()
         for value, label in (
-            ("flow", "openfg optical flow (quality)"),
-            ("ffx", "FidelityFX optical flow (fast)"),
+            ("ffx", "FidelityFX optical flow (default, fast)"),
+            ("flow", "openfg optical flow (quality; FFX fallback)"),
             ("blend", "Linear blend (no flow; fast baseline)"),
             ("hold", "Hold current frame (no interpolation)"),
             ("off", "Off / timing only"),
@@ -431,9 +433,10 @@ class MainWindow(QtWidgets.QMainWindow):
         index = self.generator.findData(self.config["generator"])
         self.generator.setCurrentIndex(index if index >= 0 else 0)
         self.generator.setToolTip(
-            "Image-based generator. ffx uses AMD's MIT FidelityFX optical flow "
-            "(lower GPU cost, block motion); blend and hold are comparison "
-            "baselines; off keeps the layer loaded for timing only."
+            "FFX is the default: lower GPU cost, block motion, and the static-UI "
+            "mask that removes doubled HUD text. Devices without its subgroup "
+            "or storage-format requirements fall back to flow. Blend and hold "
+            "are comparison baselines; off keeps the layer loaded for timing."
         )
         form.addRow("Generator:", self.generator)
 
@@ -452,6 +455,10 @@ class MainWindow(QtWidgets.QMainWindow):
         settings_layout.addWidget(hint(
             "2x has the lowest latency. Generated frames are displayed before "
             "the current real frame, so every multiplier adds display delay."
+        ))
+        settings_layout.addWidget(hint(
+            "FFX is the default and includes the static-UI mask for HUD text. "
+            "GPU drivers without its requirements fall back to flow."
         ))
         settings_layout.addWidget(self.debug)
         settings_layout.addWidget(self.present_timing)
@@ -525,12 +532,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.max_presented_spin.setEnabled(self.max_presented.currentData() == 1)
 
         self.performance = QtWidgets.QCheckBox(
-            "Performance mode (half-res flow + 3×3 refine)")
+            "Performance mode (half-resolution flow)")
         self.performance.setChecked(self.config["performance_mode"])
         self.performance.setToolTip(
-            "Uses half-resolution flow and a 3×3 refinement window. At 1440p "
-            "it measured 1.52 → 0.79 ms, pan 32.825 → 32.499 dB and ghost "
-            "26.485 → 26.449 dB. Only matters while frames are being generated."
+            "Uses half-resolution flow: a narrower refine window for flow, the "
+            "half-size pyramid for FFX. At 1440p this measured 1.03 → 0.52 ms "
+            "with FFX and 1.56 → 0.85 ms with flow; quality stays within "
+            "run-to-run noise. Only matters while frames are being generated."
         )
         latency_form.addRow("", self.performance)
 
@@ -543,9 +551,9 @@ class MainWindow(QtWidgets.QMainWindow):
         latency_layout.addLayout(latency_form)
         latency_layout.addWidget(self.target_note)
         latency_layout.addWidget(hint(
-            "Performance mode uses half-resolution flow and a 3×3 refine "
-            "window: about 1.52 → 0.79 ms at 1440p, with pan 32.825 → 32.499 dB "
-            "and ghost 26.485 → 26.449 dB. The target comparison subtracts the "
+            "Performance mode uses half-resolution flow: about 1.03 → 0.52 ms "
+            "at 1440p with FFX, or 1.56 → 0.85 ms with flow. Quality stays "
+            "within run-to-run noise. The target comparison subtracts the "
             "layer's copy/generate/present time, so it approximates the native "
             "rate."
         ))
@@ -657,6 +665,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.enabled.toggled,
             self.cross_gpu.toggled,
             self.performance.toggled,
+            self.generator.currentIndexChanged,
             self.pacing.currentIndexChanged,
             self.target_fps.valueChanged,
             self.max_presented_spin.valueChanged,
@@ -705,6 +714,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.enabled.setChecked(True)
         self.cross_gpu.setChecked(False)
         self.multiplier.setCurrentIndex(self.multiplier.findData(2))
+        self.generator.setCurrentIndex(self.generator.findData("ffx"))
         self.max_presented.setCurrentIndex(self.max_presented.findData(0))
         self.pacing.setCurrentIndex(self.pacing.findData("adaptive"))
         if name == "video":
@@ -765,9 +775,15 @@ class MainWindow(QtWidgets.QMainWindow):
                 cap_text = f" · ≤{self.max_presented_spin.value()} presented fps"
             else:
                 cap_text = ""
-            flow = "performance flow" if self.performance.isChecked() else "quality flow"
+            gen = str(self.generator.currentData())
+            gen_text = {"ffx": "FFX", "flow": "flow", "blend": "blend",
+                        "hold": "hold", "off": "off"}.get(gen, gen)
+            if gen in ("ffx", "flow"):
+                quality = ("performance" if self.performance.isChecked()
+                           else "quality")
+                gen_text += f" {quality}"
             text = (f"{multiplier}x · {cross} · {gpu_text} · {pacing_text} · "
-                    f"{target_text}{cap_text} · {flow}")
+                    f"{target_text}{cap_text} · {gen_text}")
             video_players = [line.strip() for line in
                              self.video_processes.toPlainText().splitlines() if line.strip()]
             if video_players:
