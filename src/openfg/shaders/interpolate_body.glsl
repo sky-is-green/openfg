@@ -68,9 +68,9 @@ void main() {
     vec2 duv = flow / vec2(size);
     float t = pc.t;
 
-    // Reverse flow B -> A. Full mode refines to half resolution; the default
-    // occlusion mode stops at quarter resolution. Either way it is only used
-    // for the consistency test, never to warp.
+    // Reverse flow B -> A. When enabled, bidirectional mode refines to half
+    // resolution and occlusion mode stops at quarter resolution. Either way it
+    // is only used for the consistency test, never to warp.
     bool hasReverse = (pc.flags & (64 | 128)) != 0;
     float reverseScale = ((pc.flags & 64) != 0) ? 2.0 : 4.0;
     vec2 bpos = clamp(uv + (1.0 - t) * duv, vec2(0.0), vec2(1.0));
@@ -126,9 +126,11 @@ void main() {
         imageStore(uOut, ivec3(p, int(pc.dstLayer)), vec4(vec3(clamp(consistency / 20.0, 0.0, 1.0)), 1.0));
         return;
     }
-    float flowConf = hasReverse ? smoothstep(10.0, 2.0, consistency) : 1.0;
-    float confA = flowConf * smoothstep(0.25, 0.03, ea);
-    float confB = flowConf * smoothstep(0.25, 0.03, eb);
+    // Descending ramps written as 1 - smoothstep(lo, hi): GLSL leaves
+    // smoothstep undefined when edge0 >= edge1.
+    float flowConf = hasReverse ? 1.0 - smoothstep(2.0, 10.0, consistency) : 1.0;
+    float confA = flowConf * (1.0 - smoothstep(0.03, 0.25, ea));
+    float confB = flowConf * (1.0 - smoothstep(0.03, 0.25, eb));
 
     float wa = (1.0 - t) / (ea + 0.02) * (0.05 + confA);
     float wb = t / (eb + 0.02) * (0.05 + confB);
