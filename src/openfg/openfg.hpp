@@ -195,6 +195,7 @@ private:
     bool m_bidirectional{false};
     bool m_occlusionFlow{true};
     bool m_tileMaskEnabled{true};
+    bool m_uiMaskEnabled{true};
     bool m_performanceMode{false};
     bool m_videoSafe{false};
     int m_blockRadius{8};
@@ -213,6 +214,8 @@ private:
     std::array<Image, 6> m_flowSmooth{};
     Image m_flowFull;
     Image m_tileMask;
+    Image m_uiMask;
+    Image m_uiMaskBlock;
     Image m_cutScore;
     std::array<Image, 6> m_flowBA{};
     std::array<Image, 6> m_flowBAFiltered{};
@@ -277,7 +280,7 @@ private:
     vk::UniqueDescriptorSetLayout m_setLayout;
     vk::UniquePipelineLayout m_pipelineLayout;
     vk::UniqueDescriptorPool m_pool;
-    std::array<vk::UniquePipeline, 15> m_pipelines{};
+    std::array<vk::UniquePipeline, 17> m_pipelines{};
     std::vector<vk::UniqueShaderModule> m_modules;
 
     vk::DescriptorSet m_setLumaA{};
@@ -294,6 +297,8 @@ private:
     vk::DescriptorSet m_setFfxCut{};
     vk::DescriptorSet m_setRefineFull{};
     vk::DescriptorSet m_setTileMask{};
+    vk::DescriptorSet m_setUiMask{};
+    vk::DescriptorSet m_setUiMaskDilate{};
     vk::DescriptorSet m_setCut{};
     std::array<vk::DescriptorSet, 6> m_setMedian{};
     std::array<vk::DescriptorSet, 6> m_setMedianBA{};

@@ -20,7 +20,7 @@
 using namespace openfg;
 
 namespace {
-    constexpr std::array<std::string_view, 15> PIPELINE_NAMES{
+    constexpr std::array<std::string_view, 17> PIPELINE_NAMES{
         "luma",
         "downsample",
         "blockmatch",
@@ -35,7 +35,9 @@ namespace {
         "ffx_flow_dense",
         "ffx_color_half",
         "ffx_color_half_hdr",
-        "ffx_cut_score"
+        "ffx_cut_score",
+        "ui_mask",
+        "ui_mask_dilate"
     };
 
     enum PipelineIndex : size_t {
@@ -53,7 +55,9 @@ namespace {
         FFX_FLOW_DENSE = 11,
         FFX_COLOR_HALF = 12,
         FFX_COLOR_HALF_HDR = 13,
-        FFX_CUT_SCORE = 14
+        FFX_CUT_SCORE = 14,
+        UI_MASK = 15,
+        UI_MASK_DILATE = 16
     };
 
     constexpr uint32_t LOCAL_SIZE = 8;
@@ -135,6 +139,7 @@ Interpolator::Interpolator(
     this->m_bidirectional = std::getenv("OPENFG_BIDIRECTIONAL") != nullptr;
     this->m_occlusionFlow = std::getenv("OPENFG_OCCLUSION") != nullptr;
     this->m_tileMaskEnabled = std::getenv("OPENFG_NO_TILE_MASK") == nullptr;
+    this->m_uiMaskEnabled = std::getenv("OPENFG_NO_UI_MASK") == nullptr;
     this->m_blockRadius = 8;
     this->m_refineIterations = 4;
     // The performance mode also narrows the refinement window. That removes
@@ -183,6 +188,12 @@ Interpolator::Interpolator(
         extent, vk::Format::eR16G16Sfloat, INTERNAL_USAGE);
     this->m_tileMask = this->createImage(
         { (extent.width + 15) / 16, (extent.height + 15) / 16 },
+        vk::Format::eR8Unorm, INTERNAL_USAGE);
+    this->m_uiMask = this->createImage(
+        { (extent.width + 7) / 8, (extent.height + 7) / 8 },
+        vk::Format::eR8Unorm, INTERNAL_USAGE);
+    this->m_uiMaskBlock = this->createImage(
+        { (extent.width + 7) / 8, (extent.height + 7) / 8 },
         vk::Format::eR8Unorm, INTERNAL_USAGE);
     this->m_cutScore = this->createImage(
         { 1, 1 }, vk::Format::eR8Unorm,
@@ -931,6 +942,43 @@ void Interpolator::createDescriptors() {
         this->m_setTileMask = this->makeSet(maskSampled, maskStorage);
     }
 
+    // Static-UI mask. Blocks of 8x8 pixels are marked when they contain
+    // high-contrast detail that is identical in both source frames (HUD text,
+    // subtitles, flat icons). The second pass dilates the block mask so the
+    // interpolation fallback also covers the ghost halo around the glyphs.
+    {
+        std::array<vk::ImageView, 5> uiSampled{{
+            *this->m_dummyR8.view,
+            *this->m_dummyR8.view,
+            *this->m_dummyR8.view,
+            *this->m_dummyR8.view,
+            *this->m_srcView
+        }};
+        std::array<vk::ImageView, 4> uiStorage{{
+            *this->m_uiMaskBlock.view,
+            *this->m_dummyR8.view,
+            *this->m_dummyRg16f.view,
+            *this->m_dummyRgba8.view
+        }};
+        this->m_setUiMask = this->makeSet(uiSampled, uiStorage);
+    }
+    {
+        std::array<vk::ImageView, 5> dilateSampled{{
+            *this->m_uiMaskBlock.view,
+            *this->m_dummyR8.view,
+            *this->m_dummyR8.view,
+            *this->m_dummyR8.view,
+            *this->m_srcView
+        }};
+        std::array<vk::ImageView, 4> dilateStorage{{
+            *this->m_uiMask.view,
+            *this->m_dummyR8.view,
+            *this->m_dummyRg16f.view,
+            *this->m_dummyRgba8.view
+        }};
+        this->m_setUiMaskDilate = this->makeSet(dilateSampled, dilateStorage);
+    }
+
     // interpolation
     std::array<vk::ImageView, 5> interpSampled{{
         this->m_bidirectional
@@ -955,7 +1003,7 @@ void Interpolator::createDescriptors() {
 
     if (this->m_generator == Generator::Ffx) {
         std::array<vk::ImageView, 5> ffxSampled{{
-            *this->m_dummyRg16f.view,
+            *this->m_uiMask.view,
             *this->m_cutScore.view,
             *this->m_ffxDense.view,
             *this->m_dummyR8.view, // replaced by the tile mask in makeSet
@@ -1283,6 +1331,19 @@ void Interpolator::analyzeFfx(
     this->dispatch(
         cmdbuf, "ffx_flow_dense", this->m_setFfxDense, this->m_extent, pc);
     this->barrier(cmdbuf);
+
+    if (this->m_uiMaskEnabled) {
+        PushConstants ui{};
+        ui.width = this->m_extent.width;
+        ui.height = this->m_extent.height;
+        ui.layerA = layerA;
+        ui.layerB = layerB;
+        this->dispatch(cmdbuf, "ui_mask", this->m_setUiMask, this->m_uiMask.extent, ui);
+        this->barrier(cmdbuf);
+        this->dispatch(cmdbuf, "ui_mask_dilate", this->m_setUiMaskDilate,
+            this->m_uiMask.extent, ui);
+        this->barrier(cmdbuf);
+    }
 }
 
 void Interpolator::analyze(const vk::CommandBuffer& cmdbuf, uint32_t layerA, uint32_t layerB) {
@@ -1439,6 +1500,9 @@ void Interpolator::generateFfx(
     pc.layerA = layerA;
     pc.layerB = layerB;
     pc.dstLayer = destinationLayer;
+    // The FFX interpolation set carries the static-UI mask on binding 0.
+    if (this->m_uiMaskEnabled)
+        pc.flags |= 262144;
 
     this->dispatch(cmdbuf,
         this->m_hdr ? "interpolate_hdr" : "interpolate",

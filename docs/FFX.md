@@ -27,13 +27,17 @@ full-resolution refinement pass.
 |---|---:|---:|---:|---:|---:|---:|
 | `flow` | 1.56 | 32.83 | 28.49 | 21.30 | 26.49 | 1.925 |
 | `flow` performance | 0.85 | 32.50 | 28.34 | 21.24 | 26.45 | 1.951 |
-| `ffx` | 0.87 | 33.27 | 31.92 | 21.19 | 26.60 | **1.904** |
-| `ffx` performance | 0.42 | 33.07 | 31.76 | 21.17 | 26.56 | 1.938 |
+| `ffx` | 1.03 | 33.23 | 31.94 | 21.19 | 26.60 | **1.915** |
+| `ffx` performance | 0.52 | 33.05 | 31.79 | 21.17 | 26.56 | 1.945 |
 
 FidelityFX is roughly twice as fast at the same setting and improves the
 ghost-excess gate in both modes. The only synthetic regression is the thin
 occluder scene (about 0.1 dB), where an 8×8 block contains both the occluder
 and its background. Thin geometry is the known weak point of a block field.
+
+The FFX timings include the static-UI mask described below; it costs about
+0.1 ms at 1440p in performance mode. Without it the pan scene is 0.04 dB
+higher; the mask deliberately trades that for removing doubled HUD text.
 
 ## How it is wired
 
@@ -59,6 +63,41 @@ correct for SDR and 10-bit linear content; a true HDR10/PQ source would need the
 layer to pass its transfer function and luminance range for ideal motion
 estimation. The existing openfg flow path also derives luma from the raw
 values, so this is not a regression, but it is a known limitation.
+
+## Static-UI mask
+
+Frame generation warps the whole image, including the HUD. The text is
+screen-locked while the background under it moves, so warping drags copies of
+the glyphs into the surrounding background: the doubled-HUD ghost. A per-pixel
+static-detail test only covers the glyph core; the anti-aliased halo around it
+still takes the warped blend, and on a synthetic oracle built from real game
+text the doubled copy survived every threshold and dilation shortcut tried
+before this pass.
+
+`ui_mask.comp` runs at 1/8 resolution. It marks an 8×8 block when at least
+three of a 4×4 sample grid contain high-contrast detail that is identical in
+both source frames: luma difference below 0.015 and a local luma gradient above
+0.15. `ui_mask_dilate.comp` then dilates the block mask by one texel. The
+interpolation pass samples the final mask bilinearly and, where it is set,
+uses the unwarped pair `mix(a0, b0, t)` instead of the flow-warped samples. The
+text stays sharp and its ghost halo disappears; only the small background band
+inside the masked halo is cross-faded instead of warped.
+
+The mask costs about 0.1 ms at 1440p in performance mode (two small compute
+passes). It is deliberately conservative — false positives freeze moving
+background — and the synthetic scenes stay within noise of the numbers above.
+Set `OPENFG_NO_UI_MASK=1` to disable it for A/B testing.
+
+The mask is wired into the FFX backend only; the openfg flow path keeps the
+existing static-detail test. Known limits:
+
+- UI that moves or fades between the two source frames is not detected and
+  still goes through the flow blend.
+- Very fast pans can move a glyph further than the dilation halo; the glyph is
+  covered but the outermost ghost fringe may remain.
+- The background inside the masked halo is cross-faded rather than
+  motion-compensated. Keeping the halo tight is what makes that trade
+  invisible in practice.
 
 ## Try it
 

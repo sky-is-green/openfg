@@ -148,6 +148,15 @@ void main() {
     float blend = 0.5 * (1.0 / (1.0 + ratio) + 1.0 / (1.0 + ratioL));
     vec4 c = mix(ca, cb, blend);
 
+    // Static-UI mask: HUD text and its anti-aliased halo are screen-locked
+    // while the background under them moves. Warping drags copies of the
+    // glyphs into the surrounding background, so fall back to the unwarped
+    // pair over the whole masked area. The mask is block-dilated upstream.
+    if ((pc.flags & 262144) != 0) {
+        float ui = texture(sampler2D(uTex0, uSampler), uv).r;
+        c = mix(c, mix(a0, b0, t), clamp(ui, 0.0, 1.0));
+    }
+
     float err = min(ea, eb);
     if ((pc.flags & 32) != 0) {
         imageStore(uOut, ivec3(p, int(pc.dstLayer)), vec4(vec3(clamp(err * 4.0, 0.0, 1.0)), 1.0));

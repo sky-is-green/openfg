@@ -1,0 +1,46 @@
+// Static-UI block detector.
+//
+// Marks 8x8 blocks that contain high-contrast detail which is identical in
+// both source frames: HUD text, subtitles, flat icons. The block mask is
+// dilated by ui_mask_dilate.comp so the interpolation fallback also covers
+// the ghost halo around the glyphs.
+//
+// The output is a low-resolution R8 mask.
+#version 460
+#include "common.glsl"
+
+layout(set = 0, binding = 8, r8) uniform image2D uMask;
+
+void main() {
+    ivec2 b = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 msize = imageSize(uMask);
+    if (any(greaterThanEqual(b, msize)))
+        return;
+
+    ivec2 full = ivec2(pc.width, pc.height);
+    ivec2 origin = b * 8;
+    int hits = 0;
+
+    // 4x4 samples, two pixels apart, covering the block.
+    for (int j = 0; j < 4 && hits < 3; j++) {
+        for (int i = 0; i < 4 && hits < 3; i++) {
+            ivec2 p = clampCoord(origin + ivec2(i * 2, j * 2), full);
+            vec3 a = texelFetch(sampler2DArray(uTexArray0, uSampler),
+                ivec3(p, int(pc.layerA)), 0).rgb;
+            vec3 c = texelFetch(sampler2DArray(uTexArray0, uSampler),
+                ivec3(p, int(pc.layerB)), 0).rgb;
+            if (length(a - c) >= 0.015)
+                continue;
+
+            float l = luma(a);
+            float lx = luma(texelFetch(sampler2DArray(uTexArray0, uSampler),
+                ivec3(clampCoord(p + ivec2(1, 0), full), int(pc.layerA)), 0).rgb);
+            float ly = luma(texelFetch(sampler2DArray(uTexArray0, uSampler),
+                ivec3(clampCoord(p + ivec2(0, 1), full), int(pc.layerA)), 0).rgb);
+            if (max(abs(l - lx), abs(l - ly)) > 0.15)
+                hits++;
+        }
+    }
+
+    imageStore(uMask, b, vec4(hits >= 3 ? 1.0 : 0.0, 0.0, 0.0, 1.0));
+}

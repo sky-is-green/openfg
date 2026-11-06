@@ -1,0 +1,25 @@
+// Dilate the static-UI block mask by one texel in every direction.
+//
+// Warped samples of a screen-locked glyph can land up to half a flow step
+// away, and the bilinear upsample of the mask adds another half block. One
+// 3x3 dilation covers that halo without marking the whole frame.
+#version 460
+#include "common.glsl"
+
+layout(set = 0, binding = 8, r8) uniform image2D uDst;
+
+void main() {
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(uDst);
+    if (any(greaterThanEqual(p, size)))
+        return;
+
+    float m = 0.0;
+    for (int j = -1; j <= 1; j++) {
+        for (int i = -1; i <= 1; i++) {
+            ivec2 q = clampCoord(p + ivec2(i, j), size);
+            m = max(m, texelFetch(sampler2D(uTex0, uSampler), q, 0).r);
+        }
+    }
+    imageStore(uDst, p, vec4(m, 0.0, 0.0, 1.0));
+}
