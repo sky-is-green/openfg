@@ -17,6 +17,7 @@ mask keeps HUD text sharp on generated frames.
 
 **Status:** `v0.1.0-preview1` — core feature-complete, real-game tested on
 RDNA3. Broader GPU validation and distribution packages are still open.
+Read the [technical white paper](docs/WHITEPAPER.md) for the full design.
 
 ## Features
 
@@ -315,6 +316,7 @@ Flatpak packages are not published yet.
 
 | Document | Contents |
 |---|---|
+| [docs/WHITEPAPER.md](docs/WHITEPAPER.md) | Full design and implementation paper |
 | [docs/FFX.md](docs/FFX.md) | FidelityFX backend, static-UI mask, measurements, licensing |
 | [docs/GPU-SUPPORT.md](docs/GPU-SUPPORT.md) | Vulkan requirements, vendor matrix, cross-GPU limitation |
 | [docs/LATENCY.md](docs/LATENCY.md) | Pacing modes, measured latency, generator cost |
