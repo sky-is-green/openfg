@@ -157,7 +157,7 @@ performance). Blend and hold are comparison baselines, not shipping modes.
 ```toml
 [openfg]
 enabled = true
-generator = "flow"          # flow, ffx, blend, hold or off
+generator = "flow"          # this run used flow; ffx is now the default
 pacing = "adaptive"         # adaptive or capped
 max_presented_fps = -1      # detected display refresh; 0 = off
 present_timing = true

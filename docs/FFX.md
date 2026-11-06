@@ -3,7 +3,9 @@
 `generator = "ffx"` replaces openfg's per-pixel flow estimator with AMD's
 FidelityFX Optical Flow. The rest of the pipeline is unchanged: openfg's
 photo-consistency interpolation still turns the flow field into the generated
-frame.
+frame. It is the default generator. Devices that do not meet its subgroup or
+storage-format requirements fall back to `flow` at backend creation and log
+the reason.
 
 ## What is vendored
 

@@ -74,6 +74,8 @@ int main() {
     expect(defaults.error.empty(), "minimal config parses");
     expect(defaults.config.pacing == "adaptive",
         "pacing defaults to adaptive");
+    expect(defaults.config.generator == "ffx",
+        "generator defaults to ffx");
     expect(parsed.config.maxPresentedFps == -1, "max presented fps parsed");
 
     const auto video = withVideoProfile(parsed.config, { "mpv" });

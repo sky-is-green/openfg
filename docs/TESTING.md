@@ -127,8 +127,8 @@ run the same scene with:
 generator = "off"    # layer loaded, no generation: latency baseline
 # generator = "hold"   # repeat the current frame
 # generator = "blend"  # linear A/B blend, no flow
-# generator = "flow"   # openfg optical flow
-# generator = "ffx"    # AMD FidelityFX optical flow (MIT, faster)
+# generator = "ffx"    # AMD FidelityFX optical flow (default, faster)
+# generator = "flow"   # openfg optical flow (also the FFX fallback)
 ```
 
 `present_timing` enables `VK_KHR_present_id`/`present_wait`; the debug log adds
@@ -141,8 +141,9 @@ For the generator itself without the layer, `fg-lab` accepts
 `--generator flow|ffx|blend|hold`; combine it with `tools/bench.py --generator`
 and `tools/ghost_bench.py --generator` for quality and GPU time. `ffx` is the
 FidelityFX optical-flow backend and is the one to compare against `flow` on
-real games. `tools/hud_bench.py` is the targeted regression test for the
-static-UI mask that removes doubled HUD text on generated frames.
+real games; it is the shipped default. `tools/hud_bench.py` is the targeted
+regression test for the static-UI mask that removes doubled HUD text on
+generated frames.
 
 ## What to report
 

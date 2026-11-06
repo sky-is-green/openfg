@@ -102,9 +102,11 @@ max_presented_fps = 0
 # Half-resolution flow + 3x3 refine: ~2x faster, softer edges.
 performance_mode = false
 
-# "flow" (optical flow), "blend" (linear A/B), "hold" (repeat current frame),
-# or "off" (layer loaded but no generation; for latency baselines).
-generator = "flow"
+# "ffx" (AMD FidelityFX, default), "flow" (openfg optical flow),
+# "blend" (linear A/B), "hold" (repeat current frame), or "off" (layer loaded
+# but no generation; for latency baselines). Devices without the FidelityFX
+# requirements fall back to "flow" with a log line.
+generator = "ffx"
 
 # "adaptive" waits for the measured threshold dwell; "capped" assumes the
 # app is capped at refresh / multiplier and starts generating immediately.
@@ -248,13 +250,14 @@ display refresh. The practical options are:
   pan 32.825 → 32.499 dB and ghost 26.485 → 26.449 dB. The FidelityFX path
   measured about **0.88 → 0.42 ms** with pan 33.27 → 33.07 dB and ghost
   26.60 → 26.56 dB. Ghosting stays effectively unchanged either way.
-- `generator`: `flow` is openfg's own optical-flow path; `ffx` uses AMD's
-  MIT-licensed FidelityFX Optical Flow and is roughly twice as fast on the
-  test system, with equal or better quality on every synthetic scene except a
-  small occlusion-scene regression. See [docs/FFX.md](docs/FFX.md) for the
-  design, measurements and licensing notes. `blend` and `hold` are cheap
-  comparison baselines; `off` keeps the layer loaded but generates nothing,
-  giving a layer-off timing baseline.
+- `generator`: `ffx` is the default. It uses AMD's MIT-licensed FidelityFX
+  Optical Flow and is roughly twice as fast on the test system, with equal or
+  better quality on every synthetic scene except a small occlusion-scene
+  regression. Devices that lack its subgroup or storage-format requirements
+  fall back to `flow` and log the reason. `flow` is openfg's own optical-flow
+  path; `blend` and `hold` are cheap comparison baselines; `off` keeps the
+  layer loaded but generates nothing, giving a layer-off timing baseline. See
+  [docs/FFX.md](docs/FFX.md) for the design, measurements and licensing notes.
 - `present_timing`: opt-in `VK_KHR_present_id`/`present_wait` measurement. The
   debug log then reports real-frame present latency percentiles. It can make
   the compositor pace presents, so leave it off for normal play.

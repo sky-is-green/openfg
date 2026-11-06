@@ -29,10 +29,11 @@ max_presented_fps = 0
 # the five-level half-size FidelityFX search. About 2x faster, softer edges.
 performance_mode = false
 
-# Generator: flow (openfg optical flow), ffx (AMD FidelityFX optical flow),
-# blend (linear A/B), hold (repeat the current frame), or off (layer loaded
-# but no generation; useful for timing).
-generator = "flow"
+# Generator: ffx (AMD FidelityFX optical flow, default), flow (openfg optical
+# flow), blend (linear A/B), hold (repeat the current frame), or off (layer
+# loaded but no generation; useful for timing). Devices without FidelityFX
+# subgroup/format support fall back to flow with a log line.
+generator = "ffx"
 
 # Generation pacing. "adaptive" waits out the measured threshold dwell;
 # "capped" assumes the app is capped at refresh / multiplier and starts

@@ -36,8 +36,9 @@ struct Config {
     int maxPresentedFps{0};
     /// Skip the full-resolution flow refinement (faster, softer edges).
     bool performanceMode{false};
-    /// "flow", "blend", "hold" or "off" (instrument-only passthrough).
-    std::string generator{"flow"};
+    /// "ffx" (default), "flow", "blend", "hold" or "off" (instrument-only
+    /// passthrough).
+    std::string generator{"ffx"};
     /// "adaptive" waits out the threshold dwell; "capped" assumes the app is
     /// capped at refresh/multiplier and starts generating immediately.
     std::string pacing{"adaptive"};

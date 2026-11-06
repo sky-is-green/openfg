@@ -175,7 +175,7 @@ def load_config() -> dict:
         "target_fps": 0,
         "max_presented_fps": 0,
         "performance_mode": False,
-        "generator": "flow",
+        "generator": "ffx",
         "pacing": "adaptive",
         "present_timing": False,
         "debug": False,
