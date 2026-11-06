@@ -317,6 +317,7 @@ Flatpak packages are not published yet.
 | Document | Contents |
 |---|---|
 | [docs/WHITEPAPER.md](docs/WHITEPAPER.md) | Full design and implementation paper |
+| [docs/SHOWCASE.md](docs/SHOWCASE.md) | Before/after video production and YouTube plan |
 | [docs/FFX.md](docs/FFX.md) | FidelityFX backend, static-UI mask, measurements, licensing |
 | [docs/GPU-SUPPORT.md](docs/GPU-SUPPORT.md) | Vulkan requirements, vendor matrix, cross-GPU limitation |
 | [docs/LATENCY.md](docs/LATENCY.md) | Pacing modes, measured latency, generator cost |
