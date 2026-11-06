@@ -14,12 +14,103 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import textwrap
 from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-APP_NAME = "openfg Control"
+APP_NAME = "OpenFG Control"
 VERSION = "0.1.0-preview1"
+
+APP_STYLE = """
+QWidget {
+    background-color: #12161b;
+    color: #e6e8eb;
+    font-size: 13px;
+}
+QMainWindow { background-color: #12161b; }
+QScrollArea { border: none; background: transparent; }
+QScrollArea > QWidget > QWidget { background: #12161b; }
+QGroupBox {
+    background-color: #1a1f26;
+    border: 1px solid #2b333d;
+    border-radius: 8px;
+    margin-top: 16px;
+    padding: 14px 12px 12px 12px;
+    font-weight: 600;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 12px;
+    padding: 0 6px;
+    color: #aab3bf;
+}
+QLabel { background: transparent; }
+QCheckBox { background: transparent; spacing: 8px; }
+QCheckBox::indicator {
+    width: 16px; height: 16px;
+    border: 1px solid #3a4350; border-radius: 4px;
+    background: #0e1217;
+}
+QCheckBox::indicator:checked {
+    background: #3b6ea8; border-color: #4c82bf;
+}
+QLineEdit, QComboBox, QSpinBox, QPlainTextEdit {
+    background-color: #0e1217;
+    border: 1px solid #2b333d;
+    border-radius: 5px;
+    padding: 5px 7px;
+    selection-background-color: #3b5b8a;
+}
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QPlainTextEdit:focus {
+    border-color: #4c82bf;
+}
+QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled,
+QPlainTextEdit:disabled {
+    color: #6b7280;
+    background-color: #151a20;
+}
+QComboBox::drop-down { border: none; width: 22px; }
+QComboBox QAbstractItemView {
+    background: #161b22;
+    border: 1px solid #2b333d;
+    selection-background-color: #2d3b4f;
+}
+QPushButton {
+    background-color: #232a33;
+    border: 1px solid #323b47;
+    border-radius: 5px;
+    padding: 7px 12px;
+}
+QPushButton:hover { background-color: #2b3440; }
+QPushButton:pressed { background-color: #1d242c; }
+QPushButton:default { background-color: #3b6ea8; border-color: #4c82bf; }
+QPushButton:default:hover { background-color: #457cb8; }
+QToolTip {
+    background-color: #1a1f26;
+    color: #e6e8eb;
+    border: 1px solid #3a4350;
+    padding: 6px 8px;
+}
+QScrollBar:vertical { background: transparent; width: 10px; margin: 2px; }
+QScrollBar::handle:vertical {
+    background: #2b333d; border-radius: 5px; min-height: 30px;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
+"""
+
+
+def short_path(path: Path) -> str:
+    try:
+        return "~/" + str(path.relative_to(Path.home()))
+    except ValueError:
+        return str(path)
+
+
+def wrap_tooltip(text: str, width: int = 48) -> str:
+    return textwrap.fill(" ".join(text.split()), width)
 
 
 def repo_root() -> Path:
@@ -307,67 +398,94 @@ class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"{APP_NAME} {VERSION}")
-        self.resize(820, 960)
+        self.resize(960, 920)
         self.gpus = enumerate_gpus()
         self.config = load_config()
 
         central = QtWidgets.QWidget()
         root = QtWidgets.QVBoxLayout(central)
-        root.setSpacing(10)
+        root.setContentsMargins(18, 16, 18, 16)
+        root.setSpacing(14)
         scroll = QtWidgets.QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         scroll.setWidget(central)
         self.setCentralWidget(scroll)
 
-        title = QtWidgets.QLabel("openfg frame generation")
-        title.setStyleSheet("font-size:20px; font-weight:600;")
-        root.addWidget(title)
-        root.addWidget(hint(
-            "Optical-flow frame generation for Vulkan. Changes are written to "
-            f"{config_path()} and apply to applications started afterwards."
-        ))
+        header = QtWidgets.QHBoxLayout()
+        titles = QtWidgets.QVBoxLayout()
+        titles.setSpacing(0)
+        title = QtWidgets.QLabel("OpenFG")
+        title.setStyleSheet(
+            "font-size:24px; font-weight:700; color:#f2f4f7;")
+        subtitle = QtWidgets.QLabel("Frame generation for Vulkan")
+        subtitle.setStyleSheet("color:#9aa0a6; font-size:13px;")
+        titles.addWidget(title)
+        titles.addWidget(subtitle)
+        header.addLayout(titles)
+        header.addStretch(1)
+        version = QtWidgets.QLabel(VERSION)
+        version.setStyleSheet(
+            "color:#9ecbff; background:#1d2630; border:1px solid #2e4359; "
+            "border-radius:9px; padding:3px 9px; font-size:11px; "
+            "font-weight:600;")
+        header.addWidget(version, 0, QtCore.Qt.AlignTop)
+        root.addLayout(header)
+
+        path_label = QtWidgets.QLabel(
+            f"Config: {short_path(config_path())}  ·  "
+            "changes apply to newly started applications")
+        path_label.setStyleSheet("color:#7f8790; font-size:11px;")
+        root.addWidget(path_label)
 
         # Master switch
         self.enabled = QtWidgets.QCheckBox("Enable frame generation")
         self.enabled.setChecked(self.config["enabled"])
-        self.enabled.setStyleSheet("font-size:14px;")
+        self.enabled.setStyleSheet(
+            "font-size:14px; font-weight:600; padding:2px 0;")
         root.addWidget(self.enabled)
+
+        self.summary = QtWidgets.QLabel("")
+        self.summary.setWordWrap(True)
+        root.addWidget(self.summary)
 
         # Presets
         presets = QtWidgets.QGroupBox("Presets")
-        preset_layout = QtWidgets.QHBoxLayout(presets)
-        preset_layout.setSpacing(6)
+        preset_layout = QtWidgets.QGridLayout(presets)
+        preset_layout.setHorizontalSpacing(8)
+        preset_layout.setVerticalSpacing(8)
 
         def preset(text, tooltip, callback):
             button = QtWidgets.QPushButton(text)
+            button.setMinimumHeight(30)
             button.setToolTip(tooltip)
             button.clicked.connect(callback)
             return button
 
         preset_layout.addWidget(preset(
             "Latency-friendly",
-            "2x, same GPU, capped pipeline. Set the game's own FPS limit to "
-            "half the display refresh (~82 on 165 Hz); the layer starts "
-            "generating immediately instead of waiting for the 1 s threshold.",
-            lambda: self._apply_preset("latency")))
+            "2x, capped pipeline. Cap the game at half the display refresh "
+            "(~82 on 165 Hz) so generation starts immediately.",
+            lambda: self._apply_preset("latency")), 0, 0)
         preset_layout.addWidget(preset(
-            "Always generate · quality",
-            "2x, generate on every real frame with full-resolution optical "
-            "flow (FFX by default).",
-            lambda: self._apply_preset("quality")))
+            "Quality",
+            "2x, always generate, full-resolution optical flow (FFX by "
+            "default).",
+            lambda: self._apply_preset("quality")), 0, 1)
         preset_layout.addWidget(preset(
-            "Always generate · performance",
-            "2x, generate on every real frame with half-resolution flow "
-            "(narrower refine for flow, half-size FFX pyramid). About 50% "
-            "faster (1.03 → 0.52 ms at 1440p with FFX), slightly softer edges.",
-            lambda: self._apply_preset("performance")))
+            "Performance",
+            "2x, always generate, half-resolution flow. About 50% faster at "
+            "1440p with slightly softer edges.",
+            lambda: self._apply_preset("performance")), 1, 0)
         preset_layout.addWidget(preset(
             "Video · 4x",
-            "4x, always generate, quality optical flow. Use this with a Vulkan "
-            "video player (mpv/gpu-next); the preset adds mpv to the video "
-            "profile.",
-            lambda: self._apply_preset("video")))
+            "4x for a Vulkan video player (mpv/gpu-next); adds mpv to the "
+            "video profile and enables the cut guard.",
+            lambda: self._apply_preset("video")), 1, 1)
+        preset_layout.addWidget(hint(
+            "Presets apply 2x, same GPU and FFX. Nothing is written until "
+            "Save."), 2, 0, 1, 2)
         root.addWidget(presets)
 
         # Frame generation settings
@@ -382,17 +500,18 @@ class MainWindow(QtWidgets.QMainWindow):
         for gpu in self.gpus:
             self.gpu.addItem(gpu_label(gpu), gpu["pci"] or gpu["name"])
         self.gpu.setToolTip(
-            "The GPU that runs the interpolator. 'Automatic' uses the GPU the "
-            "application renders on. For cross-GPU, pick the second card's PCI "
-            "address (usually the one with no display attached)."
+            "GPU that runs interpolation. Automatic uses the application's "
+            "display GPU. Cross-GPU: pick the second card's PCI address."
         )
+        self.gpu.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         self._select_gpu(self.config["gpu"])
         gpu_row = QtWidgets.QHBoxLayout()
         gpu_row.addWidget(self.gpu, 1)
         probe_button = QtWidgets.QPushButton("Probe…")
         probe_button.setToolTip(
-            "Run openfg-gpu-probe and show the Vulkan capabilities and "
-            "same-GPU/cross-GPU backend result for this machine.")
+            "Run openfg-gpu-probe and show this machine's backend "
+            "capabilities.")
         probe_button.clicked.connect(self.run_gpu_probe)
         gpu_row.addWidget(probe_button)
         form.addRow("Frame-generation GPU:", gpu_row)
@@ -400,10 +519,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.cross_gpu = QtWidgets.QCheckBox("Generate on a second GPU (DMA-BUF)")
         self.cross_gpu.setChecked(self.config["cross_gpu"])
         self.cross_gpu.setToolTip(
-            "The backend runs on the selected GPU and shares frames with the "
-            "display GPU through DMA-BUF. Adds two copies and cross-device "
-            "semaphore round-trips; the Helldivers 2 test was slower than "
-            "same-GPU on this machine."
+            "Run interpolation on the selected GPU and share frames over "
+            "DMA-BUF. Adds two copies and is usually slower than same-GPU."
         )
         self.cross_gpu.toggled.connect(self._cross_gpu_toggled)
         form.addRow("", self.cross_gpu)
@@ -413,11 +530,13 @@ class MainWindow(QtWidgets.QMainWindow):
             self.multiplier.addItem(
                 f"{value}x  ({value - 1} generated frame"
                 f"{'s' if value > 2 else ''} per real frame)", value)
+        self.multiplier.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         index = self.multiplier.findData(self.config["multiplier"])
         self.multiplier.setCurrentIndex(index if index >= 0 else 0)
         self.multiplier.setToolTip(
-            "2x inserts one frame and has the lowest added delay. "
-            "3x/4x insert more frames before the real one."
+            "2x inserts one frame and has the lowest delay. 3x/4x insert more "
+            "frames before the real one and add display delay."
         )
         form.addRow("Multiplier:", self.multiplier)
 
@@ -430,13 +549,14 @@ class MainWindow(QtWidgets.QMainWindow):
             ("off", "Off / timing only"),
         ):
             self.generator.addItem(label, value)
+        self.generator.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         index = self.generator.findData(self.config["generator"])
         self.generator.setCurrentIndex(index if index >= 0 else 0)
         self.generator.setToolTip(
-            "FFX is the default: lower GPU cost, block motion, and the static-UI "
-            "mask that removes doubled HUD text. Devices without its subgroup "
-            "or storage-format requirements fall back to flow. Blend and hold "
-            "are comparison baselines; off keeps the layer loaded for timing."
+            "FFX is the default and includes the static-UI mask for HUD text. "
+            "Unsupported GPUs fall back to flow. Blend and hold are baselines; "
+            "off keeps the layer loaded for timing."
         )
         form.addRow("Generator:", self.generator)
 
@@ -446,19 +566,14 @@ class MainWindow(QtWidgets.QMainWindow):
             "Present timing instrumentation (benchmarking)")
         self.present_timing.setChecked(self.config["present_timing"])
         self.present_timing.setToolTip(
-            "Adds present IDs and waits for present completion so the log can "
-            "report present latency percentiles. It can make the compositor "
-            "pace presents; leave it off for normal play."
+            "Record present-latency percentiles in the log. It can change "
+            "compositor pacing; use for benchmarks only."
         )
 
         settings_layout.addLayout(form)
         settings_layout.addWidget(hint(
-            "2x has the lowest latency. Generated frames are displayed before "
-            "the current real frame, so every multiplier adds display delay."
-        ))
-        settings_layout.addWidget(hint(
-            "FFX is the default and includes the static-UI mask for HUD text. "
-            "GPU drivers without its requirements fall back to flow."
+            "2x has the lowest latency; each extra frame adds display delay. "
+            "FFX falls back to flow when the GPU lacks its requirements."
         ))
         settings_layout.addWidget(self.debug)
         settings_layout.addWidget(self.present_timing)
@@ -474,13 +589,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.pacing = QtWidgets.QComboBox()
         self.pacing.addItem("Adaptive (1 s threshold dwell)", "adaptive")
         self.pacing.addItem("Capped source (start immediately)", "capped")
+        self.pacing.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         index = self.pacing.findData(self.config["pacing"])
         self.pacing.setCurrentIndex(index if index >= 0 else 0)
         self.pacing.setToolTip(
-            "Adaptive waits for the measured rate to stay below the target for "
-            "one second. Capped assumes the game itself is capped at "
-            "refresh / multiplier; generation starts on the first frame and "
-            "only a sustained over-refresh condition stops it."
+            "Adaptive waits for a sustained drop below the target. Capped "
+            "starts immediately; cap the game yourself at refresh ÷ multiplier."
         )
         latency_form.addRow("Pacing:", self.pacing)
 
@@ -489,12 +604,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.target_fps.setSingleStep(5)
         self.target_fps.setSpecialValueText("Always generate")
         self.target_fps.setSuffix(" fps")
+        self.target_fps.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         self.target_fps.setValue(self.config["target_fps"])
         self.target_fps.setToolTip(
-            "Generate only while the estimated native rate is below this value. "
-            "0 = always generate. Set near refresh / multiplier: about 82 for "
-            "2x or 41 for 4x on a 165 Hz display. Generation starts off and "
-            "enables only after a sustained drop."
+            "Generate only below this native rate. 0 = always. Use refresh ÷ "
+            "multiplier: about 82 fps for 2x at 165 Hz."
         )
         self.target_note = hint("")
         latency_form.addRow("Target FPS:", self.target_fps)
@@ -504,10 +619,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.max_presented.addItem("Auto (detected display refresh)", -1)
         self.max_presented.addItem("Custom", 1)
         self.max_presented.setToolTip(
-            "Stops generation when the presented rate would exceed this value. "
-            "The layer converts it to a source cap by dividing by the "
-            "multiplier. Auto reads the active display mode through DRM; "
-            "set OPENFG_REFRESH to override it in a sandbox."
+            "Stop when presented fps would exceed this value. Auto reads the "
+            "display refresh; set OPENFG_REFRESH if detection fails."
         )
         self.max_presented_spin = QtWidgets.QSpinBox()
         self.max_presented_spin.setRange(20, 1000)
@@ -535,35 +648,16 @@ class MainWindow(QtWidgets.QMainWindow):
             "Performance mode (half-resolution flow)")
         self.performance.setChecked(self.config["performance_mode"])
         self.performance.setToolTip(
-            "Uses half-resolution flow: a narrower refine window for flow, the "
-            "half-size pyramid for FFX. At 1440p this measured 1.03 → 0.52 ms "
-            "with FFX and 1.56 → 0.85 ms with flow; quality stays within "
-            "run-to-run noise. Only matters while frames are being generated."
+            "Half-resolution flow: about 1.03 → 0.52 ms with FFX at 1440p. "
+            "Quality stays within run-to-run noise."
         )
         latency_form.addRow("", self.performance)
-
-        self.summary = QtWidgets.QLabel("")
-        self.summary.setWordWrap(True)
-        self.summary.setStyleSheet(
-            "font-size:12px; font-weight:600; color:#dfe3e7; "
-            "padding:6px; background:#20242a; border-radius:4px;")
 
         latency_layout.addLayout(latency_form)
         latency_layout.addWidget(self.target_note)
         latency_layout.addWidget(hint(
-            "Performance mode uses half-resolution flow: about 1.03 → 0.52 ms "
-            "at 1440p with FFX, or 1.56 → 0.85 ms with flow. Quality stays "
-            "within run-to-run noise. The target comparison subtracts the "
-            "layer's copy/generate/present time, so it approximates the native "
-            "rate."
-        ))
-        latency_layout.addWidget(hint(
-            "Measured on the dual RX 7900 XT test system (Helldivers 2, 1440p): "
-            "2x active ≈134 fps / 7.5 ms; adaptive off at target 120 ≈174 fps / "
-            "5.7 ms (that was the old target; use refresh / multiplier for "
-            "latency). Cross-GPU was slower than same-GPU on that system."
-        ))
-        latency_layout.addWidget(self.summary)
+            "Measured on the dual RX 7900 XT test system (Helldivers 2, "
+            "1440p). See docs/LATENCY.md for the methodology."))
 
         root.addWidget(latency)
 
@@ -576,13 +670,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.exclude = QtWidgets.QPlainTextEdit("\n".join(self.config["exclude"]))
         for edit in (self.include, self.exclude):
             edit.setPlaceholderText("empty = all processes")
-            edit.setMinimumHeight(90)
+            edit.setMinimumHeight(80)
+            edit.setMaximumHeight(110)
         process_layout.addWidget(self.include, 1, 0)
         process_layout.addWidget(self.exclude, 1, 1)
         process_layout.addWidget(hint(
-            "Process names, case-insensitive. '*' and '?' wildcards are "
-            "supported. Wine/Proton games are matched by their .exe name. "
-            "An empty include list means every process; exclude always wins."
+            "Case-insensitive; * and ? wildcards. Wine/Proton games use their "
+            ".exe name. Empty include = all; exclude always wins."
         ), 2, 0, 1, 2)
         root.addWidget(processes)
 
@@ -593,10 +687,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.video_processes = QtWidgets.QPlainTextEdit(
             "\n".join(self.config["video_processes"]))
         self.video_processes.setPlaceholderText("empty = video profile disabled")
-        self.video_processes.setMinimumHeight(60)
+        self.video_processes.setMinimumHeight(56)
+        self.video_processes.setMaximumHeight(70)
         video_layout.addWidget(self.video_processes, 1, 0, 1, 2)
 
         self.video_multiplier = QtWidgets.QComboBox()
+        self.video_multiplier.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         for value in (2, 3, 4):
             self.video_multiplier.addItem(f"{value}x", value)
         index = self.video_multiplier.findData(self.config["video_multiplier"])
@@ -605,6 +702,8 @@ class MainWindow(QtWidgets.QMainWindow):
         video_layout.addWidget(self.video_multiplier, 2, 1)
 
         self.video_target_fps = QtWidgets.QSpinBox()
+        self.video_target_fps.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         self.video_target_fps.setRange(0, 1000)
         self.video_target_fps.setSingleStep(5)
         self.video_target_fps.setSpecialValueText("Always generate")
@@ -622,14 +721,13 @@ class MainWindow(QtWidgets.QMainWindow):
             "Scene-cut guard (show the current frame on a hard cut)")
         self.video_safe.setChecked(self.config["video_safe"])
         self.video_safe.setToolTip(
-            "Adds one small reduction pass per frame pair. A global cut score "
-            "detects unrelated frames and skips interpolation for that pair."
+            "Detect unrelated frames and show the current one instead of "
+            "blending across a hard cut. Small per-frame cost."
         )
         video_layout.addWidget(self.video_safe, 5, 0, 1, 2)
         video_layout.addWidget(hint(
-            "Overrides multiplier, target FPS and performance mode for these "
-            "players. Use 4x for 24 fps video; the cut guard is on by default. "
-            "The player must present through Vulkan (mpv --vo=gpu-next)."
+            "Overrides multiplier, target and performance mode for these "
+            "players. Requires a Vulkan-presenting player (mpv/gpu-next)."
         ), 6, 0, 1, 2)
         root.addWidget(video)
 
@@ -639,6 +737,7 @@ class MainWindow(QtWidgets.QMainWindow):
         root.addWidget(self.status)
 
         buttons = QtWidgets.QHBoxLayout()
+        buttons.setSpacing(8)
         reload_button = QtWidgets.QPushButton("Reload")
         reload_button.clicked.connect(self.reload)
         validate_button = QtWidgets.QPushButton("Validate")
@@ -659,6 +758,7 @@ class MainWindow(QtWidgets.QMainWindow):
         root.addLayout(buttons)
 
         root.addStretch(1)
+        self._wrap_tooltips()
 
         # Live state
         for signal in (
@@ -682,6 +782,12 @@ class MainWindow(QtWidgets.QMainWindow):
         self.pacing.currentIndexChanged.connect(self._update_target_note)
         self._update_target_note()
         self._update_summary()
+
+    def _wrap_tooltips(self) -> None:
+        for widget in self.findChildren(QtWidgets.QWidget):
+            text = widget.toolTip()
+            if text:
+                widget.setToolTip(wrap_tooltip(text))
 
     def _update_cap_state(self) -> None:
         self.max_presented_spin.setEnabled(self.max_presented.currentData() == 1)
@@ -718,6 +824,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.max_presented.setCurrentIndex(self.max_presented.findData(0))
         self.pacing.setCurrentIndex(self.pacing.findData("adaptive"))
         if name == "video":
+            self.target_fps.setValue(0)
+            self.performance.setChecked(False)
             if not self.video_processes.toPlainText().strip():
                 self.video_processes.setPlainText("mpv")
             self.video_multiplier.setCurrentIndex(
@@ -793,48 +901,37 @@ class MainWindow(QtWidgets.QMainWindow):
             color = "#7ec699"
         self.summary.setText(text)
         self.summary.setStyleSheet(
-            "font-size:12px; font-weight:600; color:%s; "
-            "padding:6px; background:#20242a; border-radius:4px;" % color)
+            f"font-size:12px; font-weight:600; color:{color}; "
+            "padding:8px 10px; background:#1d2630; border:1px solid #2e4359; "
+            "border-radius:6px;")
 
     def _update_target_note(self) -> None:
         if self.pacing.currentData() == "capped":
             self.target_note.setText(
-                "Capped mode starts generating on the first frame below the "
-                "effective target, so cap the game itself at refresh / "
-                "multiplier: about 82 fps for 2x or 41 fps for 4x on 165 Hz. "
-                "The Target FPS and Max presented values below still define "
-                "the cap; a 1 s over-refresh safety stop remains. If auto "
-                "display detection fails, set the cap explicitly or use "
-                "OPENFG_REFRESH.")
+                "Starts immediately. Cap the game at refresh ÷ multiplier "
+                "(~82 fps for 2x, ~41 for 4x on 165 Hz).")
             return
         cap = int(self.max_presented.currentData())
         if cap == -1:
             self.target_note.setText(
-                "The layer reads the active display mode and stops generating "
-                "when source fps × multiplier would exceed it. This is the "
-                "lowest-latency setting on a fixed-refresh display. If the "
-                "layer cannot read DRM, set OPENFG_REFRESH to the refresh "
-                "rate or use a custom cap.")
+                "Stops when source fps × multiplier exceeds the detected "
+                "display refresh. Lowest latency on a fixed-refresh display.")
             return
         if cap == 1:
             self.target_note.setText(
-                f"Generation stops when source fps × multiplier would exceed "
-                f"{self.max_presented_spin.value()} presented fps. The Target "
-                "FPS setting is applied as a second, independent limit.")
+                f"Stops above {self.max_presented_spin.value()} presented fps; "
+                "Target FPS is a second limit.")
             return
         target = int(self.target_fps.value())
         if target == 0:
             self.target_note.setText(
-                "Generate on every real frame. This adds one or more displayed "
-                "frames of delay, depending on the multiplier.")
+                "Generates on every real frame; each multiplier adds display "
+                "delay.")
         else:
             stop = round(target * 1.05)
             self.target_note.setText(
-                f"Generation starts off. It enables after the estimated native "
-                f"rate stays below {target} fps for one second, and stops after "
-                f"it stays above {stop} fps (5% hysteresis). A game already "
-                "faster than this never initializes the backend. Use "
-                "refresh / multiplier: ~82 for 2x or ~41 for 4x on 165 Hz.")
+                f"Starts after a sustained drop below {target} fps and stops "
+                f"above {stop} fps. Use refresh ÷ multiplier.")
 
     def _collect(self) -> dict:
         return {
@@ -879,7 +976,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _set_status(self, text: str, error: bool = False) -> None:
         color = "#e06c75" if error else "#7ec699"
-        self.status.setStyleSheet(f"color:{color};")
+        self.status.setStyleSheet(
+            f"color:{color}; padding:7px 9px; background:#1a1f26; "
+            "border:1px solid #2b333d; border-radius:6px;")
         self.status.setText(text)
 
     def save(self) -> None:
@@ -894,7 +993,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.config = config
         ok, message = run_cli_validate()
         if ok:
-            self._set_status(f"Saved {config_path()}. {message}", False)
+            self._set_status(f"Saved {short_path(config_path())}. {message}", False)
         else:
             self._set_status(message, True)
 
@@ -917,6 +1016,8 @@ class MainWindow(QtWidgets.QMainWindow):
         layout = QtWidgets.QVBoxLayout(dialog)
         edit = QtWidgets.QPlainTextEdit(text)
         edit.setReadOnly(True)
+        edit.setFont(QtGui.QFontDatabase.systemFont(
+            QtGui.QFontDatabase.FixedFont))
         layout.addWidget(edit)
         buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Close)
         copy = QtWidgets.QPushButton("Copy")
@@ -961,6 +1062,8 @@ class MainWindow(QtWidgets.QMainWindow):
         viewer = QtWidgets.QPlainTextEdit(text)
         viewer.setReadOnly(True)
         viewer.setLineWrapMode(QtWidgets.QPlainTextEdit.NoWrap)
+        viewer.setFont(QtGui.QFontDatabase.systemFont(
+            QtGui.QFontDatabase.FixedFont))
         layout.addWidget(viewer)
         close = QtWidgets.QPushButton("Close")
         close.clicked.connect(dialog.accept)
@@ -985,21 +1088,53 @@ class MainWindow(QtWidgets.QMainWindow):
         self.enabled.setChecked(self.config["enabled"])
         self.cross_gpu.setChecked(self.config["cross_gpu"])
         self._select_gpu(self.config["gpu"])
-        index = self.multiplier.findData(self.config["multiplier"])
-        self.multiplier.setCurrentIndex(index if index >= 0 else 0)
+        self.multiplier.setCurrentIndex(
+            max(0, self.multiplier.findData(self.config["multiplier"])))
+        self.generator.setCurrentIndex(
+            max(0, self.generator.findData(self.config["generator"])))
+        self.pacing.setCurrentIndex(
+            max(0, self.pacing.findData(self.config["pacing"])))
+        self.target_fps.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         self.target_fps.setValue(self.config["target_fps"])
         self.performance.setChecked(self.config["performance_mode"])
+        self.present_timing.setChecked(self.config["present_timing"])
         self.debug.setChecked(self.config["debug"])
+        self.max_presented_spin.setValue(
+            self.config["max_presented_fps"]
+            if self.config["max_presented_fps"] >= 20 else 165)
+        if self.config["max_presented_fps"] == -1:
+            self.max_presented.setCurrentIndex(1)
+        elif self.config["max_presented_fps"] >= 20:
+            self.max_presented.setCurrentIndex(2)
+        else:
+            self.max_presented.setCurrentIndex(0)
         self.include.setPlainText("\n".join(self.config["include"]))
         self.exclude.setPlainText("\n".join(self.config["exclude"]))
-        self._update_target_note()
-        self._update_summary()
-        self._set_status(f"Reloaded {config_path()}.")
+        self.video_processes.setPlainText(
+            "\n".join(self.config["video_processes"]))
+        self.video_multiplier.setCurrentIndex(
+            max(0, self.video_multiplier.findData(
+                self.config["video_multiplier"])))
+        self.video_target_fps.setValue(self.config["video_target_fps"])
+        self.video_performance.setChecked(
+            self.config["video_performance_mode"])
+        self.video_safe.setChecked(self.config["video_safe"])
+        self._update_cap_state()
+        self._set_status(f"Reloaded {short_path(config_path())}.")
 
 def main() -> int:
     app = QtWidgets.QApplication(sys.argv)
+    app.setStyle("Fusion")
+    app.setStyleSheet(APP_STYLE)
     app.setApplicationName("openfg-gui")
     app.setApplicationDisplayName(APP_NAME)
+    icon = QtGui.QIcon.fromTheme("openfg")
+    if icon.isNull():
+        icon_path = repo_root() / "gui" / "openfg.svg"
+        if icon_path.is_file():
+            icon = QtGui.QIcon(str(icon_path))
+    app.setWindowIcon(icon)
     window = MainWindow()
     window.show()
     return app.exec()

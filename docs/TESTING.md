@@ -86,7 +86,8 @@ between them:
    `start generating (capped mode, first frame, ...)` and keep `generating yes`
    while the game stays at the cap.
 4. **`performance_mode`** — compare quality and frame time; it uses
-   half-resolution flow and a 3×3 refinement window (~1.5 → 0.8 ms at 1440p).
+   half-resolution flow (narrower refine for `flow`, half-size pyramid for
+   `ffx`). At 1440p: 1.56 → 0.85 ms with flow, 1.03 → 0.52 ms with FFX.
 5. **Cross-GPU** — only with two GPUs from the same vendor/driver. Set
    `cross_gpu = true` and `gpu` to the second card's PCI address.
 6. **Video** — the `[video]` profile with mpv, including a scene cut.
@@ -116,6 +117,25 @@ generated), overhead and the generation state. Reference RX 7900 XT numbers:
 The absolute app rate is present-bound at this resolution; use a real game for
 frame-time impact. The value of the table is that presented/app is 2.00, 2.97
 and 4.01, so the inserted frames reach the compositor.
+
+## Tile-mask early-out
+
+`tools/tile_bench.py` measures the static-tile skip on the 1440p scenes:
+
+```sh
+python3 tools/tile_bench.py --width 2560 --height 1440
+```
+
+```text
+scene        off ms    on ms  speedup   off dB    on dB
+pan           1.800    1.719    1.05x    32.83    32.83
+zoom          1.795    1.746    1.03x    28.49    28.49
+occlude       1.746    1.700    1.03x    21.30    21.30
+static        1.742    0.477    3.65x    43.72    43.72
+```
+
+Moving scenes are within GPU-clock noise; the static scene skips whole 16×16
+tiles and is the real early-out win.
 
 ## Generator and latency matrix
 
