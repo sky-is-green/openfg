@@ -131,19 +131,12 @@ the small portability edits in `src/openfg/shaders/ffx/NOTICE.md`.
 
 ## 3. System architecture
 
-```text
-┌──────────────────┐        ┌──────────────────────────────────────────┐
-│ Vulkan application│──────▶│ OpenFG implicit layer                    │
-│                  │        │  hooks · pacing · copies · present order │
-└──────────────────┘        └───────────┬──────────────────┬───────────┘
-                                        │ shared images    │ presents
-                                        ▼                  ▼
-                           ┌────────────────────────┐  ┌──────────────────┐
-                           │ Compute backend        │  │ Compositor /     │
-                           │  flow or FidelityFX    │  │ display          │
-                           │  interpolation + mask  │  │                  │
-                           └────────────────────────┘  └──────────────────┘
-```
+![OpenFG data path](assets/whitepaper/architecture.png)
+
+*Figure 1 — The application renders into its swapchain; the layer copies the
+two source frames into shared images, the backend synthesizes the
+intermediates, and the layer presents each generated frame before the real
+one.*
 
 | Component | Source | Responsibility |
 |---|---|---|
@@ -251,6 +244,12 @@ If fewer images are available, `n` is smaller and `t` is recomputed over the
 actual count: for example, 4× with two acquisitions uses `t = 1/3, 2/3`, not
 `0.25, 0.75`.
 
+![Presentation order](assets/whitepaper/timeline.png)
+
+*Figure 2 — Generated frames are presented in increasing `t` order, followed
+by the real frame. The real frame therefore waits behind every inserted
+present.*
+
 The layer never blocks inside `vkQueuePresentKHR`: spare images are acquired
 with a zero timeout. On Wayland a blocking acquire can consume events the
 application's own loop needs. A frame is shown without interpolation when no
@@ -311,6 +310,11 @@ run with normal presentation.
 ---
 
 ## 5. Optical-flow backends
+
+![Flow pipelines](assets/whitepaper/pipelines.png)
+
+*Figure 3 — The two motion estimators. FidelityFX replaces only the flow
+stage; both feed the same interpolation, UI-mask and cut-guard shader.*
 
 ### 5.1 OpenFG flow
 
@@ -755,9 +759,20 @@ both the occluder and its background — the known weak point of a block field.
 The FFX timings include the static-UI mask (~0.1 ms at 1440p performance
 mode).
 
+![Quality versus cost](assets/whitepaper/quality-cost.png)
+
+*Figure 4 — Quality versus GPU time on the 1440p pan scene, and the ghost-excess
+gate. Up and to the left is better in the scatter; lower is better in the bar
+chart. FFX timings include the static-UI mask.*
+
 The HUD regression test uses a 48-pixel pan with static text and compares the
 halo ghost energy with the mask on and off. Current result: **95.6% reduction,
 +2.61 dB** full-frame PSNR, from 28.912 to 1.280 halo ghost excess.
+
+![HUD mask](assets/whitepaper/hud-mask.png)
+
+*Figure 5 — The static-UI mask removes the doubled-text energy in the glyph
+halo while improving full-frame PSNR on the same synthetic pan.*
 
 ### 10.3 Real-game observations
 
@@ -770,6 +785,13 @@ halo ghost energy with the mask on and off. Current result: **95.6% reduction,
 - **mpv/gpu-next**, 24 fps H.264 at 4×: about 96 presented fps before display
   pacing. The scene-cut guard moved a hard cut from 12.21 dB to 99 dB while
   normal motion stayed at 49.85 dB.
+
+![Wilds session](assets/whitepaper/wilds-session.png)
+
+*Figure 6 — A real Wilds session at 1440p with 2× FFX. The app renders at
+75–85 fps; the layer presents mostly 120–130 fps; overhead stays around
+1.2–1.6 ms. The graph is measured from the layer log, not a synthetic
+benchmark.*
 
 ### 10.4 Threats to validity
 
@@ -832,6 +854,9 @@ python3 tools/tile_bench.py --width 2560 --height 1440
 # Capability probe
 openfg-gpu-probe
 openfg-gpu-probe --gpu 0000:03:00.0
+
+# Regenerate the figures in this paper
+python3 tools/make_paper_figures.py
 ```
 
 The HUD test uses a synthetic 48-pixel pan with static text and asserts at
