@@ -5,7 +5,7 @@
 **sky-is-green** · Technical white paper · November 2026 \
 Project: <https://github.com/sky-is-green/openfg> · License: MIT
 
-**Status:** `v0.1.0-preview1`. The FidelityFX backend and static-UI mask are
+The FidelityFX backend and static-UI mask are
 measured; the final fast-pan HUD confirmation is synthetic, and broader GPU
 validation and distribution packages are open.
 
