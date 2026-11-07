@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""Generate the figures used by docs/WHITEPAPER.md.
+"""Generate the figures used by docs/OPENFG-WHITEPAPER.md.
 
 The diagrams and charts share one palette and are written to
 docs/assets/whitepaper/. Re-run after touching the measured data.

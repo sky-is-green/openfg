@@ -225,7 +225,7 @@ Chapters
 09:00 Limitations
 09:45 Build and links
 
-Technical white paper: https://github.com/sky-is-green/openfg/blob/main/docs/WHITEPAPER.md
+Technical white paper: https://github.com/sky-is-green/openfg/blob/main/docs/OPENFG-WHITEPAPER.md
 Source and config: https://github.com/sky-is-green/openfg
 
 No Lossless Scaling assets or code are used. FidelityFX Optical Flow is

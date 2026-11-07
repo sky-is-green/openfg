@@ -1018,7 +1018,7 @@ No Lossless Scaling assets, `lsfg-vk.dll` or lsfg-vk source code are used.
   author = {sky-is-green},
   year   = {2026},
   url    = {https://github.com/sky-is-green/openfg},
-  note   = {White paper: https://github.com/sky-is-green/openfg/blob/main/docs/WHITEPAPER.md}
+  note   = {White paper: https://github.com/sky-is-green/openfg/blob/main/docs/OPENFG-WHITEPAPER.md}
 }
 ```
 
