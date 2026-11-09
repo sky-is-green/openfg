@@ -1,4 +1,4 @@
-# OpenFG: Frame Generation for Vulkan on Linux
+# OpenFG: Frame Generation for Vulkan on Linux (WIP)
 
 **An MIT-licensed optical-flow layer with a static-UI mask, measured on RDNA3.**
 
