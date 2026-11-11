@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""Plot the layer's perf lines for a showcase overlay.
+"""Plot the layer's perf lines from a debug log.
 
 Reads ~/.local/state/openfg/layer.log (or OPENFG_LOG / --input), extracts the
 five-second perf reports and writes a dark PNG/SVG with app/presented fps and
 average layer overhead.
 
-  python3 tools/plot_layer_log.py --tail 240 --output showcase/fps.png
+  python3 tools/plot_layer_log.py --tail 240 --output layer-fps.png
 """
 
 import argparse

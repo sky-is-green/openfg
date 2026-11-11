@@ -1,21 +1,20 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: MIT
-"""Record an X11/XWayland window or the full display at a fixed frame rate.
+"""Record an X11/XWayland window or one monitor at a fixed frame rate.
 
-This is the capture helper for the OpenFG showcase. It uses ffmpeg's x11grab
-so a full-screen Proton game can be recorded at 60 fps without the per-frame
-overhead of `import`. Native and generated runs should use identical
-duration, resolution and frame rate.
+A small ffmpeg x11grab wrapper for bug reports and before/after captures. It
+avoids the per-frame overhead of `import` and keeps the output at a constant
+frame rate.
 
-  # full screen, 60 s at 1440p60
-  python3 tools/capture_window.py --fullscreen --duration 60 \
-      --output showcase/raw/wilds-native.mp4
+  # one monitor, 30 s at 1440p60
+  python3 tools/capture_window.py --monitor DP-1 --duration 30 \
+      --output ~/Videos/openfg-captures/game.mp4
 
   # a window found by title substring
-  python3 tools/capture_window.py --title "Monster Hunter Wilds" \
-      --duration 60 --output showcase/raw/wilds-ffx2x.mp4
+  python3 tools/capture_window.py --title "Game Window" \
+      --duration 30 --output ~/Videos/openfg-captures/game.mp4
 
-The agent must not send input to the game; launch and play the route yourself.
+The agent must not send input to the game; launch and play it yourself.
 """
 
 import argparse
@@ -80,18 +79,47 @@ def display_geometry() -> tuple[int, int]:
     return int(out[0]), int(out[1])
 
 
+def monitor_geometry(name: str) -> tuple[int, int, int, int]:
+    """Return X, Y, width, height for one xrandr output.
+
+    On a multi-monitor Xwayland root, getdisplaygeometry() reports the union
+    of every monitor. A 2560x1440 primary next to a 1920x1080 secondary would
+    otherwise be captured as 4480x1440, with the second monitor in frame.
+    """
+    xrandr = require("xrandr")
+    try:
+        out = subprocess.check_output(
+            [xrandr, "--query"], text=True, stderr=subprocess.DEVNULL)
+    except subprocess.CalledProcessError as exc:
+        raise SystemExit(f"xrandr failed: {exc}")
+    for line in out.splitlines():
+        if not re.match(rf"^{re.escape(name)}\s+connected\b", line):
+            continue
+        match = re.search(r"(\d+)x(\d+)\+(-?\d+)\+(-?\d+)", line)
+        if match:
+            width, height, x, y = (int(v) for v in match.groups())
+            return x, y, width, height
+    raise SystemExit(f"no connected xrandr output named {name!r}")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     target = ap.add_mutually_exclusive_group(required=True)
     target.add_argument("--title", help="window title substring")
     target.add_argument("--fullscreen", action="store_true",
-                        help="capture the whole display")
+                        help="capture the whole X display (all monitors)")
+    target.add_argument("--monitor",
+                        help="xrandr output name, e.g. DP-1 (recommended)")
     ap.add_argument("--output", required=True)
     ap.add_argument("--duration", type=float, default=60.0,
                     help="seconds; 0 records until Ctrl+C")
     ap.add_argument("--fps", type=int, default=60)
     ap.add_argument("--crf", type=int, default=14)
     ap.add_argument("--preset", default="veryfast")
+    ap.add_argument("--countdown", type=float, default=0.0,
+                    help="seconds to wait before capturing; switch to the game")
+    ap.add_argument("--beep", action="store_true",
+                    help="play a system sound when the capture starts")
     ap.add_argument("--offset-x", type=int)
     ap.add_argument("--offset-y", type=int)
     ap.add_argument("--dry-run", action="store_true")
@@ -102,6 +130,9 @@ def main() -> int:
         width, height = display_geometry()
         x = y = 0
         label = "display"
+    elif args.monitor:
+        x, y, width, height = monitor_geometry(args.monitor)
+        label = args.monitor
     else:
         x, y, width, height, label = window_geometry(args.title)
 
@@ -143,6 +174,27 @@ def main() -> int:
     if args.dry_run:
         return 0
 
+    if args.countdown > 0:
+        remaining = max(0, int(round(args.countdown)))
+        for second in range(remaining, 0, -1):
+            print(f"recording in {second}...", flush=True)
+            time.sleep(1)
+    print("recording now", flush=True)
+    if args.beep:
+        for player, sound in (
+            ("paplay", "/usr/share/sounds/freedesktop/stereo/complete.oga"),
+            ("canberra-gtk-play", None),
+        ):
+            if not shutil.which(player):
+                continue
+            cmd = [player] if sound is None else [player, sound]
+            try:
+                subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL)
+                break
+            except OSError:
+                continue
+
     started = time.monotonic()
     proc = subprocess.Popen(cmd)
     try:
@@ -152,6 +204,17 @@ def main() -> int:
         code = proc.wait()
     elapsed = time.monotonic() - started
     print(f"ffmpeg exit {code}, {elapsed:.1f}s, {args.output}", flush=True)
+    if code == 0:
+        probe = shutil.which("ffprobe")
+        if probe:
+            summary = subprocess.run(
+                [probe, "-v", "error", "-select_streams", "v:0",
+                 "-show_entries", "stream=width,height,r_frame_rate",
+                 "-show_entries", "format=duration", "-of", "default=nw=1",
+                 args.output],
+                text=True, capture_output=True, check=False)
+            if summary.stdout.strip():
+                print(summary.stdout.strip().replace("\n", "  "), flush=True)
     return code
 
 
