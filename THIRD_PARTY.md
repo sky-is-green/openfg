@@ -1,7 +1,9 @@
 # Third-party code
 
 - `thirdparty/vulkan/` and `thirdparty/vk_video/`: Khronos Vulkan-Headers,
-  Apache License 2.0. See `thirdparty/vulkan/LICENSE.md`.
+  Apache License 2.0. See `thirdparty/vulkan/LICENSE.md`. This is the Linux
+  subset the build uses; unused Vulkan-Hpp utilities and the non-Linux
+  platform headers are omitted.
 - `thirdparty/vk`: our own Vulkan-Hpp configuration shim, MIT.
 - `src/openfg/shaders/ffx/`: AMD FidelityFX Optical Flow 1.1.2, vendored from
   FidelityFX SDK v1.1.4 (MIT), following the MIT-licensed `afmf-linux`
