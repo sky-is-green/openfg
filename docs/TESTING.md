@@ -120,6 +120,13 @@ and 4.01, so the inserted frames reach the compositor.
 
 ## Tile-mask early-out
 
+Generate the 1440p scenes once; the raw RGBA files are large and are not
+committed:
+
+```sh
+python3 tools/testdata/gen_frames.py --width 2560 --height 1440
+```
+
 `tools/tile_bench.py` measures the static-tile skip on the 1440p scenes:
 
 ```sh

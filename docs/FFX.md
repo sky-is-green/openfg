@@ -32,7 +32,7 @@ full-resolution refinement pass.
 | `ffx` | 0.98 | 33.17 | 31.94 | 21.18 | 26.59 | **1.922** |
 | `ffx` performance | 0.49 | 33.00 | 31.80 | 21.17 | 26.55 | 1.951 |
 
-FidelityFX is about 1.5–1.6× faster at the same setting and matches the
+FidelityFX is about 1.6–1.7× faster at the same setting and matches the
 flow ghost-excess gate within noise. The meaningful comparison is the HUD
 gate below, where the FFX path has the static-UI mask and the flow path does
 not. The only synthetic regression is the thin occluder scene (about 0.1 dB),

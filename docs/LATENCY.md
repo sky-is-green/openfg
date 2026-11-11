@@ -145,7 +145,7 @@ background load.
 | blend | 0.02 | 20.81 | 22.53 | linear A/B blend |
 | hold | 0.02 | 18.86 | 20.57 | repeat the current frame |
 
-The FidelityFX path is about 1.5–1.6× faster than openfg flow at the same
+The FidelityFX path is about 1.6–1.7× faster than openfg flow at the same
 setting and slightly better on pan and ghost. Its only synthetic regression is
 the occlusion scene (21.19 vs 21.30 dB), which is within the range where block
 motion cannot separate a thin occluder from its background. The ghost gate is

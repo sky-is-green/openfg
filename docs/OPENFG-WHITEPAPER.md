@@ -861,7 +861,7 @@ artifacts, and the run commands are in §13.
 | `ffx` | 0.98 | 33.17 | 31.94 | 21.18 | 26.59 | **1.922** |
 | `ffx` performance | 0.49 | 33.00 | 31.80 | 21.17 | 26.55 | 1.951 |
 
-FFX is about 1.5–1.6× faster and matches the flow ghost gate within noise.
+FFX is about 1.6–1.7× faster and matches the flow ghost gate within noise.
 Its only synthetic regression is the thin-occluder scene (~0.1 dB), where an
 8×8 block contains both the occluder and its background — the known weak
 point of a block field. The HUD gate below is the comparison that matters:

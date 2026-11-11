@@ -162,7 +162,7 @@ Synthetic 1440p scenes, 100 `fg-lab` iterations, dual RX 7900 XT:
 | `ffx` | 0.98 | 33.17 | 31.94 | 21.18 | 26.59 | **1.922** |
 | `ffx` performance | 0.49 | 33.00 | 31.80 | 21.17 | 26.55 | 1.951 |
 
-FFX is about 1.5–1.6× faster and matches the flow ghost gate within noise.
+FFX is about 1.6–1.7× faster and matches the flow ghost gate within noise.
 Its only synthetic regression is the thin-occluder scene (~0.1 dB), where an
 8×8 block contains both the occluder and its background. FFX timings include
 the static-UI mask (about 0.06 ms at 1440p performance mode).
@@ -242,6 +242,9 @@ values, and moving subtitles can ghost. See [docs/VIDEO.md](docs/VIDEO.md).
 
 ```sh
 ctest --test-dir build --output-on-failure
+
+# Generate the 1440p synthetic scenes once; the raw files are not committed.
+python3 tools/testdata/gen_frames.py --width 2560 --height 1440
 
 python3 tools/bench.py --gpu 0000:03:00.0 --iterations 100 --generator ffx
 python3 tools/ghost_bench.py --scene ghost --generator ffx
