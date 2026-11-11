@@ -127,12 +127,12 @@ opacity over the same pan. Current results: **95.6%** opaque reduction,
 
 ```sh
 # Synthetic comparison
-python3 tools/bench.py --gpu 0000:03:00.0 --iterations 100 --generator ffx
+python3 tools/bench.py --gpu auto --iterations 100 --generator ffx
 python3 tools/ghost_bench.py --scene ghost --generator ffx
 python3 tools/ghost_bench.py --scene ghost --generator ffx --performance
-python3 tools/hud_bench.py --gpu 0000:03:00.0
-python3 tools/hud_alpha_bench.py --gpu 0000:03:00.0
-python3 tools/hud_alpha_bench.py --gpu 0000:03:00.0 \
+python3 tools/hud_bench.py --gpu auto
+python3 tools/hud_alpha_bench.py --gpu auto
+python3 tools/hud_alpha_bench.py --gpu auto \
     --width 2560 --height 1440 --font-size 40 --text-x 1120 --text-y 140
 
 # Real game

@@ -102,7 +102,7 @@ def main():
     ap.add_argument("--scene", default="ghost")
     ap.add_argument("--width", type=int, default=2560)
     ap.add_argument("--height", type=int, default=1440)
-    ap.add_argument("--gpu", default="0000:07:00.0")
+    ap.add_argument("--gpu", default="auto")
     ap.add_argument("--iterations", type=int, default=10)
     ap.add_argument("--generator", choices=("flow", "ffx", "blend", "hold"),
                     default="flow")

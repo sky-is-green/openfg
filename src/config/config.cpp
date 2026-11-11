@@ -702,7 +702,7 @@ LoadResult load(const std::filesystem::path& path) {
     if (result.error.empty()) {
         if (config.crossGpu && config.gpu == "auto")
             result.warnings.push_back(
-                "cross_gpu needs an explicit gpu (for example 0000:07:00.0); "
+                "cross_gpu needs an explicit gpu (for example 0000:01:00.0); "
                 "\"auto\" selects the application's GPU");
     }
 
@@ -809,7 +809,7 @@ std::string defaultFile() {
 enabled = false
 
 # Vulkan device used for interpolation: "auto", a PCI address such as
-# "0000:07:00.0", a device name, or "vendor:device".
+# "0000:01:00.0", a device name, or "vendor:device".
 gpu = "auto"
 
 # true: run the backend on the GPU above and share frames with the display

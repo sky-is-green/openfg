@@ -10,7 +10,6 @@ Build and run the probe on the target machine:
 ```sh
 cmake --build build -j"$(nproc)"
 ./build/openfg-gpu-probe
-./build/openfg-gpu-probe --gpu 0000:03:00.0
 ```
 
 It prints the device properties, the extensions and features the backend needs,
@@ -56,7 +55,7 @@ create/export path the backend uses works. The runtime line is authoritative.
 
 | GPU | Same GPU | Cross GPU | Notes |
 |---|---|---|---|
-| AMD RDNA3 (RX 7000, RADV) | **tested** | **tested** | Reference system: two RX 7900 XT, Mesa 26.2.5, kernel 7.3. |
+| AMD RDNA3 (RX 7000, RADV) | **tested** | **tested** | Validated on RX 7900 XT, Mesa 26.2.5, kernel 7.3. |
 | AMD RDNA2 (RX 6000, RADV) | expected | expected | Meets the same Vulkan requirements; run the probe. |
 | AMD RDNA1 / Vega (RADV) | likely | likely | Older RADV; verify storage formats and DMA-BUF with the probe. |
 | AMD Polaris / GCN | possible | unlikely | Vulkan 1.1/1.2 support varies; timeline and external memory features are the usual blockers. |
@@ -98,7 +97,7 @@ driver, so that path is fine.
   already full, allocations may fall back to GTT/system memory and the
   backend becomes much slower. Check `mem_info_vram_used` on the target card.
 - Cross-GPU adds two DMA-BUF copies and cross-device semaphore round-trips.
-  On the dual-7900-XT reference system it was slower than same-GPU in
+  On the dual-card test system it was slower than same-GPU in
   Helldivers 2 (about 119 vs 134 measured fps), so it is not the default.
 - The layer only sees Vulkan applications. See [VIDEO.md](VIDEO.md) for the
   video-player implications.

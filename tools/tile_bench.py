@@ -45,7 +45,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--width", type=int, default=2560)
     ap.add_argument("--height", type=int, default=1440)
-    ap.add_argument("--gpu", default="0000:07:00.0")
+    ap.add_argument("--gpu", default="auto")
     ap.add_argument("--iterations", type=int, default=10)
     args = ap.parse_args()
 

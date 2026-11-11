@@ -7,7 +7,7 @@
 enabled = false
 
 # Vulkan device used for interpolation: "auto", a PCI address such as
-# "0000:07:00.0", a device name, or "vendor:device".
+# "0000:01:00.0", a device name, or "vendor:device".
 gpu = "auto"
 
 # true: run the backend on the GPU above and share frames with the display

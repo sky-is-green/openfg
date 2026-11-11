@@ -153,7 +153,7 @@ weighting. FidelityFX replaces only the per-pixel flow estimator. See
 
 ## Performance
 
-Synthetic 1440p scenes, 100 `fg-lab` iterations, dual RX 7900 XT:
+Synthetic 1440p scenes, 100 `fg-lab` iterations, RX 7900 XT:
 
 | Backend | Pan ms | Pan dB | Zoom dB | Occlude dB | Ghost dB | Ghost excess |
 |---|---:|---:|---:|---:|---:|---:|
@@ -207,7 +207,6 @@ authoritative:
 
 ```sh
 openfg-gpu-probe
-openfg-gpu-probe --gpu 0000:03:00.0
 ```
 
 See [docs/GPU-SUPPORT.md](docs/GPU-SUPPORT.md) for the vendor matrix and the
@@ -246,10 +245,10 @@ ctest --test-dir build --output-on-failure
 # Generate the 1440p synthetic scenes once; the raw files are not committed.
 python3 tools/testdata/gen_frames.py --width 2560 --height 1440
 
-python3 tools/bench.py --gpu 0000:03:00.0 --iterations 100 --generator ffx
+python3 tools/bench.py --gpu auto --iterations 100 --generator ffx
 python3 tools/ghost_bench.py --scene ghost --generator ffx
-python3 tools/hud_bench.py --gpu 0000:03:00.0
-python3 tools/hud_alpha_bench.py --gpu 0000:03:00.0
+python3 tools/hud_bench.py --gpu auto
+python3 tools/hud_alpha_bench.py --gpu auto
 python3 tools/tile_bench.py --width 2560 --height 1440
 ```
 
@@ -258,7 +257,7 @@ GPU time:
 
 ```sh
 ./build/fg-lab --a A.rgba --b B.rgba --gt GT.rgba --out out.rgba \
-  --width 2560 --height 1440 --t 0.5 --gpu 0000:03:00.0
+  --width 2560 --height 1440 --t 0.5 --gpu auto
 ```
 
 The benchmark and plotting scripts need `numpy`, `Pillow`, `scipy` and
