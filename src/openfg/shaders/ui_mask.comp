@@ -11,6 +11,23 @@
 
 layout(set = 0, binding = 8, r8) uniform image2D uMask;
 
+bool uiHit(ivec2 p, ivec2 full) {
+    ivec2 px = clampCoord(p + ivec2(1, 0), full);
+    ivec2 py = clampCoord(p + ivec2(0, 1), full);
+
+    vec3 a = texelFetch(sampler2DArray(uTexArray0, uSampler),
+        ivec3(p, int(pc.layerA)), 0).rgb;
+    vec3 c = texelFetch(sampler2DArray(uTexArray0, uSampler),
+        ivec3(p, int(pc.layerB)), 0).rgb;
+    float la = luma(a);
+    float lax = luma(texelFetch(sampler2DArray(uTexArray0, uSampler),
+        ivec3(px, int(pc.layerA)), 0).rgb);
+    float lay = luma(texelFetch(sampler2DArray(uTexArray0, uSampler),
+        ivec3(py, int(pc.layerA)), 0).rgb);
+    return length(a - c) < 0.012 &&
+        max(abs(la - lax), abs(la - lay)) > 0.12;
+}
+
 void main() {
     ivec2 b = ivec2(gl_GlobalInvocationID.xy);
     ivec2 msize = imageSize(uMask);
@@ -19,28 +36,34 @@ void main() {
 
     ivec2 full = ivec2(pc.width, pc.height);
     ivec2 origin = b * 8;
+
+    // Cheap prefilter: most blocks contain no static detail at all. Only
+    // blocks with a sparse hit get the dense 8x8 grid.
+    int sparse = 0;
+    for (int j = 0; j < 8; j += 2) {
+        for (int i = 0; i < 8; i += 2) {
+            if (uiHit(clampCoord(origin + ivec2(i, j), full), full))
+                sparse++;
+        }
+    }
+    if (sparse == 0) {
+        imageStore(uMask, b, vec4(0.0, 0.0, 0.0, 1.0));
+        return;
+    }
+
+    // 8x8 samples, one pixel apart. The dense grid matters for alpha-blended
+    // HUD text and thin glyph strokes: when the background behind a glyph
+    // moves, only part of an anti-aliased edge is unchanged between frames.
+    // A sparse grid can miss every one of those pixels and leave the glyph
+    // outside the mask, which is the real-game ghost this pass exists for.
     int hits = 0;
-
-    // 4x4 samples, two pixels apart, covering the block.
-    for (int j = 0; j < 4 && hits < 3; j++) {
-        for (int i = 0; i < 4 && hits < 3; i++) {
-            ivec2 p = clampCoord(origin + ivec2(i * 2, j * 2), full);
-            vec3 a = texelFetch(sampler2DArray(uTexArray0, uSampler),
-                ivec3(p, int(pc.layerA)), 0).rgb;
-            vec3 c = texelFetch(sampler2DArray(uTexArray0, uSampler),
-                ivec3(p, int(pc.layerB)), 0).rgb;
-            if (length(a - c) >= 0.015)
-                continue;
-
-            float l = luma(a);
-            float lx = luma(texelFetch(sampler2DArray(uTexArray0, uSampler),
-                ivec3(clampCoord(p + ivec2(1, 0), full), int(pc.layerA)), 0).rgb);
-            float ly = luma(texelFetch(sampler2DArray(uTexArray0, uSampler),
-                ivec3(clampCoord(p + ivec2(0, 1), full), int(pc.layerA)), 0).rgb);
-            if (max(abs(l - lx), abs(l - ly)) > 0.15)
+    for (int j = 0; j < 8; j++) {
+        for (int i = 0; i < 8; i++) {
+            if (uiHit(clampCoord(origin + ivec2(i, j), full), full))
                 hits++;
         }
     }
 
-    imageStore(uMask, b, vec4(hits >= 3 ? 1.0 : 0.0, 0.0, 0.0, 1.0));
+    const int threshold = 4;
+    imageStore(uMask, b, vec4(hits >= threshold ? 1.0 : 0.0, 0.0, 0.0, 1.0));
 }

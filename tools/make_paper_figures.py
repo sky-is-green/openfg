@@ -241,14 +241,14 @@ def quality_cost():
     points = [
         ("flow", 1.56, 32.83, GRAY, "flow"),
         ("flow perf", 0.85, 32.50, GRAY, "flow perf"),
-        ("ffx", 1.03, 33.23, BLUE, "FFX"),
-        ("ffx perf", 0.52, 33.05, ORANGE, "FFX perf"),
+        ("ffx", 0.98, 33.17, BLUE, "FFX"),
+        ("ffx perf", 0.49, 33.00, ORANGE, "FFX perf"),
     ]
     label_pos = {
         "flow": (1.58, 32.78),
         "flow perf": (0.88, 32.58),
-        "ffx": (1.10, 33.28),
-        "ffx perf": (0.60, 33.12),
+        "ffx": (1.02, 33.28),
+        "ffx perf": (0.52, 33.12),
     }
     for key, ms, db, color, label in points:
         ax1.scatter(ms, db, s=78, color=color, zorder=3,
@@ -266,7 +266,7 @@ def quality_cost():
     ax1.set_ylim(32.40, 33.38)
 
     labels = ["flow", "flow perf", "FFX", "FFX perf"]
-    values = [1.925, 1.951, 1.917, 1.947]
+    values = [1.925, 1.951, 1.922, 1.951]
     colors = [GRAY, "#b9bec3", BLUE, ORANGE]
     bars = ax2.bar(labels, values, color=colors, width=0.62)
     for bar, value in zip(bars, values):
@@ -288,7 +288,7 @@ def hud_mask():
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(9.2, 3.8))
     labels = ["mask off", "mask on"]
     colors = [GRAY, GREEN]
-    values = [28.912, 1.280]
+    values = [28.912, 1.279]
     bars = ax1.bar(labels, values, color=colors, width=0.55)
     for bar, value in zip(bars, values):
         ax1.text(bar.get_x() + bar.get_width() / 2, value + 0.5,

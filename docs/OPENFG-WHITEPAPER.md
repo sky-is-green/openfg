@@ -45,8 +45,8 @@ Optical Flow is AMD MIT-licensed code; the notices are in the repository.
 
 OpenFG is an implicit Vulkan layer that inserts 2×, 3× or 4× interpolated
 frames into any Vulkan application's swapchain without modifying it. The
-default FidelityFX optical-flow backend reaches 33.23 dB on the 1440p pan
-scene at 1.03 ms per synthetic frame pair (32.83 dB at 1.56 ms for the
+default FidelityFX optical-flow backend reaches 33.17 dB on the 1440p pan
+scene at 0.98 ms per synthetic frame pair (32.83 dB at 1.56 ms for the
 original flow backend); the static-UI mask removes 95.6% of the halo ghost
 energy caused by doubled HUD text; and a four-minute Monster Hunter Wilds
 session rendered at 75–98 app fps while presenting 123–145 fps at 1.2–1.5 ms
@@ -58,7 +58,7 @@ HDR paths, the evaluation methodology, and the limits of the evidence.
 
 | the claim | the measurement |
 |---|---|
-| FidelityFX is the better default | 1.03 ms / 33.23 dB on the 1440p pan scene, against 1.56 ms / 32.83 dB for the original flow backend |
+| FidelityFX is the better default | 0.98 ms / 33.17 dB on the 1440p pan scene, against 1.56 ms / 32.83 dB for the original flow backend |
 | HUD text can be protected | 95.6% less halo ghost energy and +2.61 dB full-frame PSNR on a 48-pixel pan with static text |
 | Real games benefit | Monster Hunter Wilds at 1440p: 75–98 app fps → 123–145 presented fps at 1.2–1.5 ms layer overhead |
 | Video works at 4× | 24 fps H.264 → about 96 presented fps; the cut guard moves a hard cut from 12.21 dB to 99 dB |
@@ -623,17 +623,26 @@ A per-pixel static-detail test covers the glyph core but not the halo that a
 warp can drag into the background. The UI mask detects screen-locked text and
 replaces the warped blend over the whole masked area.
 
-**Detector.** At 1/8 resolution, each 8×8 block samples a 4×4 grid at offsets
-`0,2,4,6`. A sample counts as a hit when
+**Detector.** At 1/8 resolution, a sparse 4×4 grid at offsets `0,2,4,6`
+rejects empty blocks; surviving blocks get a dense 8×8 grid at every pixel.
+A sample counts as a hit when
 
 $$
-\lVert A(p)-B(p)\rVert_2 < 0.015
+\lVert A(p)-B(p)\rVert_2 < 0.012
 \quad\text{and}\quad
-\max(|\Delta_x L_A(p)|, |\Delta_y L_A(p)|) > 0.15.
+\max(|\Delta_x L_A(p)|, |\Delta_y L_A(p)|) > 0.12.
 $$
 
-A block is marked when at least three samples hit. The 1/8-resolution block
+A block is marked when at least four samples hit. The 1/8-resolution block
 grid is then dilated by one texel with a 3×3 max filter.
+
+The dense grid is the part that matters on real game HUD text. With alpha
+blending and a moving background, only part of an anti-aliased glyph edge is
+unchanged between the two source frames. The old 4×4 grid could miss enough
+of those pixels in a thin glyph to leave it outside the mask, especially at
+1440p. On an alpha-blended oracle (75% text opacity, 48-pixel pan), the 4×4
+grid removes 94.6% of the halo ghost at 720p and 89.1% at 1440p; the dense
+grid removes 94.7% and 91.3%. The opaque-text oracle stays at 95.6%.
 
 **Application.** The interpolation pass samples the mask at the output
 position $u$ and at both warped source positions $u_a$ and $u_b$, takes the
@@ -849,14 +858,16 @@ artifacts, and the run commands are in §13.
 |---|---:|---:|---:|---:|---:|---:|
 | `flow` | 1.56 | 32.83 | 28.49 | 21.30 | 26.49 | 1.925 |
 | `flow` performance | 0.85 | 32.50 | 28.34 | 21.24 | 26.45 | 1.951 |
-| `ffx` | 1.03 | 33.23 | 31.94 | 21.19 | 26.60 | **1.917** |
-| `ffx` performance | 0.52 | 33.05 | 31.79 | 21.17 | 26.55 | 1.947 |
+| `ffx` | 0.98 | 33.17 | 31.94 | 21.18 | 26.59 | **1.922** |
+| `ffx` performance | 0.49 | 33.00 | 31.80 | 21.17 | 26.55 | 1.951 |
 
-FFX is about 1.5–1.6× faster and improves the ghost gate. Its only synthetic
-regression is the thin-occluder scene (~0.1 dB), where an 8×8 block contains
-both the occluder and its background — the known weak point of a block field.
-The FFX timings include the static-UI mask (~0.1 ms at 1440p performance
-mode).
+FFX is about 1.5–1.6× faster and matches the flow ghost gate within noise.
+Its only synthetic regression is the thin-occluder scene (~0.1 dB), where an
+8×8 block contains both the occluder and its background — the known weak
+point of a block field. The HUD gate below is the comparison that matters:
+the FFX path has the static-UI mask, the flow path does not.
+The FFX timings include the static-UI mask (about 0.06 ms at 1440p in
+performance mode and 0.08 ms in quality mode).
 
 ![Quality versus cost](assets/whitepaper/quality-cost.png)
 
@@ -864,9 +875,11 @@ mode).
 gate. Up and to the left is better in the scatter; lower is better in the bar
 chart. FFX timings include the static-UI mask.*
 
-The HUD regression test uses a 48-pixel pan with static text and compares the
-halo ghost energy with the mask on and off. Current result: **95.6% reduction,
-+2.61 dB** full-frame PSNR, from 28.912 to 1.280 halo ghost excess.
+The HUD regression tests use a 48-pixel pan with static text and compare the
+halo ghost energy with the mask on and off. The opaque-text result is **95.6%
+reduction and +2.61 dB** full-frame PSNR, from 28.912 to 1.279 halo ghost
+excess. The alpha-blended oracle (75% text opacity) is **94.7%** at 720p and
+**91.3%** at 1440p; the 4×4 grid removed 94.6% and 89.1% respectively.
 
 ![HUD mask](assets/whitepaper/hud-mask.png)
 
@@ -908,6 +921,11 @@ the claim would be most useful. This section separates the two.
 - **Real-game capture is sampled.** The walking captures record presented
   frames at 20 fps, so not every generated frame is inspected. The HUD
   regression test is the controlled exception: it is deterministic.
+- **The pre-mask HUD clips are not current evidence.** The 2026-11-06 Wilds
+  close-ups show the doubled HUD that motivated the static-UI mask, but they
+  were recorded before the mask landed. The current build's real-game HUD
+  check is the fresh 30-second A/B capture; the synthetic oracles are the
+  controlled evidence until that is recorded.
 - **The quality controls are conservative.** The `[0.5,2]` blend clamp and
   the global cut guard trade temporal accuracy for stability. A time-dependent
   clamp would improve 4× cadence but would need a new quality gate.
@@ -975,6 +993,9 @@ ctest --test-dir build --output-on-failure
 python3 tools/bench.py --gpu 0000:03:00.0 --iterations 100 --generator ffx
 python3 tools/ghost_bench.py --scene ghost --gpu 0000:03:00.0 --generator ffx
 python3 tools/hud_bench.py --gpu 0000:03:00.0
+python3 tools/hud_alpha_bench.py --gpu 0000:03:00.0
+python3 tools/hud_alpha_bench.py --gpu 0000:03:00.0 \
+    --width 2560 --height 1440 --font-size 40 --text-x 1120 --text-y 140
 python3 tools/tile_bench.py --width 2560 --height 1440
 
 # Capability probe
@@ -985,9 +1006,11 @@ openfg-gpu-probe --gpu 0000:03:00.0
 python3 tools/make_paper_figures.py
 ```
 
-The HUD test uses a synthetic 48-pixel pan with static text and asserts at
-least a 50% reduction in halo ghost energy with the mask enabled. The `ffx`
-fallback is checked by the probe's `runtime ffx` line and by the layer log.
+The HUD tests use a synthetic 48-pixel pan with static text and assert at
+least a 50% reduction in halo ghost energy with the mask enabled; the alpha
+test uses 75% text opacity so the background shows through the glyphs. The
+`ffx` fallback is checked by the probe's `runtime ffx` line and by the layer
+log.
 
 Source-of-truth implementation files:
 
@@ -999,7 +1022,7 @@ Source-of-truth implementation files:
 | Interpolation and mask | `src/openfg/shaders/interpolate_body.glsl`, `ui_mask*.comp` |
 | FidelityFX | `src/openfg/shaders/ffx/`, `src/openfg/openfg.cpp` |
 | Config | `src/config/` |
-| Evaluation | `tools/bench.py`, `tools/ghost_bench.py`, `tools/hud_bench.py` |
+| Evaluation | `tools/bench.py`, `tools/ghost_bench.py`, `tools/hud_bench.py`, `tools/hud_alpha_bench.py` |
 
 ---
 

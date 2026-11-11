@@ -16,8 +16,9 @@ mask keeps HUD text sharp on generated frames.
 > `src/openfg/shaders/ffx/`; see [THIRD_PARTY.md](THIRD_PARTY.md).
 
 **Status:** `v0.1.0-preview1` — core feature-complete, real-game tested on
-RDNA3. Broader GPU validation and distribution packages are still open.
-Read the [technical white paper](docs/OPENFG-WHITEPAPER.md) for the full design.
+RDNA3. Current `main` also has the FidelityFX default and the dense static-UI
+mask. Broader GPU validation and distribution packages are still open. Read
+the [technical white paper](docs/OPENFG-WHITEPAPER.md) for the full design.
 
 ## Features
 
@@ -158,13 +159,13 @@ Synthetic 1440p scenes, 100 `fg-lab` iterations, dual RX 7900 XT:
 |---|---:|---:|---:|---:|---:|---:|
 | `flow` | 1.56 | 32.83 | 28.49 | 21.30 | 26.49 | 1.925 |
 | `flow` performance | 0.85 | 32.50 | 28.34 | 21.24 | 26.45 | 1.951 |
-| `ffx` | 1.03 | 33.23 | 31.94 | 21.19 | 26.60 | **1.917** |
-| `ffx` performance | 0.52 | 33.05 | 31.79 | 21.17 | 26.55 | 1.947 |
+| `ffx` | 0.98 | 33.17 | 31.94 | 21.18 | 26.59 | **1.922** |
+| `ffx` performance | 0.49 | 33.00 | 31.80 | 21.17 | 26.55 | 1.951 |
 
-FFX is about 1.5–1.6× faster and improves the ghost gate. Its only synthetic
-regression is the thin-occluder scene (~0.1 dB), where an 8×8 block contains
-both the occluder and its background. FFX timings include the static-UI mask
-(~0.1 ms at 1440p performance mode).
+FFX is about 1.5–1.6× faster and matches the flow ghost gate within noise.
+Its only synthetic regression is the thin-occluder scene (~0.1 dB), where an
+8×8 block contains both the occluder and its background. FFX timings include
+the static-UI mask (about 0.06 ms at 1440p performance mode).
 
 Real-world reference points:
 
@@ -183,9 +184,15 @@ source frames, dilates the block mask, and samples it at the output and at both
 warped source positions. Over that area the interpolator uses the unwarped
 frame pair, so text stays sharp and its ghost halo disappears.
 
+The detector uses a sparse prefilter followed by a dense 8x8 grid. The dense
+grid is what catches alpha-blended HUD text: with a moving background, only
+part of an anti-aliased glyph edge is unchanged between frames, and a sparse
+grid can miss every unchanged pixel in a thin glyph.
+
 The mask is FFX-only and covers static text. Moving or animated UI, and all UI
 on the `flow` fallback, can still ghost. Disable it for A/B testing with
-`OPENFG_NO_UI_MASK=1`. Regression test: `tools/hud_bench.py`.
+`OPENFG_NO_UI_MASK=1`. Regression tests: `tools/hud_bench.py` (opaque text) and
+`tools/hud_alpha_bench.py` (75% text opacity).
 
 ## GPU support
 
@@ -239,6 +246,7 @@ ctest --test-dir build --output-on-failure
 python3 tools/bench.py --gpu 0000:03:00.0 --iterations 100 --generator ffx
 python3 tools/ghost_bench.py --scene ghost --generator ffx
 python3 tools/hud_bench.py --gpu 0000:03:00.0
+python3 tools/hud_alpha_bench.py --gpu 0000:03:00.0
 python3 tools/tile_bench.py --width 2560 --height 1440
 ```
 
@@ -250,14 +258,15 @@ GPU time:
   --width 2560 --height 1440 --t 0.5 --gpu 0000:03:00.0
 ```
 
-The benchmark scripts need `numpy`, `Pillow` and `scipy`
-(`python3 -m pip install -r tools/requirements.txt`). They default to `flow`
-so old comparisons stay comparable; pass `--generator ffx` for the shipped
-default.
+The benchmark and plotting scripts need `numpy`, `Pillow`, `scipy` and
+`matplotlib` (`python3 -m pip install -r tools/requirements.txt`). They
+default to `flow` so old comparisons stay comparable; pass `--generator ffx`
+for the shipped default.
 
 `hud_bench.py` builds a 48-pixel pan with static text and requires at least a
 50% reduction in halo ghost energy with the mask enabled. Current run: 95.6%
-reduction, +2.61 dB.
+reduction, +2.61 dB. `hud_alpha_bench.py` repeats it with 75% text opacity:
+94.7% at 720p and 91.3% at 1440p.
 
 Layer configuration options, expected output and the reporting checklist are
 in [docs/TESTING.md](docs/TESTING.md). CI builds with clang and gcc
@@ -317,7 +326,6 @@ Flatpak packages are not published yet.
 | Document | Contents |
 |---|---|
 | [docs/OPENFG-WHITEPAPER.md](docs/OPENFG-WHITEPAPER.md) | Full design and implementation paper |
-| [docs/SHOWCASE.md](docs/SHOWCASE.md) | Before/after video production and YouTube plan |
 | [docs/FFX.md](docs/FFX.md) | FidelityFX backend, static-UI mask, measurements, licensing |
 | [docs/GPU-SUPPORT.md](docs/GPU-SUPPORT.md) | Vulkan requirements, vendor matrix, cross-GPU limitation |
 | [docs/LATENCY.md](docs/LATENCY.md) | Pacing modes, measured latency, generator cost |

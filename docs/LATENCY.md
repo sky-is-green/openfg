@@ -140,8 +140,8 @@ background load.
 |---|---:|---:|---:|---|
 | flow | 1.56 | 32.83 | 26.49 | 5×5 refinement |
 | flow performance | 0.85 | 32.50 | 26.45 | half-res flow + 3×3 refine |
-| ffx | 1.03 | 33.23 | 26.60 | FidelityFX 8×8 block flow |
-| ffx performance | 0.52 | 33.05 | 26.56 | FidelityFX half-size flow |
+| ffx | 0.98 | 33.17 | 26.59 | FidelityFX 8×8 block flow |
+| ffx performance | 0.49 | 33.00 | 26.55 | FidelityFX half-size flow |
 | blend | 0.02 | 20.81 | 22.53 | linear A/B blend |
 | hold | 0.02 | 18.86 | 20.57 | repeat the current frame |
 
@@ -149,8 +149,8 @@ The FidelityFX path is about 1.5–1.6× faster than openfg flow at the same
 setting and slightly better on pan and ghost. Its only synthetic regression is
 the occlusion scene (21.19 vs 21.30 dB), which is within the range where block
 motion cannot separate a thin occluder from its background. The ghost gate is
-better in both modes (excess 1.917 vs 1.925 quality, 1.947 vs 1.951
-performance). FFX timings include the static-UI mask. Blend and hold are
+at or slightly better in both modes (excess 1.922 vs 1.925 quality, 1.951 vs
+1.951 performance). FFX timings include the static-UI mask. Blend and hold are
 comparison baselines, not shipping modes.
 
 ## Reproducing

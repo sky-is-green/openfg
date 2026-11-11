@@ -29,17 +29,20 @@ full-resolution refinement pass.
 |---|---:|---:|---:|---:|---:|---:|
 | `flow` | 1.56 | 32.83 | 28.49 | 21.30 | 26.49 | 1.925 |
 | `flow` performance | 0.85 | 32.50 | 28.34 | 21.24 | 26.45 | 1.951 |
-| `ffx` | 1.03 | 33.23 | 31.94 | 21.19 | 26.60 | **1.917** |
-| `ffx` performance | 0.52 | 33.05 | 31.79 | 21.17 | 26.55 | 1.947 |
+| `ffx` | 0.98 | 33.17 | 31.94 | 21.18 | 26.59 | **1.922** |
+| `ffx` performance | 0.49 | 33.00 | 31.80 | 21.17 | 26.55 | 1.951 |
 
-FidelityFX is about 1.5–1.6× faster at the same setting and improves the
-ghost-excess gate in both modes. The only synthetic regression is the thin
-occluder scene (about 0.1 dB), where an 8×8 block contains both the occluder
-and its background. Thin geometry is the known weak point of a block field.
+FidelityFX is about 1.5–1.6× faster at the same setting and matches the
+flow ghost-excess gate within noise. The meaningful comparison is the HUD
+gate below, where the FFX path has the static-UI mask and the flow path does
+not. The only synthetic regression is the thin occluder scene (about 0.1 dB),
+where an 8×8 block contains both the occluder and its background. Thin
+geometry is the known weak point of a block field.
 
-The FFX timings include the static-UI mask described below; it costs about
-0.1 ms at 1440p in performance mode. Without it the pan scene is 0.04 dB
-higher; the mask deliberately trades that for removing doubled HUD text.
+The FFX timings include the static-UI mask described below; the two-pass
+detector costs about 0.08 ms at 1440p in quality mode and 0.06 ms in
+performance mode. Without it the pan scene is 0.10 dB higher; the mask
+deliberately trades that for removing doubled HUD text.
 
 ## How it is wired
 
@@ -76,10 +79,16 @@ still takes the warped blend, and on a synthetic oracle built from real game
 text the doubled copy survived every threshold and dilation shortcut tried
 before this pass.
 
-`ui_mask.comp` runs at 1/8 resolution. It marks an 8×8 block when at least
-three of a 4×4 sample grid contain high-contrast detail that is identical in
-both source frames: luma difference below 0.015 and a local luma gradient above
-0.15. `ui_mask_dilate.comp` then dilates the block mask by one texel. The
+`ui_mask.comp` runs at 1/8 resolution. A sparse 4×4 grid at two-pixel spacing
+first rejects empty blocks; surviving blocks get a dense 8×8 grid at one-pixel
+spacing. A sample hits when the two source frames are close (`|A-B| < 0.012`)
+and the local luma gradient is real (`max(|Δx L|, |Δy L|) > 0.12`); a block is
+marked at four hits. The dense grid is the part that matters for game HUD
+text: with alpha blending and a moving background, only part of an
+anti-aliased glyph edge is unchanged between frames. The old 4×4 grid could
+miss enough of those pixels in a thin glyph to leave it outside the mask,
+especially at 1440p; the dense grid recovers about two points there.
+`ui_mask_dilate.comp` then dilates the block mask by one texel. The
 interpolation pass samples the final mask bilinearly at the output position
 and at both warped source positions. Testing the source positions is what
 covers fast pans: the ghost copy of a glyph sits wherever the warp read it
@@ -88,10 +97,10 @@ the pass uses the unwarped pair `mix(a0, b0, t)` instead of the flow-warped
 samples. The text stays sharp and its ghost halo disappears; only the small
 background band inside the masked halo is cross-faded instead of warped.
 
-The mask costs about 0.1 ms at 1440p in performance mode (two small compute
-passes). It is deliberately conservative — false positives freeze moving
-background — and the synthetic scenes stay within noise of the numbers above.
-Set `OPENFG_NO_UI_MASK=1` to disable it for A/B testing.
+The two-pass detector costs about 0.06 ms at 1440p in performance mode and
+0.08 ms in quality mode. It is deliberately conservative — false positives
+freeze moving background — and the synthetic scenes stay within noise of the
+numbers above. Set `OPENFG_NO_UI_MASK=1` to disable it for A/B testing.
 
 The mask is wired into the FFX backend only; the openfg flow path keeps the
 existing static-detail test. Known limits:
@@ -103,10 +112,16 @@ existing static-detail test. Known limits:
 - The background inside the masked halo is cross-faded rather than
   motion-compensated. Keeping the halo tight is what makes that trade
   invisible in practice.
+- Alpha-blended text with a very large background change can still leave a
+  faint fringe when fewer than four pixels in a block are unchanged. The
+  dense grid reduces this; it does not eliminate it.
 
-`tools/hud_bench.py` is the regression test: a 48-pixel pan with static text
-(ghost 24 pixels out, beyond the fixed halo) must lose at least half of its
-halo edge energy with the mask enabled, without losing full-frame PSNR.
+`tools/hud_bench.py` is the opaque-text regression test: a 48-pixel pan with
+static text (ghost 24 pixels out, beyond the fixed halo) must lose at least
+half of its halo edge energy with the mask enabled, without losing full-frame
+PSNR. `tools/hud_alpha_bench.py` is the alpha-blended version: 75% text
+opacity over the same pan. Current results: **95.6%** opaque reduction,
+**94.7%** alpha reduction at 720p and **91.3%** at 1440p.
 
 ## Try it
 
@@ -116,6 +131,9 @@ python3 tools/bench.py --gpu 0000:03:00.0 --iterations 100 --generator ffx
 python3 tools/ghost_bench.py --scene ghost --generator ffx
 python3 tools/ghost_bench.py --scene ghost --generator ffx --performance
 python3 tools/hud_bench.py --gpu 0000:03:00.0
+python3 tools/hud_alpha_bench.py --gpu 0000:03:00.0
+python3 tools/hud_alpha_bench.py --gpu 0000:03:00.0 \
+    --width 2560 --height 1440 --font-size 40 --text-x 1120 --text-y 140
 
 # Real game
 #   ~/.config/openfg/conf.toml

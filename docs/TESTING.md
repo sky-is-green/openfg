@@ -85,13 +85,13 @@ between them:
    41 fps for 4x on 165 Hz. The layer should log
    `start generating (capped mode, first frame, ...)` and keep `generating yes`
    while the game stays at the cap.
-4. **`performance_mode`** — compare quality and frame time; it uses
+5. **`performance_mode`** — compare quality and frame time; it uses
    half-resolution flow (narrower refine for `flow`, half-size pyramid for
-   `ffx`). At 1440p: 1.56 → 0.85 ms with flow, 1.03 → 0.52 ms with FFX.
-5. **Cross-GPU** — only with two GPUs from the same vendor/driver. Set
+   `ffx`). At 1440p: 1.56 → 0.85 ms with flow, 0.98 → 0.49 ms with FFX.
+6. **Cross-GPU** — only with two GPUs from the same vendor/driver. Set
    `cross_gpu = true` and `gpu` to the second card's PCI address.
-6. **Video** — the `[video]` profile with mpv, including a scene cut.
-7. **10-bit/HDR** — if available, play a 10-bit/HDR file with mpv; the log
+7. **Video** — the `[video]` profile with mpv, including a scene cut.
+8. **10-bit/HDR** — if available, play a 10-bit/HDR file with mpv; the log
    should say `half-float interpolation path`.
 
 ## Synthetic present benchmark
