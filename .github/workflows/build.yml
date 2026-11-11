@@ -37,5 +37,5 @@ jobs:
           ./build/openfg-cli validate
           ./build/openfg-cli test mpv game.exe
 
-      - name: Check the GUI syntax
-        run: python3 -m py_compile gui/openfg-gui.py
+      - name: Check the Python syntax
+        run: python3 -m py_compile gui/openfg-gui.py tools/*.py
