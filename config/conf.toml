@@ -17,12 +17,14 @@ cross_gpu = false
 # Generated frames per real frame: 2, 3 or 4.
 multiplier = 2
 
-# Only generate while the application is below this rate. 0 = always.
+# Manual activation threshold. 0 = no manual threshold; the presented cap
+# still applies. The effective threshold is min(target_fps,
+# max_presented_fps / multiplier). Above it, the layer stays off.
 target_fps = 0
 
-# Cap presented frames per second. The source cap becomes this value divided
-# by the multiplier. -1 = detected display refresh (recommended for latency),
-# 0 = off, or an explicit value such as 165.
+# Cap presented frames per second and set the automatic activation threshold:
+# source threshold = this value / multiplier. -1 = detected display refresh
+# (the efficiency default), 0 = off, or an explicit value such as 165.
 max_presented_fps = 0
 
 # Half-resolution flow: for flow it also narrows refinement; for ffx it runs

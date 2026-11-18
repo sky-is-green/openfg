@@ -74,13 +74,38 @@ process/video profiles and a live summary of the effective mode.
 
 Presets:
 
-- **Latency-friendly** — 2x, capped source, FFX.
+- **Efficiency - 2x** — 2x, automatic refresh ÷ multiplier threshold, capped source, FFX.
 - **Quality** — 2x, generate on every frame, full-resolution FFX.
 - **Performance** — 2x, half-resolution flow, ~50% cheaper at 1440p.
 - **Video · 4x** — 4x for a Vulkan player, adds `mpv` and the cut guard.
 
 Nothing is written until **Save**. Changes apply to applications started
 afterwards.
+
+## Efficiency threshold
+
+OpenFG only generates when the game is below the activation threshold. The
+automatic threshold is **display refresh ÷ multiplier**:
+
+| Display | 2x | 3x | 4x |
+|---:|---:|---:|---:|
+| 165 Hz | 82.5 fps | 55 fps | 41.25 fps |
+| 144 Hz | 72 fps | 48 fps | 36 fps |
+| 120 Hz | 60 fps | 40 fps | 30 fps |
+
+Above that rate the layer stays off: no generated frames, no generator work
+and no added display delay. That is what makes uncapped gameplay quiet, and it
+is the efficiency feature the UI exposes as **Start below**.
+
+- Leave **Start below** at *Auto / always* to use the automatic threshold from
+  **Max presented FPS**.
+- Set **Start below** to a lower rate to engage frame generation earlier.
+- Set **Max presented FPS** to a custom value if the display refresh is wrong
+  or you intentionally want a different presented cap.
+
+This is an efficiency control, not an input-latency reduction. For lower
+latency, use the highest source rate that still leaves room for 2x (for
+example 60→120 or about 82→164 on 165 Hz), and prefer 2x over 3x/4x.
 
 ## How it works
 
@@ -106,8 +131,8 @@ The layer reads `$XDG_CONFIG_HOME/openfg/conf.toml`, falling back to
 | `generator` | `"ffx"` | `ffx`, `flow`, `blend`, `hold` or `off`. |
 | `performance_mode` | `false` | Half-resolution flow: cheaper, slightly softer edges. |
 | `pacing` | `"adaptive"` | `adaptive` waits for a sustained drop; `capped` starts immediately. |
-| `target_fps` | `0` | Generate only below this source rate. `0` = always. |
-| `max_presented_fps` | `0` | Presented-frame cap. `-1` = detected display refresh; `0` = off. |
+| `target_fps` | `0` | Manual activation threshold. `0` = no manual threshold; the presented cap still applies. The effective threshold is `min(target_fps, max_presented_fps / multiplier)`. |
+| `max_presented_fps` | `0` | Presented-frame cap; also sets the automatic activation threshold when non-zero. `-1` = detected display refresh; `0` = off. |
 | `present_timing` | `false` | Present-id/wait latency instrumentation. |
 | `debug` | `false` | Per-frame logging to stderr. |
 | `[processes] include` | `[]` | Process allow-list; empty means all. `*` and `?` are supported. |

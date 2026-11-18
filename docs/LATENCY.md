@@ -46,8 +46,12 @@ the real frame lands about three source intervals later (p50 50 ms).
 The rule of thumb is **source rate × multiplier ≤ display refresh**. For
 2x on 165 Hz that means a source cap around 82, not 120; for 4x it means
 around 41. `max_presented_fps = -1` derives that cap from the detected display
-refresh automatically. `target_fps` remains a manual source cap; when both are
-set, the stricter one wins.
+refresh automatically. `target_fps` remains a manual activation threshold;
+when both are set, the stricter one wins. Above the effective threshold the
+layer stays off, which is the efficiency feature, not a latency reduction.
+For lower latency, raise the source rate (30→60, 60→120, or ~82→164 on
+165 Hz) rather than raising the threshold; a higher threshold only decides
+when generation engages.
 
 ## Pacing modes
 

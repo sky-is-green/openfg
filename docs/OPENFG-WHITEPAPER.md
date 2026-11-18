@@ -709,6 +709,10 @@ $$
 
 where $M \in [2,4]$ is the multiplier and $P=-1$ means the detected display
 refresh $R$, so $T=R/M$. The stricter of the manual and presented limits wins.
+$T$ is the **activation threshold**: above it the layer stays off, so an
+uncapped application pays no generator cost. It is an efficiency control, not
+an input-latency reduction; a higher source rate remains the lower-latency
+choice.
 
 ### 7.2 Start and stop state machine
 
@@ -814,8 +818,8 @@ override individual values.
 | `generator` | `"ffx"` | `ffx`, `flow`, `blend`, `hold`, `off` |
 | `performance_mode` | `false` | Half-resolution flow |
 | `pacing` | `"adaptive"` | `adaptive` or `capped` |
-| `target_fps` | `0` | Source-rate cap; 0 = always |
-| `max_presented_fps` | `0` | Presented cap; -1 = display refresh |
+| `target_fps` | `0` | Manual activation threshold; 0 = no manual threshold |
+| `max_presented_fps` | `0` | Presented cap and automatic threshold; -1 = display refresh |
 | `present_timing` | `false` | Present-id/wait instrumentation |
 | `debug` | `false` | Per-frame log |
 | `[processes] include/exclude` | `[]` | Glob matching on process names |
