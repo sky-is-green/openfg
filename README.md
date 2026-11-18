@@ -93,13 +93,15 @@ automatic threshold is **display refresh ÷ multiplier**:
 | 144 Hz | 72 fps | 48 fps | 36 fps |
 | 120 Hz | 60 fps | 40 fps | 30 fps |
 
-Above that rate the layer stays off: no generated frames, no generator work
-and no added display delay. That is what makes uncapped gameplay quiet, and it
-is the efficiency feature the UI exposes as **Start below**.
+Above that rate (with a small hysteresis band) the layer turns off: no
+generated frames, no generator work and no added display delay. That is what
+makes uncapped gameplay quiet, and it is the efficiency feature the UI exposes
+as **Start below**.
 
-- Leave **Start below** at *Auto / always* to use the automatic threshold from
+- Leave **Start below** at *Auto* to use the automatic threshold from
   **Max presented FPS**.
-- Set **Start below** to a lower rate to engage frame generation earlier.
+- Set **Start below** to a lower rate to keep generation off at lower frame
+  rates and save more GPU.
 - Set **Max presented FPS** to a custom value if the display refresh is wrong
   or you intentionally want a different presented cap.
 
