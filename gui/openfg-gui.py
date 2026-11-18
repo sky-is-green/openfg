@@ -942,7 +942,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.target_note.setText(
                 "Starts immediately. Cap the game at refresh / multiplier "
                 "(~82 fps for 2x, ~41 for 4x on 165 Hz); above the automatic "
-                "threshold, generation stays off.")
+                "threshold, generation stays off. This controls efficiency, "
+                "not input latency.")
             return
         threshold = self._effective_threshold()
         target = int(self.target_fps.value())
@@ -954,16 +955,19 @@ class MainWindow(QtWidgets.QMainWindow):
         elif target <= 0:
             self.target_note.setText(
                 f"Auto threshold: {threshold:.1f} fps "
-                f"(display refresh / multiplier). Above this, OpenFG stays off.")
+                f"(display refresh / multiplier). Above this, OpenFG stays "
+                "off. This controls efficiency, not input latency.")
         elif cap_threshold > 0 and target > cap_threshold:
             self.target_note.setText(
                 f"Manual target {target} fps is above the automatic cap "
                 f"{cap_threshold:.1f} fps; the effective threshold is "
-                f"{cap_threshold:.1f} fps.")
+                f"{cap_threshold:.1f} fps. This controls efficiency, not "
+                "input latency.")
         else:
             self.target_note.setText(
                 f"Manual threshold: {target} fps; automatic cap "
-                f"{cap_threshold:.1f} fps. Above this, OpenFG stays off.")
+                f"{cap_threshold:.1f} fps. Above this, OpenFG stays off. "
+                "This controls efficiency, not input latency.")
 
     def _collect(self) -> dict:
         return {
