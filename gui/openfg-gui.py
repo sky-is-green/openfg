@@ -486,8 +486,8 @@ class MainWindow(QtWidgets.QMainWindow):
             lambda: self._apply_preset("video")), 1, 1)
         preset_layout.addWidget(hint(
             "Presets apply 2x, same GPU and FFX. The automatic start "
-            "threshold is display refresh / multiplier; above it OpenFG "
-            "stays off. Nothing is written until Save."), 2, 0, 1, 2)
+            "threshold is display refresh / multiplier. Nothing is written "
+            "until Save."), 2, 0, 1, 2)
         root.addWidget(presets)
 
         # Frame generation settings
@@ -970,11 +970,18 @@ class MainWindow(QtWidgets.QMainWindow):
     def _update_target_note(self) -> None:
         self._update_cadence_note()
         if self.pacing.currentData() == "capped":
-            self.target_note.setText(
-                "Starts immediately. Cap the game at refresh / multiplier "
-                "(~82 fps for 2x, ~41 for 4x on 165 Hz); the safety stop is "
-                "above 105% of that. This controls efficiency, not input "
-                "latency.")
+            threshold = self._effective_threshold()
+            if threshold > 0:
+                self.target_note.setText(
+                    f"Starts immediately. Cap the game at {threshold:.1f} fps "
+                    "(the activation threshold); the safety stop is above "
+                    "105% of that. This controls efficiency, not input "
+                    "latency.")
+            else:
+                self.target_note.setText(
+                    "Starts immediately. No activation threshold: cap the "
+                    "game or generation runs on every real frame. This "
+                    "controls efficiency, not input latency.")
             return
         threshold = self._effective_threshold()
         target = int(self.target_fps.value())
