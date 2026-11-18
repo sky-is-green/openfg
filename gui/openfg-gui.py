@@ -999,8 +999,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self.target_note.setText(
                 f"Manual target {target} fps is above the automatic cap "
                 f"{cap_threshold:.1f} fps; the effective threshold is "
-                f"{cap_threshold:.1f} fps. This controls efficiency, not "
-                "input latency.")
+                f"{cap_threshold:.1f} fps. Turn the presented cap off to use "
+                "the manual value (it can exceed the display). This controls "
+                "efficiency, not input latency.")
         else:
             self.target_note.setText(
                 f"Manual threshold: {target} fps; automatic cap "
