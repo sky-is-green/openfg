@@ -105,6 +105,11 @@ as **Start below**.
 - Set **Max presented FPS** to a custom value if the display refresh is wrong
   or you intentionally want a different presented cap.
 
+The panel also reports the display cadence. For the cleanest motion, the
+presented rate should divide the refresh evenly: 60 and 120 fps on a 120 Hz
+mode are exact, while 60/120 on 165 Hz alternate between two and three (or one
+and two) refresh intervals and look uneven.
+
 This is an efficiency control, not an input-latency reduction. For lower
 latency, use the highest source rate that still leaves room for 2x (for
 example 60→120 or about 82→164 on 165 Hz), and prefer 2x over 3x/4x.

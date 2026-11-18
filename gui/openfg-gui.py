@@ -660,6 +660,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         latency_layout.addLayout(latency_form)
         latency_layout.addWidget(self.target_note)
+        self.cadence_note = hint("")
+        latency_layout.addWidget(self.cadence_note)
         latency_layout.addWidget(hint(
             "Frame generation raises the presented rate; it does not lower "
             "input latency. See docs/LATENCY.md for the measurement method."))
@@ -941,7 +943,32 @@ class MainWindow(QtWidgets.QMainWindow):
             return float(target)
         return cap_threshold
 
+    def _update_cadence_note(self) -> None:
+        cap = int(self.max_presented.currentData())
+        refresh = self.display_refresh if self.display_refresh >= 20 else 0.0
+        if cap == 0 or refresh <= 0:
+            self.cadence_note.setText("")
+            return
+        presented = (
+            refresh if cap == -1 else float(self.max_presented_spin.value()))
+        if presented <= 0:
+            self.cadence_note.setText("")
+            return
+        ratio = refresh / presented
+        nearest = round(ratio)
+        if nearest >= 1 and abs(ratio - nearest) <= 0.02:
+            self.cadence_note.setText(
+                f"Cadence: {ratio:.2f} refresh intervals per presented "
+                "frame (clean).")
+        else:
+            self.cadence_note.setText(
+                f"Cadence: {ratio:.2f} refresh intervals per presented "
+                f"frame. {presented:.0f} fps on {refresh:.0f} Hz is uneven; "
+                "use a display mode that divides evenly (120 Hz for "
+                "60/120).")
+
     def _update_target_note(self) -> None:
+        self._update_cadence_note()
         if self.pacing.currentData() == "capped":
             self.target_note.setText(
                 "Starts immediately. Cap the game at refresh / multiplier "

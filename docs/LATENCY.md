@@ -45,7 +45,10 @@ the real frame lands about three source intervals later (p50 50 ms).
 
 The rule of thumb is **source rate × multiplier ≤ display refresh**. For
 2x on 165 Hz that means a source cap around 82, not 120; for 4x it means
-around 41. `max_presented_fps = -1` derives that cap from the detected display
+around 41. Dividing evenly matters too: 60 or 120 presented fps on 165 Hz is
+2.75 or 1.375 refresh intervals, so frames alternate between two and three
+vblanks. A 120 Hz display mode makes 60 and 120 presented fps exact.
+`max_presented_fps = -1` derives that cap from the detected display
 refresh automatically. `target_fps` remains a manual activation threshold;
 when both are set, the stricter one wins. Above the effective threshold the
 layer stays off, which is the efficiency feature, not a latency reduction.
