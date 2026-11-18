@@ -104,6 +104,9 @@ as **Start below**.
   rates and save more GPU.
 - Set **Max presented FPS** to a custom value if the display refresh is wrong
   or you intentionally want a different presented cap.
+- Turn **Max presented FPS** off to use **Start below** alone. That allows a
+  threshold above refresh ÷ multiplier, which can exceed the display and add
+  delay.
 
 The panel also reports the display cadence. For the cleanest motion, the
 presented rate should divide the refresh evenly: 60 and 120 fps on a 120 Hz
