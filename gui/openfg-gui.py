@@ -604,7 +604,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.target_fps = QtWidgets.QSpinBox()
         self.target_fps.setRange(0, 1000)
         self.target_fps.setSingleStep(5)
-        self.target_fps.setSpecialValueText("Auto / always")
+        self.target_fps.setSpecialValueText("Auto")
         self.target_fps.setSuffix(" fps")
         self.target_fps.setSizePolicy(
             QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
@@ -661,8 +661,8 @@ class MainWindow(QtWidgets.QMainWindow):
         latency_layout.addLayout(latency_form)
         latency_layout.addWidget(self.target_note)
         latency_layout.addWidget(hint(
-            "Measured on the dual RX 7900 XT test system (Helldivers 2, "
-            "1440p). See docs/LATENCY.md for the methodology."))
+            "Frame generation raises the presented rate; it does not lower "
+            "input latency. See docs/LATENCY.md for the measurement method."))
 
         root.addWidget(latency)
 
@@ -881,7 +881,11 @@ class MainWindow(QtWidgets.QMainWindow):
             pacing = self.pacing.currentData()
             pacing_text = "capped source" if pacing == "capped" else "adaptive"
             threshold = self._effective_threshold()
-            if threshold > 0:
+            if pacing == "capped":
+                target_text = (
+                    f"cap at {threshold:.1f} fps" if threshold > 0
+                    else "always generating")
+            elif threshold > 0:
                 target_text = f"starts below {threshold:.1f} fps"
             else:
                 target_text = "always generating"
@@ -941,9 +945,9 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.pacing.currentData() == "capped":
             self.target_note.setText(
                 "Starts immediately. Cap the game at refresh / multiplier "
-                "(~82 fps for 2x, ~41 for 4x on 165 Hz); above the automatic "
-                "threshold, generation stays off. This controls efficiency, "
-                "not input latency.")
+                "(~82 fps for 2x, ~41 for 4x on 165 Hz); the safety stop is "
+                "above 105% of that. This controls efficiency, not input "
+                "latency.")
             return
         threshold = self._effective_threshold()
         target = int(self.target_fps.value())
