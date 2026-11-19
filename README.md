@@ -278,6 +278,7 @@ Near term (layer and control panel):
 - [ ] Auto-tune the gate and multiplier from display refresh and frame time.
 - [ ] Reduce start/stop churn and improve frame pacing.
 - [ ] HDR/VRR-aware presentation and pacing.
+- [ ] Compatibility profiles: community-tested per-game recommendations.
 
 Companion upscaler/compositor:
 
