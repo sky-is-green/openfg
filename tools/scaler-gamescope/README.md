@@ -52,7 +52,7 @@ gamescope -W 2560 -H 1440 -w 1280 -h 720 -f -F fsr -- \
 
 # vkmark, if installed
 gamescope -W 2560 -H 1440 -w 1280 -h 720 -f -F fsr -- \
-  vkmark --benchmark --size 1280x720 --duration 20
+  vkmark -s 1280x720 -b vertex:duration=20
 ```
 
 Compare against a native run without `-w/-h` and `-F`. Capture frames with
