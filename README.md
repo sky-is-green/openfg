@@ -15,10 +15,13 @@ mask keeps HUD text sharp on generated frames.
 > used here. The vendored FidelityFX shaders and their notices are under
 > `src/openfg/shaders/ffx/`; see [THIRD_PARTY.md](THIRD_PARTY.md).
 
-**Status:** `v0.1.0-preview1` — core feature-complete, real-game tested on
-RDNA3. Current `main` also has the FidelityFX default and the dense static-UI
-mask. Broader GPU validation and distribution packages are still open. Read
-the [technical white paper](docs/OPENFG-WHITEPAPER.md) for the full design.
+**Status:** `v0.1.0-preview1` — the layer is core feature-complete and
+real-game tested on RDNA3. Current `main` also has the FidelityFX default, the
+dense static-UI mask, the activation gate, per-game profiles and a status tray.
+The companion `openfg-scaler` has a working PipeWire/DMA-BUF capture, EASU/RCAS
+and click-through preview, but still needs a real-game window pass. Broader GPU
+validation and distribution packages remain open. Read the
+[technical white paper](docs/OPENFG-WHITEPAPER.md) for the full design.
 
 ## Features
 
@@ -28,11 +31,13 @@ the [technical white paper](docs/OPENFG-WHITEPAPER.md) for the full design.
 | **Backends** | FidelityFX optical flow (default), original OpenFG flow, linear blend, hold, timing-only off |
 | **GPUs** | Same-GPU (OpaqueFd) and same-vendor cross-GPU (DMA-BUF) |
 | **Pacing** | Adaptive or capped source; target FPS; refresh-aware presented-frame cap |
+| **Activation gate** | Starts below display refresh ÷ multiplier (82.5 fps for 2x on 165 Hz); no generator work above it |
+| **Profiles and status** | Per-game TOML profiles and an `openfg-tray` status indicator with autostart |
 | **Display** | 8-bit and 10-bit/HDR half-float swapchains; multiple swapchains per device |
 | **Content** | Process include/exclude, native and Wine/Proton names, video profile with scene-cut guard |
 | **HUD** | Static-UI mask removes doubled HUD text on generated frames |
 | **Controls** | TOML config, `OPENFG_*` overrides, CLI and Qt control panel |
-| **Companion scaler** | `openfg-scaler`: test pattern or PipeWire capture, EASU/RCAS, SDL3 window/fullscreen presenter, headless dump |
+| **Companion scaler** | `openfg-scaler`: PipeWire ScreenCast window/monitor capture over DMA-BUF, EASU/RCAS, SDL3 fullscreen presenter, click-through overlay, headless dump |
 | **Tooling** | `fg-lab`, `scaler-lab`, `scaler-gpu`, model-contract validator, synthetic benchmarks, HUD regression, log reports, GPU probe |
 
 ## Quick start
@@ -50,6 +55,7 @@ openfg-cli init                 # writes ~/.config/openfg/conf.toml if missing
 $EDITOR ~/.config/openfg/conf.toml
 openfg-cli validate
 openfg-gpu-probe
+openfg-tray &                   # optional status indicator
 ```
 
 A minimal config:
@@ -140,9 +146,9 @@ example 60→120 or about 82→164 on 165 Hz), and prefer 2x over 3x/4x.
 
 ## Companion scaler (preview)
 
-`openfg-scaler` is the in-repo module/executable for the companion
-capture/upscale/present path. It is not required by the frame-generation
-layer.
+`openfg-scaler` is the in-repo capture/upscale/present module. It is not
+required by the frame-generation layer and shares the same CMake project,
+`vkutil`, shader embedding and releases.
 
 ```sh
 cmake -S . -B build -G Ninja
@@ -152,33 +158,56 @@ cmake --build build --target openfg-scaler
 ./build/openfg-scaler --source test --windowed \
   --input 1280x720 --output 2560x1440
 
-# PipeWire window capture; approve the portal dialog and pick the game.
+# PipeWire window capture. The portal asks once; the restore token is
+# remembered for later runs. Select the game window, not the scaler.
 ./build/openfg-scaler --source pipewire --capture window \
-  --input 1280x720 --crop 1280x720+0+28 \
-  --output 2560x1440 --fullscreen --present-timing
+  --input 1920x1080 --crop 1920x1080+0+28 \
+  --output 2560x1440 --fullscreen --sharpness 4
+
+# Native/A-B reference: no EASU, present the captured frame directly.
+./build/openfg-scaler --source pipewire --capture window \
+  --input 1920x1080 --crop 1920x1080+0+28 \
+  --output 1920x1080 --filter passthrough
 ```
 
-`--crop` removes window decorations; `--present-timing` waits for the display
-and reports capture-to-display latency. It needs `VK_KHR_present_wait` and is
-off by default; it is a diagnostic mode because the display wait reduces
-throughput. `--no-dmabuf` forces the shared-memory capture path if a
-driver or compositor produces an unreadable DMA-BUF.
+Modes are deliberately labelled by cost, not by quality:
 
-The current spatial path has two performance modes: 1080p -> 1440p and
-720p -> 1440p (ultra performance, visibly soft on high-detail scenes). Neither
-is a quality mode; native 1440p or the future neural upscaler is.
-`--filter passthrough` presents the captured frame without upscaling and is
-useful as a native/latency reference. Spatial upscaling cannot match a native
-1440p render.
+| Mode | Source -> output | Notes |
+|---|---|---|
+| **Performance** | 1080p -> 1440p | EASU + RCAS; playable, but not a native-quality image |
+| **Ultra performance** | 720p -> 1440p | 4x pixel increase; visibly soft/noisy on high-detail scenes |
+| **Native reference** | source = output, `--filter passthrough` | No spatial upscale; for A/B and latency |
+| **Quality** | native 1440p or neural | Native is not a scaler mode; the neural backend is not wired yet |
 
-The test-pattern and headless paths need only Vulkan. SDL3 enables the window
-presenter; `libpipewire-0.3` and `dbus-1` enable capture. The PipeWire path
-requests a DMA-BUF stream and falls back to shared memory. The selected
-window or monitor is remembered with a portal restore token; use
-`--forget-token` to make the portal prompt again. It does not wait on explicit
-sync objects or implement a click-through overlay yet. See
-[docs/SCALER.md](docs/SCALER.md) for the interfaces, validation results and
-remaining work.
+The PipeWire path requests DMA-BUF, fixates the negotiated DRM modifier,
+announces a single buffer block, caches imported images and falls back to
+shared memory with `--no-dmabuf`. The portal selection is stored in
+`$XDG_STATE_HOME/openfg/portal-<capture>-token` (mode 0600); use
+`--forget-token` to prompt again.
+
+Fullscreen PipeWire mode is a non-focusable Wayland overlay with an empty
+input region, so mouse clicks pass through and the game keeps focus.
+`--no-click-through` restores a normal interactive window. On X11 the mouse
+region is not available. Escape cannot close a click-through overlay; stop the
+process from the terminal/tray.
+
+Measured on the RX 7900 XT with GravityMark 1.89 as a 1080p window, upscaled to
+2560x1440:
+
+- 600 frames in 9.96 s: **60.25 fps**.
+- Acquire **0.03 ms** p50, submit **0.48 ms** p50.
+- Capture-to-present **0.71 ms** p50.
+- EASU+RCAS **0.29 ms** p50; present pass **0.10 ms** p50. The standalone
+  `scaler-gpu` harness reports a larger end-to-end EASU+RCAS figure because it
+  times a different sequence; compare within each harness.
+- `--present-timing` adds a display wait and drops the same run to 55.2 fps;
+  it is a measurement mode, not a normal-play setting.
+
+The current EASU result matches `scaler-gpu` within 1 LSB on the self-test
+vector. 1080p is the performance option; 720p is ultra performance. Neither is
+a quality mode. Native 1440p and the future neural upscaler remain the quality
+reference. See [docs/SCALER.md](docs/SCALER.md) for interfaces, validation and
+the remaining real-game/VRR/HDR work.
 
 ## How it works
 
@@ -297,10 +326,10 @@ starts. The control panel has the same examples behind **Launch options**.
 | `flow` | OpenFG's original dense optical flow | Compatibility path. No static-UI mask yet. |
 | `blend` | Linear A/B blend | Comparison baseline. |
 | `hold` | Repeat the current frame | Comparison baseline. |
+| `off` | Layer loaded, no generation | Latency baseline. |
 
 For normal play, use `ffx`. `flow` is the fallback/alternative; `blend` and
 `hold` are comparison baselines, and `off` is for timing.
-| `off` | Layer loaded, no generation | Latency baseline. |
 
 All backends use the same photo-consistency interpolation and visibility
 weighting. FidelityFX replaces only the per-pixel flow estimator. See
@@ -335,23 +364,30 @@ Real-world reference points:
 
 Near term (layer and control panel):
 
-- [ ] Per-game profiles: choose the gate and mode by process name.
-- [ ] Status OSD/tray: gate state, multiplier and start/stop transitions.
-- [ ] Benchmark/telemetry mode: p50/p95, overhead, CSV/JSON export.
+- [x] Per-game profiles: process-named full configs, GUI save dialog.
+- [x] Status tray: atomic layer status JSON, generating/idle/stale icon and
+      autostart.
+- [ ] Benchmark/telemetry mode: live p50/p95, overhead, CSV/JSON export.
 - [ ] Auto-tune the gate and multiplier from display refresh and frame time.
 - [ ] Reduce start/stop churn and improve frame pacing.
 - [ ] HDR/VRR-aware presentation and pacing.
 - [ ] Compatibility profiles: community-tested per-game recommendations.
 
-Companion upscaler/compositor:
+Companion scaler:
 
-- [ ] Pick the capture/present backend: PipeWire window capture or a
-      Gamescope-style nested compositor.
-- [ ] Spatial upscaler: FSR1/EASU + RCAS-style sharpening, integer scaling and
-      aspect-ratio controls.
+- [x] PipeWire ScreenCast capture (window/monitor), DMA-BUF import,
+      shared-memory fallback, restore-token persistence.
+- [x] FSR1 EASU/RCAS and SDL3 windowed/fullscreen presentation.
+- [x] Headless capture/present, RGBA dump and GPU pass timestamps.
+- [x] Click-through, non-focusable Wayland overlay (mouse verified).
+- [x] Native `--filter passthrough` reference.
+- [ ] Real-game window validation, focus/keyboard check and capture overhead
+      comparison.
+- [ ] Gamescope-style nested-compositor backend.
+- [ ] Integer scaling, configurable aspect policy and explicit
+      `SPA_DATA_SyncObj` synchronization.
 - [ ] HDR and VRR in the capture/present path.
-- [ ] Neural spatial upscaler: small CNN, FP16, local training.
-- [ ] Model plugin API for user-supplied upscalers.
+- [ ] Neural spatial upscaler and model plugin API.
 - [ ] Measure capture-to-present latency against native and Lossless Scaling.
 
 Research:
@@ -372,9 +408,10 @@ Benchmarks:
 - [x] FSR1 EASU/RCAS baseline in `scaler-gpu` (Vulkan; ~0.14 ms EASU,
       ~1.4 ms EASU+RCAS at 1440p).
 - [x] EASU/RCAS backends in `scaler-lab` via `--backend` and `--scaler-gpu`.
+- [x] `openfg-scaler` capture-to-present and per-pass GPU timestamps.
 - [ ] Neural backend in `scaler-lab`.
 - [ ] LPIPS/DISTS/VMAF, temporal metrics and HUD-region crops.
-- [ ] Live capture-to-present latency and frame-pacing harness.
+- [ ] Real-game window capture matrix and capture-overhead study.
 
 Needs engine integration:
 
@@ -465,6 +502,24 @@ python3 tools/tile_bench.py --width 2560 --height 1440
 python3 tools/openfg-report.py raw/*.log --detail
 ```
 
+Scaler checks:
+
+```sh
+# Headless self-test and dump (test pattern, no portal)
+./build/openfg-scaler --headless --source test --static \
+  --input 640x360 --output 1280x720 --frames 1 \
+  --dump /tmp/scale-out.rgba --dump-input /tmp/scale-in.rgba
+
+# Window capture (portal; select the game, not the scaler)
+./build/openfg-scaler --source pipewire --capture window \
+  --input 1920x1080 --crop 1920x1080+0+28 \
+  --output 2560x1440 --fullscreen --sharpness 4
+
+# Forget the saved portal permission
+rm -f ~/.local/state/openfg/portal-window-token
+# (--forget-token also clears it at the start of the next capture)
+```
+
 The standalone `scaler-gpu` harness runs FSR1 EASU/RCAS on raw RGBA and reports
 GPU time:
 
@@ -494,14 +549,18 @@ reduction, +2.61 dB. `hud_alpha_bench.py` repeats it with 75% text opacity:
 
 Layer configuration options, expected output and the reporting checklist are
 in [docs/TESTING.md](docs/TESTING.md). CI builds with clang and gcc
-(`-Werror`), runs the config tests, smoke-tests the CLI and checks the GUI
-syntax.
+(`-Werror`) on Ubuntu 24.04, with the optional SDL3/PipeWire/Wayland
+dependencies absent, runs the config/status tests, smoke-tests the CLI and
+checks the Python syntax. The full capture/present path is tested locally on
+Wayland.
 
 ## Build and install
 
 Requirements: C++20 compiler, CMake 3.20+, Ninja, `glslc` (shaderc),
 `glslangValidator` (glslang), Vulkan headers (vendored) and Python 3 for
-shader embedding.
+shader embedding. The scaler's optional dependencies are SDL3 (window
+presenter), `libpipewire-0.3` + `dbus-1` (capture) and `wayland-client`
+(mouse click-through); a build without them is headless/test-pattern only.
 
 ```sh
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -518,8 +577,10 @@ sudo cmake --install build --prefix /usr/local
 The build produces:
 
 - `libopenfg-layer.so` and the implicit-layer manifest
-- `openfg-cli`, `openfg-gpu-probe`, `fg-lab`
-- optional `openfg-gui` (PySide6)
+- `openfg-cli`, `openfg-gpu-probe`, `fg-lab`, `scaler-gpu`
+- `openfg-scaler` (headless without SDL3/PipeWire; full capture/present with
+  them)
+- optional `openfg-gui` and `openfg-tray` (PySide6)
 
 Arch/CachyOS users can build `packaging/PKGBUILD` with `makepkg -si`. AUR and
 Flatpak packages are not published yet.
@@ -539,6 +600,13 @@ Flatpak packages are not published yet.
   application's event loop on Wayland.
 - RDNA2/RDNA1, NVIDIA and Intel are expected to meet the Vulkan requirements
   but have not been validated on real hardware here.
+- The companion scaler has no real-game window validation yet. PipeWire
+  window capture adds compositor overhead; 1080p is a performance mode, not a
+  quality mode, and 720p is visibly soft on high-detail content.
+- Click-through mouse input is Wayland-only. The overlay is non-focusable on
+  both, but X11 does not get an empty input region.
+- The scaler does not wait on explicit `SPA_DATA_SyncObj` synchronization,
+  does not support HDR/VRR yet, and has no neural backend.
 - Input-to-photon latency is not measured; only present latency and generator
   cost are.
 - The backend's Vulkan device/instance is intentionally leaked at process exit:

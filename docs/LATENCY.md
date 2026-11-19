@@ -209,3 +209,36 @@ still reports app/presented fps, but not the present latency percentiles.
 - GPU execution time separately from CPU submit time in the layer. `fg-lab`
   gives the clean GPU number; the layer's `overhead` includes present/copy
   submission.
+
+## Companion scaler
+
+The companion scaler has a different timing model: it is not generating
+frames, only capturing, upscaling and re-presenting the source. Measure it in
+two modes.
+
+**Normal mode** (`--present-timing` off) is the play path. A 600-frame
+GravityMark 1080p window, cropped to 1920x1080 and upscaled to 2560x1440,
+measured on the RX 7900 XT:
+
+| Segment | p50 |
+|---|---:|
+| Capture wait | 17.56 ms |
+| Acquire | 0.03 ms |
+| Submit | 0.48 ms |
+| Capture-to-present | 0.71 ms |
+| EASU+RCAS GPU pass | 0.29 ms |
+| Present GPU pass | 0.10 ms |
+
+The run completed 600 frames in 9.96 s (**60.25 fps**). The capture wait and
+source interval dominate; the scaler's own path is sub-millisecond. A 60 fps
+source on a 165 Hz display still has an uneven 2/3-refresh cadence; VRR or a
+matching display mode is the future fix. A deeper present pipeline is not
+justified while the source/capture path is the limiter.
+
+**Diagnostic mode** (`--present-timing` on) waits for `vkWaitForPresentKHR`
+and adds about 16.2 ms per frame; the same 1080p run drops to 55.2 fps. This
+is useful for capture-to-display latency but should not be enabled for normal
+play. It needs `VK_KHR_present_id` and `VK_KHR_present_wait`.
+
+The 720p -> 1440p ultra-performance mode is about 60 fps on the same source
+but visibly softer; 1080p is the performance mode. Neither is a quality mode.

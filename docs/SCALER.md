@@ -19,11 +19,14 @@ Implemented in `openfg-scaler`:
   `VK_KHR_present_wait` for capture-to-display latency.
 - `--crop WxH+X+Y` for window decorations and monitor sub-rectangles.
 - Headless presenter with an RGBA8 frame dump for deterministic tests.
-- Frame/CPU timing summary and optional progress output.
+- `--filter passthrough` for a native/A-B and latency reference.
+- Portal restore-token persistence (`--forget-token` to clear it).
+- Frame/CPU timing summary, per-pass GPU timestamps and optional progress
+  output.
 
-Not in this slice: click-through input passthrough, HDR/VRR, integer scaling,
-restore-token persistence, explicit PipeWire sync, neural inference and the
-Gamescope capture backend.
+Not in this slice: HDR/VRR, integer scaling, explicit PipeWire sync, neural
+inference and the Gamescope capture backend. Real-game window/focus validation
+is still pending.
 
 ## Repository layout
 
@@ -39,6 +42,7 @@ src/scaler/
   capture/test_pattern.*         deterministic synthetic source
   capture/pipewire.*             portal + PipeWire DMA-BUF source
   upscale/easu.*                 FSR1 EASU + RCAS
+  upscale/passthrough.hpp        native/A-B reference
   upscale/fsr1_constants.*       shared CPU-side constants
   present/presenter.hpp          presenter interface + factory
   present/pipeline.*             fullscreen present pass
@@ -75,8 +79,9 @@ cmake --build build --target openfg-scaler
 ```
 
 The SDL3 presenter is built when `sdl3` is available through pkg-config.
-PipeWire capture is built when `libpipewire-0.3` and `dbus-1` are available.
-The test-pattern/headless path needs only Vulkan.
+PipeWire capture is built when `libpipewire-0.3` and `dbus-1` are available;
+Wayland (`wayland-client`) enables the mouse click-through input region. The
+test-pattern/headless path needs only Vulkan.
 
 `--input` is the requested capture size and the test-pattern size. The portal
 may negotiate a different size (a monitor stream is usually the monitor's

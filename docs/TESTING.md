@@ -219,3 +219,45 @@ and:
 The probe and logs contain GPU names, PCI addresses, driver versions and
 process names. Remove anything you do not want public before pasting them into
 an issue.
+
+## Companion scaler
+
+The scaler has a deterministic test path that does not need a portal or a
+game:
+
+```sh
+./build/openfg-scaler --headless --source test --static \
+  --input 640x360 --output 1280x720 --frames 1 \
+  --dump /tmp/scale-out.rgba --dump-input /tmp/scale-in.rgba
+
+# Compare the output with the standalone FSR1 harness
+./build/scaler-gpu --input /tmp/scale-in.rgba --output /tmp/ref.rgba \
+  --width 640 --height 360 --out-width 1280 --out-height 720 \
+  --filter easu+rcas --iterations 1
+```
+
+The test-pattern output should match `scaler-gpu` within 1 LSB per channel on
+the same input. The headless path writes raw RGBA only when `--dump` or
+`--dump-input` is explicitly set; delete those files after inspection.
+
+PipeWire capture needs a portal prompt the first time:
+
+```sh
+./build/openfg-scaler --source pipewire --capture window \
+  --input 1920x1080 --crop 1920x1080+0+28 \
+  --output 2560x1440 --fullscreen --sharpness 4
+```
+
+Select the game window, not the scaler. The selection is saved in
+`$XDG_STATE_HOME/openfg/portal-<capture>-token` (mode 0600); the next run
+restores it without a dialog. Use `--forget-token` to clear it. While
+debugging, add `--windowed --no-click-through`; the fullscreen PipeWire
+overlay is click-through by default and cannot be closed with Escape.
+
+Use `--filter passthrough` with `--output` equal to the capture size for a
+native reference, and `--present-timing` only for a latency measurement run,
+because it serializes the loop and lowers throughput.
+
+Do not commit game captures, portal frames or raw dumps. The scaler is a
+screen-capture tool: only run the capture tests when you intend to grant the
+permission, and delete any dumps after checking them.
