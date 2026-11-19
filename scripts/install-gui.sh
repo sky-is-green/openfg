@@ -3,6 +3,13 @@
 # Install the openfg control panel for the current user.
 set -euo pipefail
 
+dev=0
+case "${1:-}" in
+    "") ;;
+    --dev|--symlink) dev=1 ;;
+    *) echo "usage: $0 [--dev]" >&2; exit 2 ;;
+esac
+
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 datadir="${XDG_DATA_HOME:-$HOME/.local/share}"
 appdir="$datadir/openfg/gui"
@@ -16,7 +23,11 @@ if ! python3 -c 'import PySide6' >/dev/null 2>&1; then
 fi
 
 mkdir -p "$appdir" "$bindir" "$icondir" "$appl"
-install -m 0755 "$repo/gui/openfg-gui.py" "$appdir/openfg-gui.py"
+if [ "$dev" -eq 1 ]; then
+    ln -sfn "$repo/gui/openfg-gui.py" "$appdir/openfg-gui.py"
+else
+    install -m 0755 "$repo/gui/openfg-gui.py" "$appdir/openfg-gui.py"
+fi
 install -m 0644 "$repo/gui/openfg.svg" "$icondir/openfg.svg"
 
 cat > "$bindir/openfg-gui" <<EOF
@@ -58,5 +69,9 @@ echo "Installed GUI:"
 echo "  launcher : $bindir/openfg-gui"
 echo "  desktop  : $appl/openfg-gui.desktop"
 echo "  icon     : $icondir/openfg.svg"
+if [ "$dev" -eq 1 ]; then
+    echo "  mode     : dev symlink -> $repo/gui/openfg-gui.py"
+    echo "             edits apply on the next launch"
+fi
 echo
 echo "Run 'openfg-gui' or find \"openfg Control\" in the application menu."

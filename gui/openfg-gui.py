@@ -29,6 +29,7 @@ QWidget {
     font-size: 13px;
 }
 QMainWindow { background-color: #12161b; }
+QFrame#footer { background-color: #0e1217; border-top: 1px solid #2b333d; }
 QScrollArea { border: none; background: transparent; }
 QScrollArea > QWidget > QWidget { background: #12161b; }
 QGroupBox {
@@ -398,9 +399,14 @@ class MainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"{APP_NAME} {VERSION}")
-        self.resize(960, 920)
+        self.resize(1100, 1000)
         self.gpus = enumerate_gpus()
         self.config = load_config()
+
+        outer = QtWidgets.QWidget()
+        outer_layout = QtWidgets.QVBoxLayout(outer)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
 
         central = QtWidgets.QWidget()
         root = QtWidgets.QVBoxLayout(central)
@@ -411,7 +417,15 @@ class MainWindow(QtWidgets.QMainWindow):
         scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
         scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         scroll.setWidget(central)
-        self.setCentralWidget(scroll)
+        outer_layout.addWidget(scroll, 1)
+
+        footer = QtWidgets.QFrame()
+        footer.setObjectName("footer")
+        footer_layout = QtWidgets.QVBoxLayout(footer)
+        footer_layout.setContentsMargins(18, 8, 18, 12)
+        footer_layout.setSpacing(6)
+        outer_layout.addWidget(footer)
+        self.setCentralWidget(outer)
 
         header = QtWidgets.QHBoxLayout()
         titles = QtWidgets.QVBoxLayout()
@@ -562,6 +576,15 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         form.addRow("Generator:", self.generator)
 
+        self.performance = QtWidgets.QCheckBox(
+            "Performance mode (half-resolution flow)")
+        self.performance.setChecked(self.config["performance_mode"])
+        self.performance.setToolTip(
+            "Half-resolution flow: about 1.03 → 0.52 ms with FFX at 1440p. "
+            "Quality stays within run-to-run noise."
+        )
+        form.addRow("", self.performance)
+
         self.debug = QtWidgets.QCheckBox("Log generated frames to stderr")
         self.debug.setChecked(self.config["debug"])
         self.present_timing = QtWidgets.QCheckBox(
@@ -574,9 +597,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         settings_layout.addLayout(form)
         settings_layout.addWidget(hint(
-            "2x has the lowest latency; each extra frame adds display delay. "
-            "FFX falls back to flow when the GPU lacks its requirements."
-        ))
+            "FFX falls back to flow when the GPU lacks its requirements."))
         settings_layout.addWidget(self.debug)
         settings_layout.addWidget(self.present_timing)
 
@@ -634,23 +655,7 @@ class MainWindow(QtWidgets.QMainWindow):
         cap_row.addWidget(self.max_presented, 1)
         cap_row.addWidget(self.max_presented_spin)
         gate_form.addRow("Max presented FPS:", cap_row)
-        self.max_presented_spin.setEnabled(self.max_presented.currentData() == 1)
-
-        self.target_note = hint("")
-        self.cadence_note = hint("")
-        gate_layout.addLayout(gate_form)
-        gate_layout.addWidget(self.target_note)
-        gate_layout.addWidget(self.cadence_note)
-        gate_layout.addWidget(hint(
-            "Above the gate, generation is off; below it, generated frames "
-            "are inserted. This controls efficiency, not input latency."))
-        root.addWidget(gate)
-
-        # Latency settings
-        latency = QtWidgets.QGroupBox("Latency")
-        latency_layout = QtWidgets.QVBoxLayout(latency)
-        latency_form = QtWidgets.QFormLayout()
-        latency_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
+        self.max_presented_spin.setVisible(self.max_presented.currentData() == 1)
 
         self.pacing = QtWidgets.QComboBox()
         self.pacing.addItem("Adaptive (1 s threshold dwell)", "adaptive")
@@ -663,22 +668,18 @@ class MainWindow(QtWidgets.QMainWindow):
             "Adaptive waits for a sustained drop below the target. Capped "
             "starts immediately; cap the game yourself at the source gate."
         )
-        latency_form.addRow("Pacing:", self.pacing)
+        gate_form.addRow("Pacing:", self.pacing)
 
-        self.performance = QtWidgets.QCheckBox(
-            "Performance mode (half-resolution flow)")
-        self.performance.setChecked(self.config["performance_mode"])
-        self.performance.setToolTip(
-            "Half-resolution flow: about 1.03 → 0.52 ms with FFX at 1440p. "
-            "Quality stays within run-to-run noise."
-        )
-        latency_form.addRow("", self.performance)
-
-        latency_layout.addLayout(latency_form)
-        latency_layout.addWidget(hint(
-            "Pacing and generator cost only. Frame generation raises the "
-            "presented rate; it does not lower input latency."))
-        root.addWidget(latency)
+        self.target_note = hint("")
+        self.cadence_note = hint("")
+        gate_layout.addLayout(gate_form)
+        gate_layout.addWidget(self.target_note)
+        gate_layout.addWidget(self.cadence_note)
+        gate_layout.addWidget(hint(
+            "Above the gate, generation is off; below it, generated frames "
+            "are inserted. This controls efficiency, not input latency. "
+            "2x adds the least display delay; 3x/4x add more."))
+        root.addWidget(gate)
 
         # Process filters
         processes = QtWidgets.QGroupBox("Processes")
@@ -753,7 +754,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # Status and buttons
         self.status = QtWidgets.QLabel("")
         self.status.setWordWrap(True)
-        root.addWidget(self.status)
+        footer_layout.addWidget(self.status)
 
         buttons = QtWidgets.QHBoxLayout()
         buttons.setSpacing(8)
@@ -774,7 +775,7 @@ class MainWindow(QtWidgets.QMainWindow):
         buttons.addWidget(open_button)
         buttons.addStretch(1)
         buttons.addWidget(save_button)
-        root.addLayout(buttons)
+        footer_layout.addLayout(buttons)
 
         root.addStretch(1)
         self._wrap_tooltips()
@@ -811,7 +812,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 widget.setToolTip(wrap_tooltip(text))
 
     def _update_cap_state(self) -> None:
-        self.max_presented_spin.setEnabled(self.max_presented.currentData() == 1)
+        self.max_presented_spin.setVisible(self.max_presented.currentData() == 1)
         self._update_target_note()
         self._update_summary()
 
@@ -970,11 +971,10 @@ class MainWindow(QtWidgets.QMainWindow):
         nearest = round(ratio)
         if nearest >= 1 and abs(ratio - nearest) <= 0.02:
             self.cadence_note.setText(
-                f"Cadence: {ratio:.2f} refresh intervals per presented "
-                "frame (clean).")
+                "Cadence: clean (1 display refresh per presented frame).")
         else:
             self.cadence_note.setText(
-                f"Cadence: {ratio:.2f} refresh intervals per presented "
+                f"Cadence: {ratio:.2f} display refreshes per presented "
                 f"frame. {presented:.0f} fps on {refresh:.0f} Hz is uneven; "
                 "use a display mode that divides evenly (120 Hz for "
                 "60/120).")
@@ -990,7 +990,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.target_note.setText(
                     f"Starts immediately. Cap the game at {threshold:.1f} "
                     f"source fps ({threshold * multiplier:.0f} presented); "
-                    f"the safety stop is above {threshold * 1.05:.1f}.")
+                    f"it turns off above {threshold * 1.05:.1f}.")
             else:
                 self.target_note.setText(
                     "Starts immediately. No gate: every real frame is generated.")

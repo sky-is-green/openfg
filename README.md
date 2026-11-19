@@ -43,6 +43,7 @@ git clone https://github.com/sky-is-green/openfg
 cd openfg
 scripts/install-local.sh        # builds and installs under ~/.local
 scripts/install-gui.sh          # optional; needs PySide6
+scripts/install-gui.sh --dev    # symlink the repo copy for UI work
 
 openfg-cli init                 # writes ~/.config/openfg/conf.toml if missing
 $EDITOR ~/.config/openfg/conf.toml
@@ -70,6 +71,9 @@ process loads it; the config decides whether it is active. Use
 `openfg-gui` edits the same file. It includes presets, the activation gate, a
 GPU capability probe, process/video profiles and a live summary of the
 effective mode.
+
+For UI work, `scripts/install-gui.sh --dev` symlinks the installed launcher to
+`gui/openfg-gui.py`; edits appear on the next launch without reinstalling.
 
 ![OpenFG Control](docs/assets/openfg-control.png)
 
