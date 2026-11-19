@@ -276,6 +276,9 @@ permissively licensed benchmark.
   2560x1440 monitor stream: `BGRA`, linear DMA-BUF, one plane plus a sync
   object, imported into Vulkan and upscaled/presented. Captured test frames
   were deleted after checking the dimensions and pixel range.
+- At 1280x720 -> 2560x1440, the GPU pass timings on the RX 7900 XT are
+  ~0.32 ms p50 for EASU+RCAS and ~0.10 ms p50 for the present pass (test
+  pattern, headless, timestamps around each pass).
 - GravityMark 1.89 was used as the artificial game window: 1280x720 client
   area (1280x748 including the KDE title bar), cropped to 1280x720 and
   upscaled to 2560x1440 fullscreen. 240 frames took 3.96 s (60.58 fps);

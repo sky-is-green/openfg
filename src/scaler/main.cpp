@@ -14,6 +14,7 @@
 #include "vkutil/vkutil.hpp"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
@@ -352,6 +353,18 @@ int main(int argc, char** argv)
         auto command = vkutil::createCommandBuffer(
             runtime->dld, *runtime->device, *runtime->commandPool);
 
+        const auto queueProperties =
+            runtime->physical.getQueueFamilyProperties(runtime->dld);
+        const bool gpuTiming = queueProperties[runtime->queueFamily]
+            .timestampValidBits != 0;
+        vk::UniqueQueryPool queryPool;
+        if (gpuTiming) {
+            queryPool = runtime->device->createQueryPoolUnique({
+                .queryType = vk::QueryType::eTimestamp,
+                .queryCount = 4
+            }, nullptr, runtime->dld);
+        }
+
         std::cout << "device: " << runtime->deviceName << "\n"
                   << "source: " << source->description() << "\n"
                   << "output: " << options.output.width << "x"
@@ -364,6 +377,8 @@ int main(int argc, char** argv)
         const auto started = std::chrono::steady_clock::now();
         std::vector<double> frameTimes;
         std::vector<double> captureLatencies;
+        std::vector<double> upscaleGpuTimes;
+        std::vector<double> presentGpuTimes;
         uint64_t frameCount = 0;
         bool dumpedInput = false;
 
@@ -396,11 +411,45 @@ int main(int argc, char** argv)
             command->begin(
                 { .flags = vk::CommandBufferUsageFlagBits::eOneTimeSubmit },
                 runtime->dld);
+            if (gpuTiming) {
+                command->resetQueryPool(*queryPool, 0, 4, runtime->dld);
+                command->writeTimestamp(vk::PipelineStageFlagBits::eTopOfPipe,
+                    *queryPool, 0, runtime->dld);
+            }
             upscaler->record(*command, frame.view, frame.extent);
+            if (gpuTiming)
+                command->writeTimestamp(
+                    vk::PipelineStageFlagBits::eComputeShader,
+                    *queryPool, 1, runtime->dld);
+            if (gpuTiming)
+                command->writeTimestamp(
+                    vk::PipelineStageFlagBits::eComputeShader,
+                    *queryPool, 2, runtime->dld);
             presenter->record(
                 *runtime, *command, upscaler->view(), upscaler->outputExtent());
+            if (gpuTiming)
+                command->writeTimestamp(
+                    vk::PipelineStageFlagBits::eBottomOfPipe,
+                    *queryPool, 3, runtime->dld);
             if (!presenter->submit(*command, error))
                 throw std::runtime_error(error);
+            if (gpuTiming) {
+                std::array<uint64_t, 4> timestamps{};
+                if (runtime->device->getQueryPoolResults(*queryPool, 0, 4,
+                        sizeof(timestamps), timestamps.data(),
+                        sizeof(uint64_t),
+                        vk::QueryResultFlagBits::e64, runtime->dld) ==
+                    vk::Result::eSuccess) {
+                    const double period =
+                        static_cast<double>(runtime->timestampPeriod);
+                    upscaleGpuTimes.push_back(
+                        static_cast<double>(timestamps[1] - timestamps[0]) *
+                        period / 1.0e6);
+                    presentGpuTimes.push_back(
+                        static_cast<double>(timestamps[3] - timestamps[2]) *
+                        period / 1.0e6);
+                }
+            }
 
             const auto end = std::chrono::steady_clock::now();
             frameTimes.push_back(
@@ -452,6 +501,20 @@ int main(int argc, char** argv)
                       << " p50, " << percentile(captureLatencies, 0.95)
                       << " p95\n";
         }
+        if (!upscaleGpuTimes.empty()) {
+            const double upscale = std::accumulate(
+                upscaleGpuTimes.begin(), upscaleGpuTimes.end(), 0.0) /
+                static_cast<double>(upscaleGpuTimes.size());
+            const double present = std::accumulate(
+                presentGpuTimes.begin(), presentGpuTimes.end(), 0.0) /
+                static_cast<double>(presentGpuTimes.size());
+            std::cout << "gpu upscale: " << upscale << " ms avg, "
+                      << percentile(upscaleGpuTimes, 0.50) << " p50, "
+                      << percentile(upscaleGpuTimes, 0.95) << " p95\n"
+                      << "gpu present: " << present << " ms avg, "
+                      << percentile(presentGpuTimes, 0.50) << " p50, "
+                      << percentile(presentGpuTimes, 0.95) << " p95\n";
+        }
 
         if (!options.dump.empty()) {
             if (!presenter->saveFrame(options.dump, error))
@@ -461,6 +524,7 @@ int main(int argc, char** argv)
 
         upscaler.reset();
         source.reset();
+        queryPool.reset();
         command.reset();
         presenter.reset();
         runtime.reset();
