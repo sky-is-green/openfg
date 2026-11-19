@@ -86,13 +86,19 @@ latency; leave it off for normal use. `--no-dmabuf` copies through shared
 memory instead of importing a DMA-BUF; it is slower but useful for diagnosing
 driver or modifier issues.
 
-### Source resolution
+### Source resolution and modes
 
-1080p -> 1440p (1.33x) is the recommended quality point. 720p -> 1440p is an
-ultra-performance mode: it is a 4x pixel increase and spatial upscaling cannot
-recover the missing detail. On a high-contrast, high-detail scene such as
-GravityMark's asteroid field, 720p looks visibly soft and noisy; 1080p is
-significantly sharper and playable. Neither can match a native 1440p render.
+These are performance modes, not quality modes:
+
+- **Performance:** 1080p -> 1440p (1.33x). Significantly sharper than 720p and
+  playable, but still a spatial upscale.
+- **Ultra performance:** 720p -> 1440p. A 4x pixel increase; visibly soft and
+  noisy on high-detail content such as GravityMark's asteroid field.
+
+Spatial upscaling cannot recover missing detail, so neither mode matches a
+native 1440p render. A **quality** mode means native resolution or a
+neural/higher-quality upscaler; the EASU path is not a quality mode and the
+neural backend is not wired yet.
 
 RCAS sharpness defaults to 4 (0 is maximum sharpening, 20 is minimum). Lower
 values crisp edges but amplify noise and halos; higher values are cleaner and

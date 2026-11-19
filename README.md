@@ -163,9 +163,10 @@ and reports capture-to-display latency. It needs `VK_KHR_present_wait` and is
 off by default. `--no-dmabuf` forces the shared-memory capture path if a
 driver or compositor produces an unreadable DMA-BUF.
 
-For quality, use 1080p -> 1440p; 720p -> 1440p is an ultra-performance mode
-and is visibly soft on high-detail scenes. Spatial upscaling cannot match a
-native 1440p render.
+The current spatial path has two performance modes: 1080p -> 1440p and
+720p -> 1440p (ultra performance, visibly soft on high-detail scenes). Neither
+is a quality mode; native 1440p or the future neural upscaler is. Spatial
+upscaling cannot match a native 1440p render.
 
 The test-pattern and headless paths need only Vulkan. SDL3 enables the window
 presenter; `libpipewire-0.3` and `dbus-1` enable capture. The PipeWire path
