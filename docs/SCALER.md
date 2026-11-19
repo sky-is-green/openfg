@@ -111,7 +111,8 @@ will add a DMA-BUF import step behind `CaptureSource::next`.
 ### Spatial baseline
 
 - FSR1 EASU + RCAS-style sharpening, or an equivalent edge-adaptive spatial
-  filter.
+  filter. The standalone baseline is in
+  [`tools/scaler-gpu/`](../tools/scaler-gpu/README.md).
 - Integer scaling and aspect-ratio handling.
 - 8-bit sRGB first; 10-bit/HDR after the format path is stable.
 

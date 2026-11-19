@@ -19,6 +19,7 @@ set(SHADER_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/openfg/shaders")
 set(SHADER_BIN "${CMAKE_CURRENT_BINARY_DIR}/openfg-shaders")
 file(GLOB SHADER_FILES CONFIGURE_DEPENDS "${SHADER_SRC}/*.comp")
 file(GLOB SHADER_INCLUDES CONFIGURE_DEPENDS "${SHADER_SRC}/*.glsl")
+file(GLOB_RECURSE SHADER_HEADERS CONFIGURE_DEPENDS "${SHADER_SRC}/*.h")
 
 set(SHADER_SPV)
 foreach(shader ${SHADER_FILES})
@@ -27,7 +28,7 @@ foreach(shader ${SHADER_FILES})
   add_custom_command(OUTPUT "${spv}"
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${SHADER_BIN}"
     COMMAND "${GLSLC_EXECUTABLE}" -O -I"${SHADER_SRC}" -o "${spv}" "${shader}"
-    DEPENDS "${shader}" ${SHADER_INCLUDES}
+    DEPENDS "${shader}" ${SHADER_INCLUDES} ${SHADER_HEADERS}
     COMMENT "glslc ${name}.comp")
   list(APPEND SHADER_SPV "${spv}")
 endforeach()
@@ -94,6 +95,18 @@ target_include_directories(fg-lab PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(fg-lab PRIVATE openfg vkutil)
 
+add_executable(scaler-gpu
+  "tools/scaler-gpu/main.cpp"
+  "tools/scaler-gpu/fsr1_constants.cpp")
+target_include_directories(scaler-gpu PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/src"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/openfg"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/openfg/shaders")
+target_link_libraries(scaler-gpu PRIVATE openfg vkutil)
+set_source_files_properties("tools/scaler-gpu/fsr1_constants.cpp"
+  PROPERTIES COMPILE_OPTIONS
+  "-Wno-unused-function;-Wno-ignored-qualifiers")
+
 add_executable(openfg-cli
   "tools/openfg-cli/main.cpp")
 target_link_libraries(openfg-cli PRIVATE openfg-config)
@@ -110,7 +123,8 @@ target_include_directories(openfg-gpu-probe PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/src/openfg")
 target_link_libraries(openfg-gpu-probe PRIVATE openfg vkutil)
 
-install(TARGETS fg-lab openfg-cli openfg-gpu-probe RUNTIME DESTINATION bin)
+install(TARGETS fg-lab scaler-gpu openfg-cli openfg-gpu-probe
+  RUNTIME DESTINATION bin)
 
 add_library(openfg-layer SHARED
   "src/layer/layer.cpp"
@@ -151,3 +165,6 @@ install(FILES
   "${CMAKE_CURRENT_SOURCE_DIR}/src/openfg/shaders/ffx/LICENSE.txt"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/openfg/shaders/ffx/NOTICE.md"
   DESTINATION share/licenses/openfg/ffx)
+install(FILES
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/openfg/shaders/fsr1/LICENSE.txt"
+  DESTINATION share/licenses/openfg/fsr1)

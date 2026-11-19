@@ -13,5 +13,11 @@
   wiring and dense-flow expansion are openfg code; the optical-flow passes
   themselves are AMD's shaders.
 
+- `src/openfg/shaders/fsr1/`: AMD FidelityFX Super Resolution 1.0 (EASU and
+  RCAS), vendored from `GPUOpen-Effects/FidelityFX-FSR` (MIT). The original
+  licence is in `src/openfg/shaders/fsr1/LICENSE.txt`; the compute wrappers
+  `fsr1_easu.comp` and `fsr1_rcas.comp` and the `scaler-gpu` harness are
+  openfg code.
+
 No lsfg-vk, Lossless Scaling, or other CC-BY-NC-ND code is present in this
 tree.

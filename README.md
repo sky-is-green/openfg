@@ -32,7 +32,7 @@ the [technical white paper](docs/OPENFG-WHITEPAPER.md) for the full design.
 | **Content** | Process include/exclude, native and Wine/Proton names, video profile with scene-cut guard |
 | **HUD** | Static-UI mask removes doubled HUD text on generated frames |
 | **Controls** | TOML config, `OPENFG_*` overrides, CLI and Qt control panel |
-| **Tooling** | `fg-lab` and `scaler-lab` harnesses, synthetic benchmarks, HUD regression test, GPU probe |
+| **Tooling** | `fg-lab`, `scaler-lab` and `scaler-gpu` harnesses, synthetic benchmarks, HUD regression test, GPU probe |
 
 ## Quick start
 
@@ -306,7 +306,9 @@ Benchmarks:
 
 - [x] Offline `scaler-lab` v0: synthetic/real pairs, nearest/bilinear/bicubic/
       Lanczos, PSNR/SSIM and CSV reports.
-- [ ] EASU/RCAS and neural backends in `scaler-lab`.
+- [x] FSR1 EASU/RCAS baseline in `scaler-gpu` (Vulkan; ~0.14 ms EASU,
+      ~1.4 ms EASU+RCAS at 1440p).
+- [ ] EASU/RCAS and neural backends in the Python `scaler-lab` harness.
 - [ ] LPIPS/DISTS/VMAF, temporal metrics and HUD-region crops.
 - [ ] Live capture-to-present latency and frame-pacing harness.
 
@@ -396,8 +398,17 @@ python3 tools/hud_alpha_bench.py --gpu auto
 python3 tools/tile_bench.py --width 2560 --height 1440
 ```
 
-The standalone harness interpolates two raw RGBA frames and reports PSNR and
+The standalone `scaler-gpu` harness runs FSR1 EASU/RCAS on raw RGBA and reports
 GPU time:
+
+```sh
+./build/scaler-gpu --input low.rgba --output high.rgba \
+  --width 1280 --height 720 --out-width 2560 --out-height 1440 \
+  --filter easu+rcas --iterations 10
+```
+
+The interpolation harness (`fg-lab`) takes two raw RGBA frames and reports
+PSNR and GPU time:
 
 ```sh
 ./build/fg-lab --a A.rgba --b B.rgba --gt GT.rgba --out out.rgba \

@@ -1,0 +1,41 @@
+#version 450
+#extension GL_GOOGLE_include_directive : enable
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform texture2D InputTexture;
+layout(set = 0, binding = 1) uniform sampler InputSampler;
+layout(set = 0, binding = 2, rgba32f) uniform image2D OutputTexture;
+
+layout(push_constant) uniform Constants {
+    uvec4 Const0;
+    uvec4 Const1;
+    uvec4 Const2;
+    uvec4 Const3;
+    uvec4 Sample;
+} constants;
+
+#define A_GPU 1
+#define A_GLSL 1
+#define FSR_RCAS_F 1
+
+#include "fsr1/ffx_a.h"
+
+AF4 FsrRcasLoadF(ASU2 p) {
+    return texelFetch(sampler2D(InputTexture, InputSampler), ASU2(p), 0);
+}
+void FsrRcasInputF(inout AF1 r, inout AF1 g, inout AF1 b) {}
+
+#include "fsr1/ffx_fsr1.h"
+
+void main() {
+    const ivec2 size = imageSize(OutputTexture);
+    const AU2 pos = AU2(gl_GlobalInvocationID.xy);
+    if (pos.x >= uint(size.x) || pos.y >= uint(size.y))
+        return;
+    AF3 color;
+    FsrRcasF(color.r, color.g, color.b, pos, constants.Const0);
+    if (constants.Sample.x == 1)
+        color *= color;
+    imageStore(OutputTexture, ivec2(pos), AF4(color, 1.0));
+}
