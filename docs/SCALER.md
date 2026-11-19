@@ -171,8 +171,13 @@ PipeWire modes.
   portal session, monitor/window selection, DMA-BUF import and a
   shared-memory fallback. It supersedes the GStreamer probe in
   `tools/scaler-pipewire/`.
-- Still missing: click-through presentation, restore-token persistence and
-  waiting on `SPA_DATA_SyncObj` for explicit synchronization.
+- The selected monitor/window is remembered with a portal restore token in
+  `$XDG_STATE_HOME/openfg/portal-<capture>-token` (default
+  `~/.local/state/openfg/`, mode `0600`). The token is single-use and is
+  refreshed after every successful start. `--forget-token` deletes the saved
+  token so the portal prompts again.
+- Still missing: click-through presentation and waiting on
+  `SPA_DATA_SyncObj` for explicit synchronization.
 - The scaler window is created hidden and shown only after capture starts, so
   it does not appear in the portal's window picker.
 

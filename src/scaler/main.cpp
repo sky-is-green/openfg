@@ -47,6 +47,7 @@ struct Options {
     bool vsync{true};
     bool presentTiming{false};
     bool useDmaBuf{true};
+    bool forgetToken{false};
     bool animate{true};
     std::string gpu{"auto"};
     std::string dump;
@@ -76,6 +77,7 @@ void usage(const char* argv0)
         << "  --vsync on|off           FIFO or immediate/mailbox (default: on)\n"
         << "  --present-timing         diagnostic display wait; reduces throughput\n"
         << "  --no-dmabuf              copy PipeWire frames through shared memory\n"
+        << "  --forget-token           forget the saved portal capture permission\n"
         << "  --frames N               stop after N frames (0 = until quit)\n"
         << "  --headless               render offscreen, no window\n"
         << "  --dump PATH              write the last headless frame as RGBA8\n"
@@ -189,6 +191,8 @@ Options parseOptions(int argc, char** argv)
             options.presentTiming = true;
         } else if (argument == "--no-dmabuf") {
             options.useDmaBuf = false;
+        } else if (argument == "--forget-token") {
+            options.forgetToken = true;
         } else if (argument == "--static") {
             options.animate = false;
         } else if (argument == "--gpu") {
@@ -344,7 +348,8 @@ int main(int argc, char** argv)
 #ifdef OPENFG_SCALER_HAVE_PIPEWIRE
             source = std::make_unique<PipeWireSource>(
                 *runtime, options.input, options.capture,
-                options.crop, options.cropSet, options.useDmaBuf);
+                options.crop, options.cropSet, options.useDmaBuf,
+                options.forgetToken);
 #else
             throw std::runtime_error("PipeWire support is not built");
 #endif

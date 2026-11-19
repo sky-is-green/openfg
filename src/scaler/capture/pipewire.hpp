@@ -20,7 +20,8 @@ public:
         std::string capture,
         vk::Rect2D crop = {},
         bool cropSet = false,
-        bool useDmaBuf = true
+        bool useDmaBuf = true,
+        bool forgetToken = false
     );
     ~PipeWireSource() override;
 

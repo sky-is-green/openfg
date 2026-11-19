@@ -171,10 +171,12 @@ upscaling cannot match a native 1440p render.
 
 The test-pattern and headless paths need only Vulkan. SDL3 enables the window
 presenter; `libpipewire-0.3` and `dbus-1` enable capture. The PipeWire path
-requests a DMA-BUF stream and falls back to shared memory. It does not persist
-the portal restore token, wait on explicit sync objects or implement a
-click-through overlay yet. See [docs/SCALER.md](docs/SCALER.md) for the
-interfaces, validation results and remaining work.
+requests a DMA-BUF stream and falls back to shared memory. The selected
+window or monitor is remembered with a portal restore token; use
+`--forget-token` to make the portal prompt again. It does not wait on explicit
+sync objects or implement a click-through overlay yet. See
+[docs/SCALER.md](docs/SCALER.md) for the interfaces, validation results and
+remaining work.
 
 ## How it works
 

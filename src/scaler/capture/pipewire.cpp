@@ -21,6 +21,8 @@
 #include <condition_variable>
 #include <cstring>
 #include <deque>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <functional>
 #include <mutex>
@@ -56,6 +58,56 @@ namespace {
         token += "_";
         token += std::to_string(counter);
         return token;
+    }
+
+    std::filesystem::path tokenPath(const std::string& capture)
+    {
+        std::filesystem::path base;
+        if (const char* state = std::getenv("XDG_STATE_HOME"); state && *state)
+            base = state;
+        else if (const char* home = std::getenv("HOME"); home && *home)
+            base = std::filesystem::path(home) / ".local" / "state";
+        else
+            return std::filesystem::path("/tmp") /
+                ("openfg-portal-" + capture + "-token");
+        return base / "openfg" / ("portal-" + capture + "-token");
+    }
+
+    std::string loadToken(const std::string& capture)
+    {
+        std::ifstream file{tokenPath(capture)};
+        std::string token;
+        if (file)
+            std::getline(file, token);
+        while (!token.empty() &&
+               (token.back() == '\n' || token.back() == '\r' ||
+                token.back() == ' '))
+            token.pop_back();
+        return token;
+    }
+
+    void saveToken(const std::string& capture, const std::string& token)
+    {
+        if (token.empty())
+            return;
+        const auto path = tokenPath(capture);
+        std::error_code error;
+        std::filesystem::create_directories(path.parent_path(), error);
+        std::ofstream file{path, std::ios::trunc};
+        if (!file)
+            return;
+        file << token << "\n";
+        file.close();
+        std::filesystem::permissions(path,
+            std::filesystem::perms::owner_read |
+            std::filesystem::perms::owner_write,
+            std::filesystem::perm_options::replace, error);
+    }
+
+    void forgetToken(const std::string& capture)
+    {
+        std::error_code error;
+        std::filesystem::remove(tokenPath(capture), error);
     }
 
     struct Portal {
@@ -391,6 +443,9 @@ namespace {
                     addUint32(dictionary, "types", types);
                     addBool(dictionary, "multiple", false);
                     addUint32(dictionary, "cursor_mode", 1);
+                    if (!restoreToken.empty())
+                        addString(dictionary, "restore_token", restoreToken);
+                    addUint32(dictionary, "persist_mode", 2);
                     dbus_message_iter_close_container(&args, &dictionary);
                 }, 60000, error);
         }
@@ -501,6 +556,7 @@ struct PipeWireSource::Impl {
     vk::Rect2D crop;
     bool cropSet{false};
     bool useDmaBuf{true};
+    bool forgetToken{false};
     std::string capture;
     std::string description;
 
@@ -558,12 +614,13 @@ struct PipeWireSource::Impl {
 
     Impl(Runtime& runtimeValue, vk::Extent2D wantedValue,
          std::string captureValue, vk::Rect2D cropValue, bool cropSetValue,
-         bool useDmaBufValue)
+         bool useDmaBufValue, bool forgetTokenValue)
         : runtime{runtimeValue},
           wanted{wantedValue},
           crop{cropValue},
           cropSet{cropSetValue},
           useDmaBuf{useDmaBufValue},
+          forgetToken{forgetTokenValue},
           capture{std::move(captureValue)}
     {
     }
@@ -1401,6 +1458,10 @@ struct PipeWireSource::Impl {
 
     bool start(std::string& error)
     {
+        if (forgetToken)
+            openfg::scaler::forgetToken(capture);
+        else
+            portal.restoreToken = openfg::scaler::loadToken(capture);
         if (!portal.open(error))
             return false;
         if (!portal.createSession(error))
@@ -1409,6 +1470,7 @@ struct PipeWireSource::Impl {
             return false;
         if (!portal.start(error))
             return false;
+        saveToken(capture, portal.restoreToken);
         if (portal.node == 0) {
             error = "the portal returned no PipeWire node";
             return false;
@@ -1630,10 +1692,12 @@ PipeWireSource::PipeWireSource(
     std::string capture,
     vk::Rect2D crop,
     bool cropSet,
-    bool useDmaBuf
+    bool useDmaBuf,
+    bool forgetToken
 )
     : impl_{std::make_unique<Impl>(
-          runtime, wanted, std::move(capture), crop, cropSet, useDmaBuf)}
+          runtime, wanted, std::move(capture), crop, cropSet, useDmaBuf,
+          forgetToken)}
 {
 }
 
