@@ -46,6 +46,7 @@ struct Options {
     bool fullscreen{false};
     bool vsync{true};
     bool presentTiming{false};
+    bool useDmaBuf{true};
     bool animate{true};
     std::string gpu{"auto"};
     std::string dump;
@@ -74,6 +75,7 @@ void usage(const char* argv0)
         << "  --windowed               force a window (default)\n"
         << "  --vsync on|off           FIFO or immediate/mailbox (default: on)\n"
         << "  --present-timing         wait for display and report display latency\n"
+        << "  --no-dmabuf              copy PipeWire frames through shared memory\n"
         << "  --frames N               stop after N frames (0 = until quit)\n"
         << "  --headless               render offscreen, no window\n"
         << "  --dump PATH              write the last headless frame as RGBA8\n"
@@ -185,6 +187,8 @@ Options parseOptions(int argc, char** argv)
                 nextArg(argc, argv, index, "--vsync"));
         } else if (argument == "--present-timing") {
             options.presentTiming = true;
+        } else if (argument == "--no-dmabuf") {
+            options.useDmaBuf = false;
         } else if (argument == "--static") {
             options.animate = false;
         } else if (argument == "--gpu") {
@@ -291,6 +295,7 @@ int main(int argc, char** argv)
             .vsync = options.vsync,
             .presentTiming = options.presentTiming,
             .headless = options.headless,
+            .hidden = options.source == "pipewire",
             .title = "OpenFG Scaler"
         };
         std::unique_ptr<Runtime> runtime;
@@ -339,13 +344,14 @@ int main(int argc, char** argv)
 #ifdef OPENFG_SCALER_HAVE_PIPEWIRE
             source = std::make_unique<PipeWireSource>(
                 *runtime, options.input, options.capture,
-                options.crop, options.cropSet);
+                options.crop, options.cropSet, options.useDmaBuf);
 #else
             throw std::runtime_error("PipeWire support is not built");
 #endif
         }
         if (!source->start(error))
             throw std::runtime_error(error);
+        presenter->show();
 
         auto upscaler = std::make_unique<EasuUpscaler>(
             *runtime, options.input, options.output,

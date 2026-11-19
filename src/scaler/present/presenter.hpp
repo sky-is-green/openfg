@@ -17,6 +17,7 @@ struct PresentOptions {
     bool vsync{true};
     bool presentTiming{false};
     bool headless{false};
+    bool hidden{false};
     std::string title{"OpenFG Scaler"};
 };
 
@@ -45,6 +46,7 @@ public:
     virtual bool submit(vk::CommandBuffer command, std::string& error) = 0;
 
     virtual void pollEvents() = 0;
+    virtual void show() {}
     virtual bool shouldClose() const = 0;
     virtual bool saveFrame(const std::string& path, std::string& error) = 0;
     virtual vk::Extent2D size() const = 0;

@@ -73,6 +73,8 @@ SdlPresenter::SdlPresenter(PresentOptions options)
     SDL_WindowFlags flags = SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE;
     if (options_.fullscreen)
         flags |= SDL_WINDOW_FULLSCREEN;
+    if (options_.hidden)
+        flags |= SDL_WINDOW_HIDDEN;
     window_ = SDL_CreateWindow(
         options_.title.c_str(),
         static_cast<int>(options_.size.width),
@@ -361,6 +363,12 @@ bool SdlPresenter::submit(vk::CommandBuffer command, std::string& error)
         return false;
     }
     return true;
+}
+
+void SdlPresenter::show()
+{
+    if (window_)
+        SDL_ShowWindow(window_);
 }
 
 void SdlPresenter::pollEvents()

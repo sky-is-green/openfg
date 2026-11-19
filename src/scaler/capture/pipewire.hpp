@@ -19,7 +19,8 @@ public:
         vk::Extent2D wanted,
         std::string capture,
         vk::Rect2D crop = {},
-        bool cropSet = false
+        bool cropSet = false,
+        bool useDmaBuf = true
     );
     ~PipeWireSource() override;
 

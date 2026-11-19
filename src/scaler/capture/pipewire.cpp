@@ -499,6 +499,7 @@ struct PipeWireSource::Impl {
     vk::Extent2D wanted;
     vk::Rect2D crop;
     bool cropSet{false};
+    bool useDmaBuf{true};
     std::string capture;
     std::string description;
 
@@ -515,6 +516,7 @@ struct PipeWireSource::Impl {
     std::condition_variable condition;
     std::deque<Queued> queue;
     bool formatReady{false};
+    bool buffersAnnounced{false};
     bool failed{false};
     bool stopping{false};
     std::string error;
@@ -542,11 +544,13 @@ struct PipeWireSource::Impl {
     vk::DeviceSize stagingSize{};
 
     Impl(Runtime& runtimeValue, vk::Extent2D wantedValue,
-         std::string captureValue, vk::Rect2D cropValue, bool cropSetValue)
+         std::string captureValue, vk::Rect2D cropValue, bool cropSetValue,
+         bool useDmaBufValue)
         : runtime{runtimeValue},
           wanted{wantedValue},
           crop{cropValue},
           cropSet{cropSetValue},
+          useDmaBuf{useDmaBufValue},
           capture{std::move(captureValue)}
     {
     }
@@ -623,7 +627,76 @@ struct PipeWireSource::Impl {
             return;
         }
 
+        // PipeWire delegates modifier fixation to the client. Until we answer
+        // with a single fixated modifier, the producer allocates an ambiguous
+        // layout and DMA-BUF frames are unreadable.
+        const spa_pod_prop* modifierProperty = spa_pod_find_prop(
+            param, nullptr, SPA_FORMAT_VIDEO_modifier);
+        if (modifierProperty &&
+            (modifierProperty->flags & SPA_POD_PROP_FLAG_DONT_FIXATE)) {
+            uint64_t chosen = 0;
+            bool haveValue = false;
+            bool haveLinear = false;
+            const uint32_t count = SPA_POD_CHOICE_N_VALUES(
+                &modifierProperty->value);
+            const auto* values = static_cast<const int64_t*>(
+                SPA_POD_CHOICE_VALUES(&modifierProperty->value));
+            for (uint32_t index = 0; index < count; index++) {
+                if (values[index] == 0)
+                    haveLinear = true;
+                if (!haveValue && values[index] != 0)
+                    chosen = static_cast<uint64_t>(values[index]);
+                if (values[index] != 0)
+                    haveValue = true;
+            }
+            if (haveLinear)
+                chosen = 0;
+
+            spa_video_info_raw fixed = info;
+            fixed.modifier = chosen;
+            fixed.flags = (info.flags &
+                ~SPA_VIDEO_FLAG_MODIFIER_FIXATION_REQUIRED) |
+                SPA_VIDEO_FLAG_MODIFIER;
+            uint8_t buffer[1024];
+            spa_pod_builder builder =
+                SPA_POD_BUILDER_INIT(buffer, sizeof(buffer));
+            const spa_pod* params[] = {
+                spa_format_video_raw_build(
+                    &builder, SPA_PARAM_EnumFormat, &fixed)
+            };
+            std::cout << "pipewire fixate: modifier=0x" << std::hex << chosen
+                      << std::dec << "\n";
+            pw_stream_update_params(self->stream, params, 1);
+            return;
+        }
+
         std::lock_guard lock{self->mutex};
+        if (!self->buffersAnnounced) {
+            const bool dmaBuf = info.flags & SPA_VIDEO_FLAG_MODIFIER;
+            const int stride = static_cast<int>(info.size.width * 4);
+            uint8_t buffer[512];
+            spa_pod_builder builder =
+                SPA_POD_BUILDER_INIT(buffer, sizeof(buffer));
+            const int dataTypes = dmaBuf
+                ? (1 << SPA_DATA_DmaBuf)
+                : ((1 << SPA_DATA_MemFd) | (1 << SPA_DATA_MemPtr));
+            const spa_pod* params[] = {
+                static_cast<const spa_pod*>(spa_pod_builder_add_object(
+                    &builder,
+                    SPA_TYPE_OBJECT_ParamBuffers, SPA_PARAM_Buffers,
+                    SPA_PARAM_BUFFERS_buffers,
+                        SPA_POD_CHOICE_RANGE_Int(8, 2, 8),
+                    SPA_PARAM_BUFFERS_blocks, SPA_POD_Int(1),
+                    SPA_PARAM_BUFFERS_size,
+                        SPA_POD_Int(stride *
+                            static_cast<int>(info.size.height)),
+                    SPA_PARAM_BUFFERS_stride, SPA_POD_Int(stride),
+                    SPA_PARAM_BUFFERS_dataType,
+                        SPA_POD_CHOICE_FLAGS_Int(dataTypes)))
+            };
+            pw_stream_update_params(self->stream, params, 1);
+            self->buffersAnnounced = true;
+        }
         if (self->formatReady) {
             if (*format != self->format ||
                 info.size.width != self->extent.width ||
@@ -638,6 +711,9 @@ struct PipeWireSource::Impl {
         };
         self->modifier = info.modifier;
         self->spaFormat = info.format;
+        std::cout << "pipewire format: modifier=0x" << std::hex << info.modifier
+                  << std::dec << " flags=0x" << std::hex << info.flags
+                  << std::dec << " spa_format=" << info.format << "\n";
         if (self->cropSet) {
             if (self->crop.extent.width == 0 ||
                 self->crop.extent.height == 0 ||
@@ -769,16 +845,18 @@ struct PipeWireSource::Impl {
         spa_pod_builder_fraction(&builder, 240, 1);
         spa_pod_builder_pop(&builder, &choice);
 
-        // A modifier choice enables DMA-BUF. The producer picks one of the
-        // modifiers Vulkan can import for our capture formats.
-        spa_pod_builder_prop(&builder, SPA_FORMAT_VIDEO_modifier,
-            SPA_POD_PROP_FLAG_MANDATORY | SPA_POD_PROP_FLAG_DONT_FIXATE);
-        spa_pod_builder_push_choice(
-            &builder, &choice, SPA_CHOICE_Enum, 0);
-        for (const auto modifier : supportedModifiers())
-            spa_pod_builder_long(&builder,
-                static_cast<int64_t>(modifier));
-        spa_pod_builder_pop(&builder, &choice);
+        if (useDmaBuf) {
+            // A modifier choice enables DMA-BUF. The producer picks one of
+            // the modifiers Vulkan can import for our capture formats.
+            spa_pod_builder_prop(&builder, SPA_FORMAT_VIDEO_modifier,
+                SPA_POD_PROP_FLAG_MANDATORY | SPA_POD_PROP_FLAG_DONT_FIXATE);
+            spa_pod_builder_push_choice(
+                &builder, &choice, SPA_CHOICE_Enum, 0);
+            for (const auto modifier : supportedModifiers())
+                spa_pod_builder_long(&builder,
+                    static_cast<int64_t>(modifier));
+            spa_pod_builder_pop(&builder, &choice);
+        }
 
         return static_cast<spa_pod*>(spa_pod_builder_pop(&builder, &object));
     }
@@ -983,6 +1061,17 @@ struct PipeWireSource::Impl {
         }
         runtime.device->bindImageMemory(
             *imported.image, *imported.memory, 0, runtime.dld);
+        const auto imageLayout = runtime.device->getImageSubresourceLayout(
+            *imported.image, {
+                .aspectMask = vk::ImageAspectFlagBits::eColor,
+                .mipLevel = 0,
+                .arrayLayer = 0
+            }, runtime.dld);
+        std::cout << "pipewire import: offset=" << imageLayout.offset
+                  << " rowPitch=" << imageLayout.rowPitch
+                  << " size=" << imageLayout.size
+                  << " dmabuf_offset=" << offset
+                  << " dmabuf_stride=" << stride << "\n";
         return true;
     }
 
@@ -1090,6 +1179,16 @@ struct PipeWireSource::Impl {
             return false;
         }
         spa_data* selected = nullptr;
+        if (!reportedMode) {
+            std::cout << "pipewire planes:";
+            for (uint32_t plane = 0; plane < buffer->n_datas; plane++)
+                std::cout << " [" << plane << "] type="
+                          << buffer->datas[plane].type
+                          << " fd=" << buffer->datas[plane].fd
+                          << " flags=0x" << std::hex
+                          << buffer->datas[plane].flags << std::dec;
+            std::cout << " metas=" << buffer->n_metas << "\n";
+        }
         for (uint32_t plane = 0; plane < buffer->n_datas; plane++) {
             auto& candidate = buffer->datas[plane];
             if (candidate.type == SPA_DATA_DmaBuf ||
@@ -1479,10 +1578,11 @@ PipeWireSource::PipeWireSource(
     vk::Extent2D wanted,
     std::string capture,
     vk::Rect2D crop,
-    bool cropSet
+    bool cropSet,
+    bool useDmaBuf
 )
     : impl_{std::make_unique<Impl>(
-          runtime, wanted, std::move(capture), crop, cropSet)}
+          runtime, wanted, std::move(capture), crop, cropSet, useDmaBuf)}
 {
 }
 

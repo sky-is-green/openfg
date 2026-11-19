@@ -160,7 +160,8 @@ cmake --build build --target openfg-scaler
 
 `--crop` removes window decorations; `--present-timing` waits for the display
 and reports capture-to-display latency. It needs `VK_KHR_present_wait` and is
-off by default.
+off by default. `--no-dmabuf` forces the shared-memory capture path if a
+driver or compositor produces an unreadable DMA-BUF.
 
 The test-pattern and headless paths need only Vulkan. SDL3 enables the window
 presenter; `libpipewire-0.3` and `dbus-1` enable capture. The PipeWire path

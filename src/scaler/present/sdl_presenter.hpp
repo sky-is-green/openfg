@@ -29,6 +29,7 @@ public:
     ) override;
     bool submit(vk::CommandBuffer command, std::string& error) override;
     void pollEvents() override;
+    void show() override;
     bool shouldClose() const override { return close_; }
     bool saveFrame(const std::string& path, std::string& error) override;
     vk::Extent2D size() const override { return extent_; }

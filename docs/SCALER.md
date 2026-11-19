@@ -8,6 +8,8 @@ Implemented in `openfg-scaler`:
 
 - `CaptureSource` with a deterministic test pattern and a PipeWire ScreenCast
   source (monitor or window, DMA-BUF import with a shared-memory fallback).
+  The source fixates the negotiated DRM modifier and announces a single
+  buffer block; `--no-dmabuf` forces the shared-memory path.
 - FSR1 EASU with optional RCAS, reusing the embedded shaders and constants.
 - SDL3 Vulkan swapchain presenter with aspect-fit letterboxing, windowed or
   fullscreen.
@@ -80,7 +82,9 @@ native size), so the upscaler adapts to the first frame's actual extent.
 aspect differs. `--crop` applies after the portal negotiates the source size,
 so use the reported size from the first run if the crop is rejected.
 `--present-timing` waits for the display and reports capture-to-display
-latency; leave it off for normal use.
+latency; leave it off for normal use. `--no-dmabuf` copies through shared
+memory instead of importing a DMA-BUF; it is slower but useful for diagnosing
+driver or modifier issues.
 
 ## Goal
 
@@ -150,6 +154,8 @@ PipeWire modes.
   `tools/scaler-pipewire/`.
 - Still missing: click-through presentation, restore-token persistence and
   waiting on `SPA_DATA_SyncObj` for explicit synchronization.
+- The scaler window is created hidden and shown only after capture starts, so
+  it does not appear in the portal's window picker.
 
 ## Interfaces
 
