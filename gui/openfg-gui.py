@@ -55,28 +55,41 @@ QCheckBox::indicator {
     background: #0e1217;
 }
 QCheckBox::indicator:checked {
-    background: #3b6ea8; border-color: #4c82bf;
+    background: #2ea043; border-color: #3fb950;
+    image: url("__CHECK__");
 }
 QLineEdit, QComboBox, QSpinBox, QPlainTextEdit {
     background-color: #0e1217;
     border: 1px solid #2b333d;
     border-radius: 5px;
     padding: 5px 7px;
-    selection-background-color: #3b5b8a;
+    selection-background-color: #2ea043;
+    selection-color: #ffffff;
 }
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QPlainTextEdit:focus {
-    border-color: #4c82bf;
+    border-color: #3fb950;
 }
 QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled,
 QPlainTextEdit:disabled {
     color: #6b7280;
     background-color: #151a20;
 }
-QComboBox::drop-down { border: none; width: 22px; }
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: center right;
+    width: 26px;
+    border: none;
+}
+QComboBox::down-arrow {
+    image: url("__ARROW__");
+    width: 14px;
+    height: 9px;
+}
 QComboBox QAbstractItemView {
     background: #161b22;
     border: 1px solid #2b333d;
-    selection-background-color: #2d3b4f;
+    selection-background-color: #2ea043;
+    selection-color: #ffffff;
 }
 QPushButton {
     background-color: #232a33;
@@ -86,8 +99,8 @@ QPushButton {
 }
 QPushButton:hover { background-color: #2b3440; }
 QPushButton:pressed { background-color: #1d242c; }
-QPushButton:default { background-color: #3b6ea8; border-color: #4c82bf; }
-QPushButton:default:hover { background-color: #457cb8; }
+QPushButton:default { background-color: #2f7d4f; border-color: #3fb950; }
+QPushButton:default:hover { background-color: #37945c; }
 QToolTip {
     background-color: #1a1f26;
     color: #e6e8eb;
@@ -101,6 +114,13 @@ QScrollBar::handle:vertical {
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
 """
+
+
+def app_style() -> str:
+    assets = Path(__file__).resolve().parent
+    return (APP_STYLE
+            .replace("__ARROW__", (assets / "chevron-down.svg").as_posix())
+            .replace("__CHECK__", (assets / "check.svg").as_posix()))
 
 
 def short_path(path: Path) -> str:
@@ -559,9 +579,9 @@ class MainWindow(QtWidgets.QMainWindow):
         self.generator = QtWidgets.QComboBox()
         for value, label in (
             ("ffx", "FidelityFX optical flow (default, fast)"),
-            ("flow", "openfg optical flow (quality; FFX fallback)"),
-            ("blend", "Linear blend (no flow; fast baseline)"),
-            ("hold", "Hold current frame (no interpolation)"),
+            ("flow", "OpenFG optical flow (alternative; slower)"),
+            ("blend", "Linear blend (testing baseline)"),
+            ("hold", "Hold current frame (testing)"),
             ("off", "Off / timing only"),
         ):
             self.generator.addItem(label, value)
@@ -570,14 +590,15 @@ class MainWindow(QtWidgets.QMainWindow):
         index = self.generator.findData(self.config["generator"])
         self.generator.setCurrentIndex(index if index >= 0 else 0)
         self.generator.setToolTip(
-            "FFX is the default and includes the static-UI mask for HUD text. "
-            "Unsupported GPUs fall back to flow. Blend and hold are baselines; "
-            "off keeps the layer loaded for timing."
+            "Use FidelityFX unless you are comparing generators. It includes "
+            "the static-UI mask for HUD text; unsupported GPUs fall back to "
+            "OpenFG flow. Blend and hold are testing baselines; off keeps the "
+            "layer loaded for timing."
         )
         form.addRow("Generator:", self.generator)
 
         self.performance = QtWidgets.QCheckBox(
-            "Performance mode (half-resolution flow)")
+            "Performance mode (faster, softer edges)")
         self.performance.setChecked(self.config["performance_mode"])
         self.performance.setToolTip(
             "Half-resolution flow: about 1.03 → 0.52 ms with FFX at 1440p. "
@@ -585,21 +606,9 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         form.addRow("", self.performance)
 
-        self.debug = QtWidgets.QCheckBox("Log generated frames to stderr")
-        self.debug.setChecked(self.config["debug"])
-        self.present_timing = QtWidgets.QCheckBox(
-            "Present timing instrumentation (benchmarking)")
-        self.present_timing.setChecked(self.config["present_timing"])
-        self.present_timing.setToolTip(
-            "Record present-latency percentiles in the log. It can change "
-            "compositor pacing; use for benchmarks only."
-        )
-
         settings_layout.addLayout(form)
         settings_layout.addWidget(hint(
-            "FFX falls back to flow when the GPU lacks its requirements."))
-        settings_layout.addWidget(self.debug)
-        settings_layout.addWidget(self.present_timing)
+            "FFX falls back to OpenFG flow when the GPU lacks its requirements."))
 
         root.addWidget(settings)
 
@@ -658,7 +667,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.max_presented_spin.setVisible(self.max_presented.currentData() == 1)
 
         self.pacing = QtWidgets.QComboBox()
-        self.pacing.addItem("Adaptive (1 s threshold dwell)", "adaptive")
+        self.pacing.addItem("Adaptive (wait for a sustained drop)", "adaptive")
         self.pacing.addItem("Capped source (start immediately)", "capped")
         self.pacing.setSizePolicy(
             QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
@@ -682,21 +691,23 @@ class MainWindow(QtWidgets.QMainWindow):
         root.addWidget(gate)
 
         # Process filters
-        processes = QtWidgets.QGroupBox("Processes")
+        processes = QtWidgets.QGroupBox("Application filter")
         process_layout = QtWidgets.QGridLayout(processes)
-        process_layout.addWidget(QtWidgets.QLabel("Include (one per line):"), 0, 0)
-        process_layout.addWidget(QtWidgets.QLabel("Exclude (one per line):"), 0, 1)
+        process_layout.addWidget(QtWidgets.QLabel("Apply to (one per line):"), 0, 0)
+        process_layout.addWidget(QtWidgets.QLabel("Never apply to (one per line):"), 0, 1)
         self.include = QtWidgets.QPlainTextEdit("\n".join(self.config["include"]))
         self.exclude = QtWidgets.QPlainTextEdit("\n".join(self.config["exclude"]))
+        self.include.setPlaceholderText("empty = all applications")
+        self.exclude.setPlaceholderText("empty = none")
         for edit in (self.include, self.exclude):
-            edit.setPlaceholderText("empty = all processes")
             edit.setMinimumHeight(80)
             edit.setMaximumHeight(110)
         process_layout.addWidget(self.include, 1, 0)
         process_layout.addWidget(self.exclude, 1, 1)
         process_layout.addWidget(hint(
-            "Case-insensitive; * and ? wildcards. Wine/Proton games use their "
-            ".exe name. Empty include = all; exclude always wins."
+            "Limits which Vulkan applications OpenFG attaches to. Wine/Proton "
+            "games use their .exe name. Case-insensitive; * and ? wildcards. "
+            "Exclude wins."
         ), 2, 0, 1, 2)
         root.addWidget(processes)
 
@@ -750,6 +761,30 @@ class MainWindow(QtWidgets.QMainWindow):
             "players. Requires a Vulkan-presenting player (mpv/gpu-next)."
         ), 6, 0, 1, 2)
         root.addWidget(video)
+
+        # Benchmarking and logs
+        diagnostics = QtWidgets.QGroupBox("Benchmarking and logs")
+        diagnostics_layout = QtWidgets.QVBoxLayout(diagnostics)
+        self.debug = QtWidgets.QCheckBox(
+            "Debug logging (per-frame layer log)")
+        self.debug.setChecked(self.config["debug"])
+        self.debug.setToolTip(
+            "Write per-frame layer lines to the log. Set OPENFG_LOG to a "
+            "file; otherwise stderr."
+        )
+        self.present_timing = QtWidgets.QCheckBox(
+            "Present timing (benchmarking)")
+        self.present_timing.setChecked(self.config["present_timing"])
+        self.present_timing.setToolTip(
+            "Record present-latency percentiles in the log. It can change "
+            "compositor pacing; use for measurement runs only."
+        )
+        diagnostics_layout.addWidget(self.debug)
+        diagnostics_layout.addWidget(self.present_timing)
+        diagnostics_layout.addWidget(hint(
+            "Present timing adds VK_KHR_present_id/present_wait and can "
+            "change compositor pacing. Keep it separate from normal play."))
+        root.addWidget(diagnostics)
 
         # Status and buttons
         self.status = QtWidgets.QLabel("")
@@ -884,7 +919,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _update_summary(self) -> None:
         if not self.enabled.isChecked():
-            text = "Frame generation is disabled for matching processes."
+            text = "Frame generation disabled."
             color = "#9aa0a6"
         else:
             multiplier = int(self.multiplier.currentData())
@@ -907,7 +942,7 @@ class MainWindow(QtWidgets.QMainWindow):
                     f"gate {threshold:.1f} source "
                     f"({threshold * multiplier:.0f} presented)")
             gen = str(self.generator.currentData())
-            gen_text = {"ffx": "FFX", "flow": "flow", "blend": "blend",
+            gen_text = {"ffx": "FFX", "flow": "OpenFG flow", "blend": "blend",
                         "hold": "hold", "off": "off"}.get(gen, gen)
             if gen in ("ffx", "flow"):
                 quality = ("performance" if self.performance.isChecked()
@@ -1209,7 +1244,7 @@ class MainWindow(QtWidgets.QMainWindow):
 def main() -> int:
     app = QtWidgets.QApplication(sys.argv)
     app.setStyle("Fusion")
-    app.setStyleSheet(APP_STYLE)
+    app.setStyleSheet(app_style())
     app.setApplicationName("openfg-gui")
     app.setApplicationDisplayName(APP_NAME)
     icon = QtGui.QIcon.fromTheme("openfg")

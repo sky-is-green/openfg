@@ -29,6 +29,8 @@ else
     install -m 0755 "$repo/gui/openfg-gui.py" "$appdir/openfg-gui.py"
 fi
 install -m 0644 "$repo/gui/openfg.svg" "$icondir/openfg.svg"
+install -m 0644 "$repo/gui/chevron-down.svg" "$appdir/chevron-down.svg"
+install -m 0644 "$repo/gui/check.svg" "$appdir/check.svg"
 
 cat > "$bindir/openfg-gui" <<EOF
 #!/usr/bin/env bash

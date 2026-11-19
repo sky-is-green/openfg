@@ -69,8 +69,8 @@ process loads it; the config decides whether it is active. Use
 ## Control panel
 
 `openfg-gui` edits the same file. It includes presets, the activation gate, a
-GPU capability probe, process/video profiles and a live summary of the
-effective mode.
+GPU capability probe, application filters, video profiles and a live summary
+of the effective mode.
 
 For UI work, `scripts/install-gui.sh --dev` symlinks the installed launcher to
 `gui/openfg-gui.py`; edits appear on the next launch without reinstalling.
@@ -158,7 +158,7 @@ The layer reads `$XDG_CONFIG_HOME/openfg/conf.toml`, falling back to
 | `max_presented_fps` | `0` | Presented-frame cap; also sets the automatic activation threshold when non-zero. `-1` = detected display refresh; `0` = off. |
 | `present_timing` | `false` | Present-id/wait latency instrumentation. |
 | `debug` | `false` | Per-frame logging to stderr. |
-| `[processes] include` | `[]` | Process allow-list; empty means all. `*` and `?` are supported. |
+| `[processes] include` | `[]` | Application allow-list (Wine/Proton `.exe` names); empty means all. `*` and `?` are supported. |
 | `[processes] exclude` | `[]` | Always passthrough; wins over include. |
 | `[video] processes` | `[]` | Players that use the video profile. |
 | `[video] multiplier` | `4` | Video multiplier. |
@@ -193,6 +193,9 @@ Environment overrides: `OPENFG_ENABLE`, `OPENFG_GPU`, `OPENFG_CROSS_GPU`,
 | `flow` | OpenFG's original dense optical flow | Compatibility path. No static-UI mask yet. |
 | `blend` | Linear A/B blend | Comparison baseline. |
 | `hold` | Repeat the current frame | Comparison baseline. |
+
+For normal play, use `ffx`. `flow` is the fallback/alternative; `blend` and
+`hold` are comparison baselines, and `off` is for timing.
 | `off` | Layer loaded, no generation | Latency baseline. |
 
 All backends use the same photo-consistency interpolation and visibility
