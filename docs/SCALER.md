@@ -173,6 +173,11 @@ plumbing loop. Basemark GPU is a second modern option but its free version
 requires an internet connection and uploads results, so GravityMark is the
 better local automation target.
 
+GravityMark's free evaluation licence is for testing, not commercial
+demonstration. Do not publish its footage without permission; use it for
+internal validation and keep the public video on your own game captures or a
+permissively licensed benchmark.
+
 ## Milestones
 
 1. Gamescope capture + EASU/RCAS + fullscreen present at 1080p -> 1440p.
