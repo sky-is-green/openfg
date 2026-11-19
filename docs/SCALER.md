@@ -65,6 +65,9 @@ PipeWire modes.
 - Risks: portal permission prompts, window selection, HDR metadata, VRR,
   compositor latency and input-focus edge cases.
 - The upscaler and presenter must not change when this backend is added.
+- A one-frame probe in `tools/scaler-pipewire/` has validated the
+  portal -> PipeWire node -> GStreamer path on KDE Wayland. The next step is a
+  C++ DMA-BUF source and Vulkan presenter, not GStreamer.
 
 ## Interfaces
 
