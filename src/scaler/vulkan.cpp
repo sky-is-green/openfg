@@ -31,7 +31,8 @@ std::unique_ptr<Runtime> createRuntime(
     std::span<const char* const> instanceExtensions,
     std::span<const char* const> deviceExtensions,
     const std::string& gpu,
-    const SurfaceFactory& surfaceFactory
+    const SurfaceFactory& surfaceFactory,
+    bool presentTiming
 ) {
     auto runtime = std::make_unique<Runtime>();
     runtime->dld.init();
@@ -77,6 +78,24 @@ std::unique_ptr<Runtime> createRuntime(
         enabledDeviceExtensions.push_back(name);
     }
 
+    vk::PhysicalDevicePresentIdFeaturesKHR presentIdFeature{};
+    vk::PhysicalDevicePresentWaitFeaturesKHR presentWaitFeature{};
+    if (presentTiming) {
+        vk::PhysicalDevicePresentIdFeaturesKHR queriedId{};
+        vk::PhysicalDevicePresentWaitFeaturesKHR queriedWait{};
+        vk::PhysicalDeviceFeatures2 queriedFeatures{
+            .pNext = &queriedId
+        };
+        queriedId.pNext = &queriedWait;
+        runtime->physical.getFeatures2(&queriedFeatures, runtime->dld);
+        if (!queriedId.presentId || !queriedWait.presentWait)
+            throw std::runtime_error(
+                "the GPU does not support present timing");
+        presentIdFeature.presentId = true;
+        presentWaitFeature.presentWait = true;
+        presentIdFeature.pNext = &presentWaitFeature;
+    }
+
     const float priority{1.0F};
     const vk::DeviceQueueCreateInfo queueInfo{
         .queueFamilyIndex = runtime->queueFamily,
@@ -84,6 +103,7 @@ std::unique_ptr<Runtime> createRuntime(
         .pQueuePriorities = &priority
     };
     const vk::DeviceCreateInfo deviceInfo{
+        .pNext = presentTiming ? &presentIdFeature : nullptr,
         .queueCreateInfoCount = 1,
         .pQueueCreateInfos = &queueInfo,
         .enabledExtensionCount =

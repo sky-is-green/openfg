@@ -154,8 +154,13 @@ cmake --build build --target openfg-scaler
 
 # PipeWire window capture; approve the portal dialog and pick the game.
 ./build/openfg-scaler --source pipewire --capture window \
-  --input 1280x720 --output 2560x1440 --fullscreen
+  --input 1280x720 --crop 1280x720+0+28 \
+  --output 2560x1440 --fullscreen --present-timing
 ```
+
+`--crop` removes window decorations; `--present-timing` waits for the display
+and reports capture-to-display latency. It needs `VK_KHR_present_wait` and is
+off by default.
 
 The test-pattern and headless paths need only Vulkan. SDL3 enables the window
 presenter; `libpipewire-0.3` and `dbus-1` enable capture. The PipeWire path

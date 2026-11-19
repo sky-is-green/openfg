@@ -17,7 +17,9 @@ public:
     PipeWireSource(
         Runtime& runtime,
         vk::Extent2D wanted,
-        std::string capture
+        std::string capture,
+        vk::Rect2D crop = {},
+        bool cropSet = false
     );
     ~PipeWireSource() override;
 

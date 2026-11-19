@@ -35,6 +35,8 @@ struct Options {
     std::string capture{"monitor"};
     vk::Extent2D input{1280, 720};
     vk::Extent2D output{};
+    vk::Rect2D crop{};
+    bool cropSet{false};
     uint32_t scale{2};
     std::string filter{"easu+rcas"};
     float sharpness{0.0F};
@@ -42,6 +44,7 @@ struct Options {
     bool headless{false};
     bool fullscreen{false};
     bool vsync{true};
+    bool presentTiming{false};
     bool animate{true};
     std::string gpu{"auto"};
     std::string dump;
@@ -59,6 +62,7 @@ void usage(const char* argv0)
         << "  --source test|pipewire   capture backend (default: test)\n"
         << "  --capture monitor|window  PipeWire source type (default: monitor)\n"
         << "  --input WxH              source resolution (default: 1280x720)\n"
+        << "  --crop WxH+X+Y           crop the captured window/frame\n"
         << "  --static                 freeze the test pattern\n\n"
         << "Output:\n"
         << "  --output WxH             upscaled resolution (default: input x scale)\n"
@@ -68,6 +72,7 @@ void usage(const char* argv0)
         << "  --fullscreen             present fullscreen instead of a window\n"
         << "  --windowed               force a window (default)\n"
         << "  --vsync on|off           FIFO or immediate/mailbox (default: on)\n"
+        << "  --present-timing         wait for display and report display latency\n"
         << "  --frames N               stop after N frames (0 = until quit)\n"
         << "  --headless               render offscreen, no window\n"
         << "  --dump PATH              write the last headless frame as RGBA8\n"
@@ -135,6 +140,28 @@ Options parseOptions(int argc, char** argv)
             options.input = parseExtent(nextArg(argc, argv, index, "--input"));
         } else if (argument == "--output") {
             options.output = parseExtent(nextArg(argc, argv, index, "--output"));
+        } else if (argument == "--crop") {
+            const auto text = nextArg(argc, argv, index, "--crop");
+            const auto first = text.find('x');
+            const auto second = text.find('+', first == std::string_view::npos
+                ? 0 : first);
+            const auto third = second == std::string_view::npos
+                ? std::string_view::npos : text.find('+', second + 1);
+            if (first == std::string_view::npos ||
+                second == std::string_view::npos ||
+                third == std::string_view::npos)
+                throw std::runtime_error(
+                    "--crop expects WxH+X+Y, for example 1280x720+0+28");
+            options.crop = vk::Rect2D{
+                .offset = {
+                    static_cast<int32_t>(std::stoul(std::string(
+                        text.substr(second + 1, third - second - 1)))),
+                    static_cast<int32_t>(std::stoul(std::string(
+                        text.substr(third + 1))))
+                },
+                .extent = parseExtent(text.substr(0, second))
+            };
+            options.cropSet = true;
         } else if (argument == "--scale") {
             options.scale = static_cast<uint32_t>(
                 std::stoul(std::string(nextArg(argc, argv, index, "--scale"))));
@@ -155,6 +182,8 @@ Options parseOptions(int argc, char** argv)
         } else if (argument == "--vsync") {
             options.vsync = parseBool(
                 nextArg(argc, argv, index, "--vsync"));
+        } else if (argument == "--present-timing") {
+            options.presentTiming = true;
         } else if (argument == "--static") {
             options.animate = false;
         } else if (argument == "--gpu") {
@@ -194,6 +223,9 @@ Options parseOptions(int argc, char** argv)
         };
     if (options.headless && options.frames == 0)
         options.frames = 1;
+    if (options.presentTiming && options.headless)
+        throw std::runtime_error(
+            "--present-timing requires a window, not --headless");
     return options;
 }
 
@@ -253,6 +285,7 @@ int main(int argc, char** argv)
                 : vk::Extent2D{1280, 720},
             .fullscreen = options.fullscreen,
             .vsync = options.vsync,
+            .presentTiming = options.presentTiming,
             .headless = options.headless,
             .title = "OpenFG Scaler"
         };
@@ -264,6 +297,10 @@ int main(int argc, char** argv)
         std::vector<const char*> deviceExtensions;
         if (presenter->wantsSurface())
             deviceExtensions.push_back(vk::KHRSwapchainExtensionName);
+        if (options.presentTiming) {
+            deviceExtensions.push_back(vk::KHRPresentIdExtensionName);
+            deviceExtensions.push_back(vk::KHRPresentWaitExtensionName);
+        }
         if (options.source == "pipewire") {
 #ifdef OPENFG_SCALER_HAVE_PIPEWIRE
             deviceExtensions.push_back(vk::EXTExternalMemoryDmaBufExtensionName);
@@ -285,7 +322,7 @@ int main(int argc, char** argv)
 
         runtime = createRuntime(
             "openfg-scaler", instanceExtensions, deviceExtensions,
-            options.gpu, surfaceFactory);
+            options.gpu, surfaceFactory, options.presentTiming);
         std::string error;
         if (!presenter->init(*runtime, error))
             throw std::runtime_error(error);
@@ -297,7 +334,8 @@ int main(int argc, char** argv)
         } else {
 #ifdef OPENFG_SCALER_HAVE_PIPEWIRE
             source = std::make_unique<PipeWireSource>(
-                *runtime, options.input, options.capture);
+                *runtime, options.input, options.capture,
+                options.crop, options.cropSet);
 #else
             throw std::runtime_error("PipeWire support is not built");
 #endif
@@ -322,6 +360,7 @@ int main(int argc, char** argv)
 
         const auto started = std::chrono::steady_clock::now();
         std::vector<double> frameTimes;
+        std::vector<double> captureLatencies;
         uint64_t frameCount = 0;
         bool dumpedInput = false;
 
@@ -364,6 +403,12 @@ int main(int argc, char** argv)
             frameTimes.push_back(
                 std::chrono::duration<double, std::milli>(end - frameStart)
                     .count());
+            const uint64_t endNs = static_cast<uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    end.time_since_epoch()).count());
+            if (frame.timestampNs != 0 && endNs > frame.timestampNs)
+                captureLatencies.push_back(
+                    static_cast<double>(endNs - frame.timestampNs) / 1.0e6);
             frameCount++;
 
             if (options.stats != 0 && frameCount % options.stats == 0) {
@@ -391,6 +436,17 @@ int main(int argc, char** argv)
                     static_cast<double>(frameTimes.size())
                       << " ms avg, " << percentile(frameTimes, 0.50)
                       << " p50, " << percentile(frameTimes, 0.95)
+                      << " p95\n";
+        }
+        if (!captureLatencies.empty()) {
+            const double total = std::accumulate(
+                captureLatencies.begin(), captureLatencies.end(), 0.0);
+            std::cout << (options.presentTiming
+                    ? "capture to display: "
+                    : "capture to present: ")
+                      << total / static_cast<double>(captureLatencies.size())
+                      << " ms avg, " << percentile(captureLatencies, 0.50)
+                      << " p50, " << percentile(captureLatencies, 0.95)
                       << " p95\n";
         }
 

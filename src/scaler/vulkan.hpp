@@ -34,7 +34,8 @@ std::unique_ptr<Runtime> createRuntime(
     std::span<const char* const> instanceExtensions,
     std::span<const char* const> deviceExtensions,
     const std::string& gpu,
-    const SurfaceFactory& surfaceFactory = {}
+    const SurfaceFactory& surfaceFactory = {},
+    bool presentTiming = false
 );
 
 /// Read an RGBA8 image back into a tightly packed buffer.

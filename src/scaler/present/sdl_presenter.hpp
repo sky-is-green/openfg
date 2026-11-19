@@ -53,6 +53,8 @@ private:
     std::vector<vk::UniqueFramebuffer> framebuffers_;
     uint32_t imageIndex_{0};
     bool pipelineReady_{false};
+    bool presentTiming_{false};
+    uint64_t presentId_{0};
     PresentPipeline pipeline_;
     vk::UniqueSemaphore available_;
     vk::UniqueSemaphore renderFinished_;

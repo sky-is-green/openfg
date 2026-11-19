@@ -497,6 +497,8 @@ struct PipeWireSource::Impl {
 
     Runtime& runtime;
     vk::Extent2D wanted;
+    vk::Rect2D crop;
+    bool cropSet{false};
     std::string capture;
     std::string description;
 
@@ -518,6 +520,7 @@ struct PipeWireSource::Impl {
     std::string error;
 
     vk::Extent2D extent{};
+    vk::Extent2D captureExtent{};
     vk::Format format{vk::Format::eUndefined};
     uint64_t modifier{0};
     uint32_t spaFormat{0};
@@ -539,9 +542,11 @@ struct PipeWireSource::Impl {
     vk::DeviceSize stagingSize{};
 
     Impl(Runtime& runtimeValue, vk::Extent2D wantedValue,
-         std::string captureValue)
+         std::string captureValue, vk::Rect2D cropValue, bool cropSetValue)
         : runtime{runtimeValue},
           wanted{wantedValue},
+          crop{cropValue},
+          cropSet{cropSetValue},
           capture{std::move(captureValue)}
     {
     }
@@ -633,10 +638,34 @@ struct PipeWireSource::Impl {
         };
         self->modifier = info.modifier;
         self->spaFormat = info.format;
+        if (self->cropSet) {
+            if (self->crop.extent.width == 0 ||
+                self->crop.extent.height == 0 ||
+                self->crop.offset.x < 0 || self->crop.offset.y < 0 ||
+                static_cast<uint32_t>(self->crop.offset.x) +
+                        self->crop.extent.width > info.size.width ||
+                static_cast<uint32_t>(self->crop.offset.y) +
+                        self->crop.extent.height > info.size.height) {
+                self->fail("the crop rectangle is outside the capture");
+                return;
+            }
+            self->captureExtent = self->crop.extent;
+        } else {
+            self->captureExtent = vk::Extent2D{
+                info.size.width,
+                info.size.height
+            };
+        }
         self->description = "pipewire " + self->capture + " " +
             formatName(info.format) + " " +
             std::to_string(info.size.width) + "x" +
             std::to_string(info.size.height);
+        if (self->cropSet)
+            self->description += " crop " +
+                std::to_string(self->captureExtent.width) + "x" +
+                std::to_string(self->captureExtent.height) + "+" +
+                std::to_string(self->crop.offset.x) + "+" +
+                std::to_string(self->crop.offset.y);
         self->formatReady = true;
         self->condition.notify_all();
     }
@@ -661,12 +690,12 @@ struct PipeWireSource::Impl {
                 self->queue.pop_front();
                 pw_stream_queue_buffer(self->stream, old.buffer);
             }
-            const uint64_t timestamp = buffer->time != 0
-                ? buffer->time
-                : static_cast<uint64_t>(
-                    std::chrono::duration_cast<std::chrono::nanoseconds>(
-                        std::chrono::steady_clock::now().time_since_epoch())
-                        .count());
+            // pw_buffer::time uses the stream clock; use the monotonic clock
+            // so the presenter can compare it with its own timestamps.
+            const uint64_t timestamp = static_cast<uint64_t>(
+                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    std::chrono::steady_clock::now().time_since_epoch())
+                    .count());
             self->queue.push_back({ buffer, timestamp });
         }
         self->condition.notify_all();
@@ -765,7 +794,7 @@ struct PipeWireSource::Impl {
         const bool bgr = format == vk::Format::eB8G8R8A8Unorm;
         for (auto& image : ring) {
             image.image = vkutil::createImage(
-                runtime.dld, *runtime.device, extent, format, 1,
+                runtime.dld, *runtime.device, captureExtent, format, 1,
                 vk::ImageUsageFlagBits::eSampled |
                 vk::ImageUsageFlagBits::eTransferDst);
             if (!image.image) {
@@ -988,8 +1017,8 @@ struct PipeWireSource::Impl {
     {
         if (staging)
             return true;
-        stagingSize = static_cast<vk::DeviceSize>(extent.width) *
-            extent.height * 4;
+        stagingSize = static_cast<vk::DeviceSize>(captureExtent.width) *
+            captureExtent.height * 4;
         auto [buffer, memory] = vkutil::createBuffer(
             runtime.dld, *runtime.device, runtime.physical,
             vk::BufferUsageFlagBits::eTransferSrc, nullptr,
@@ -1013,7 +1042,7 @@ struct PipeWireSource::Impl {
     ) {
         if (!ensureStaging(error))
             return false;
-        const uint32_t rowBytes = extent.width * 4;
+        const uint32_t rowBytes = captureExtent.width * 4;
         const uint64_t sourceSize = static_cast<uint64_t>(stride) *
             extent.height;
 
@@ -1040,9 +1069,12 @@ struct PipeWireSource::Impl {
         }
 
         auto* destination = static_cast<uint8_t*>(stagingMapped);
-        for (uint32_t y = 0; y < extent.height; y++) {
+        const size_t sourceX = static_cast<size_t>(crop.offset.x) * 4;
+        for (uint32_t y = 0; y < captureExtent.height; y++) {
+            const size_t sourceY = static_cast<size_t>(
+                crop.offset.y + static_cast<int32_t>(y));
             std::memcpy(destination + static_cast<size_t>(y) * rowBytes,
-                source + static_cast<size_t>(y) * stride, rowBytes);
+                source + sourceY * stride + sourceX, rowBytes);
         }
         if (mapped)
             ::munmap(const_cast<uint8_t*>(source - offset),
@@ -1135,7 +1167,11 @@ struct PipeWireSource::Impl {
                     .baseArrayLayer = 0,
                     .layerCount = 1
                 },
-                .imageExtent = { extent.width, extent.height, 1 }
+                .imageExtent = {
+                    captureExtent.width,
+                    captureExtent.height,
+                    1
+                }
             };
             command->copyBufferToImage(*staging,
                 *ring[index].image,
@@ -1165,13 +1201,22 @@ struct PipeWireSource::Impl {
                     .baseArrayLayer = 0,
                     .layerCount = 1
                 },
+                .srcOffset = {
+                    static_cast<int32_t>(crop.offset.x),
+                    static_cast<int32_t>(crop.offset.y),
+                    0
+                },
                 .dstSubresource = {
                     .aspectMask = vk::ImageAspectFlagBits::eColor,
                     .mipLevel = 0,
                     .baseArrayLayer = 0,
                     .layerCount = 1
                 },
-                .extent = { extent.width, extent.height, 1 }
+                .extent = {
+                    captureExtent.width,
+                    captureExtent.height,
+                    1
+                }
             };
             command->copyImage(*imported.image,
                 vk::ImageLayout::eTransferSrcOptimal,
@@ -1420,7 +1465,7 @@ struct PipeWireSource::Impl {
 
         frame.image = *ring[index].image;
         frame.view = *ring[index].view;
-        frame.extent = extent;
+        frame.extent = captureExtent;
         frame.format = format;
         frame.sequence = ++sequence;
         frame.timestampNs = queued.timestamp;
@@ -1432,9 +1477,12 @@ struct PipeWireSource::Impl {
 PipeWireSource::PipeWireSource(
     Runtime& runtime,
     vk::Extent2D wanted,
-    std::string capture
+    std::string capture,
+    vk::Rect2D crop,
+    bool cropSet
 )
-    : impl_{std::make_unique<Impl>(runtime, wanted, std::move(capture))}
+    : impl_{std::make_unique<Impl>(
+          runtime, wanted, std::move(capture), crop, cropSet)}
 {
 }
 

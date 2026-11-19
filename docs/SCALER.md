@@ -11,6 +11,9 @@ Implemented in `openfg-scaler`:
 - FSR1 EASU with optional RCAS, reusing the embedded shaders and constants.
 - SDL3 Vulkan swapchain presenter with aspect-fit letterboxing, windowed or
   fullscreen.
+- Optional `--present-timing` using `VK_KHR_present_id` and
+  `VK_KHR_present_wait` for capture-to-display latency.
+- `--crop WxH+X+Y` for window decorations and monitor sub-rectangles.
 - Headless presenter with an RGBA8 frame dump for deterministic tests.
 - Frame/CPU timing summary and optional progress output.
 
@@ -59,9 +62,11 @@ cmake --build build --target openfg-scaler
   --input 640x360 --output 1280x720 --frames 1 \
   --dump /tmp/scale-out.rgba --dump-input /tmp/scale-in.rgba
 
-# Capture the selected window through the desktop portal.
+# Capture the selected window through the desktop portal. Crop the KDE title
+# bar so the source is exactly 1280x720.
 ./build/openfg-scaler --source pipewire --capture window \
-  --input 1280x720 --output 2560x1440 --fullscreen
+  --input 1280x720 --crop 1280x720+0+28 \
+  --output 2560x1440 --fullscreen --present-timing
 ```
 
 The SDL3 presenter is built when `sdl3` is available through pkg-config.
@@ -72,7 +77,10 @@ The test-pattern/headless path needs only Vulkan.
 may negotiate a different size (a monitor stream is usually the monitor's
 native size), so the upscaler adapts to the first frame's actual extent.
 `--output` is the upscaled size; the presenter letterboxes it when the window
-aspect differs.
+aspect differs. `--crop` applies after the portal negotiates the source size,
+so use the reported size from the first run if the crop is rejected.
+`--present-timing` waits for the display and reports capture-to-display
+latency; leave it off for normal use.
 
 ## Goal
 
@@ -268,6 +276,13 @@ permissively licensed benchmark.
   2560x1440 monitor stream: `BGRA`, linear DMA-BUF, one plane plus a sync
   object, imported into Vulkan and upscaled/presented. Captured test frames
   were deleted after checking the dimensions and pixel range.
+- GravityMark 1.89 was used as the artificial game window: 1280x720 client
+  area (1280x748 including the KDE title bar), cropped to 1280x720 and
+  upscaled to 2560x1440 fullscreen. 240 frames took 3.96 s (60.58 fps);
+  CPU time was 18.16 ms p50, and capture-to-display latency was 9.71 ms p50
+  and 21.77 ms p95. The source ran at 60 Hz vsync, so the idle source interval
+  is 16.7 ms. GravityMark is evaluation/testing-only; no footage was retained
+  or published.
 - Window capture uses the same portal/PipeWire code with `types = 2`; the
   window is selected in the portal dialog.
 

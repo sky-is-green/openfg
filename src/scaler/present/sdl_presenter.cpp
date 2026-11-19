@@ -129,6 +129,7 @@ bool SdlPresenter::createSurface(
 bool SdlPresenter::init(Runtime& runtime, std::string& error)
 {
     runtime_ = &runtime;
+    presentTiming_ = options_.presentTiming;
     if (!createSwapchain(error))
         return false;
     pipeline_.init(runtime, format_, vk::ImageLayout::ePresentSrcKHR);
@@ -318,14 +319,20 @@ bool SdlPresenter::submit(vk::CommandBuffer command, std::string& error)
     };
     runtime_->queue.submit(submitInfo, *fence_, runtime_->dld);
 
+    uint64_t presentId = ++presentId_;
+    const vk::PresentIdKHR presentIdInfo{
+        .swapchainCount = 1,
+        .pPresentIds = &presentId
+    };
     const vk::PresentInfoKHR presentInfo{
+        .pNext = presentTiming_ ? &presentIdInfo : nullptr,
         .waitSemaphoreCount = 1,
         .pWaitSemaphores = &*renderFinished_,
         .swapchainCount = 1,
         .pSwapchains = &*swapchain_,
         .pImageIndices = &imageIndex_
     };
-    const auto result = runtime_->queue.presentKHR(
+    auto result = runtime_->queue.presentKHR(
         presentInfo, runtime_->dld);
     if (result == vk::Result::eErrorOutOfDateKHR ||
         result == vk::Result::eSuboptimalKHR) {
@@ -333,6 +340,18 @@ bool SdlPresenter::submit(vk::CommandBuffer command, std::string& error)
     } else if (result != vk::Result::eSuccess) {
         error = "present failed";
         return false;
+    }
+
+    if (presentTiming_) {
+        result = runtime_->device->waitForPresentKHR(
+            *swapchain_, presentId, UINT64_MAX, runtime_->dld);
+        if (result == vk::Result::eErrorOutOfDateKHR ||
+            result == vk::Result::eSuboptimalKHR) {
+            resizePending_ = true;
+        } else if (result != vk::Result::eSuccess) {
+            error = "present wait failed";
+            return false;
+        }
     }
 
     const auto fenceResult = runtime_->device->waitForFences(

@@ -15,6 +15,7 @@ struct PresentOptions {
     vk::Extent2D size{1280, 720};
     bool fullscreen{false};
     bool vsync{true};
+    bool presentTiming{false};
     bool headless{false};
     std::string title{"OpenFG Scaler"};
 };
