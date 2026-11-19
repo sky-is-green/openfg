@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: MIT */
 // scaler-gpu: standalone EASU/RCAS harness for the companion scaler work.
 
-#include "fsr1_constants.hpp"
+#include "scaler/upscale/fsr1_constants.hpp"
 #include "openfg_shaders.hpp"
 #include "vkutil/vkutil.hpp"
 

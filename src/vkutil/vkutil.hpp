@@ -28,7 +28,8 @@ enum class ExternalMode : uint8_t {
 vk::UniqueInstance createInstance(
     vk::detail::DispatchLoaderDynamic& dld,
     std::string_view name,
-    uint32_t apiVersion
+    uint32_t apiVersion,
+    std::span<const char* const> extensions = {}
 );
 
 vk::PhysicalDevice findPhysicalDevice(

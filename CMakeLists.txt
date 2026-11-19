@@ -17,7 +17,10 @@ find_program(GLSLANG_EXECUTABLE NAMES glslangValidator glslang REQUIRED)
 
 set(SHADER_SRC "${CMAKE_CURRENT_SOURCE_DIR}/src/openfg/shaders")
 set(SHADER_BIN "${CMAKE_CURRENT_BINARY_DIR}/openfg-shaders")
-file(GLOB SHADER_FILES CONFIGURE_DEPENDS "${SHADER_SRC}/*.comp")
+file(GLOB SHADER_FILES CONFIGURE_DEPENDS
+  "${SHADER_SRC}/*.comp"
+  "${SHADER_SRC}/*.vert"
+  "${SHADER_SRC}/*.frag")
 file(GLOB SHADER_INCLUDES CONFIGURE_DEPENDS "${SHADER_SRC}/*.glsl")
 file(GLOB_RECURSE SHADER_HEADERS CONFIGURE_DEPENDS "${SHADER_SRC}/*.h")
 
@@ -97,13 +100,13 @@ target_link_libraries(fg-lab PRIVATE openfg vkutil)
 
 add_executable(scaler-gpu
   "tools/scaler-gpu/main.cpp"
-  "tools/scaler-gpu/fsr1_constants.cpp")
+  "src/scaler/upscale/fsr1_constants.cpp")
 target_include_directories(scaler-gpu PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/src"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/openfg"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/openfg/shaders")
 target_link_libraries(scaler-gpu PRIVATE openfg vkutil)
-set_source_files_properties("tools/scaler-gpu/fsr1_constants.cpp"
+set_source_files_properties("src/scaler/upscale/fsr1_constants.cpp"
   PROPERTIES COMPILE_OPTIONS
   "-Wno-unused-function;-Wno-ignored-qualifiers")
 
@@ -133,6 +136,47 @@ target_link_libraries(openfg-gpu-probe PRIVATE openfg vkutil)
 
 install(TARGETS fg-lab scaler-gpu openfg-cli openfg-gpu-probe
   RUNTIME DESTINATION bin)
+
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+  pkg_check_modules(SDL3 QUIET IMPORTED_TARGET sdl3)
+  pkg_check_modules(PIPEWIRE QUIET IMPORTED_TARGET libpipewire-0.3)
+  pkg_check_modules(DBUS QUIET IMPORTED_TARGET dbus-1)
+endif()
+
+add_executable(openfg-scaler
+  "src/scaler/main.cpp"
+  "src/scaler/vulkan.cpp"
+  "src/scaler/capture/test_pattern.cpp"
+  "src/scaler/upscale/easu.cpp"
+  "src/scaler/upscale/fsr1_constants.cpp"
+  "src/scaler/present/pipeline.cpp"
+  "src/scaler/present/presenter.cpp"
+  "src/scaler/present/headless_presenter.cpp")
+target_include_directories(openfg-scaler PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/src"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/openfg"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/openfg/shaders")
+target_link_libraries(openfg-scaler PRIVATE openfg vkutil openfg-config)
+set_source_files_properties("src/scaler/upscale/fsr1_constants.cpp"
+  PROPERTIES COMPILE_OPTIONS
+  "-Wno-unused-function;-Wno-ignored-qualifiers")
+if(SDL3_FOUND)
+  target_sources(openfg-scaler PRIVATE
+    "src/scaler/present/sdl_presenter.cpp")
+  target_link_libraries(openfg-scaler PRIVATE PkgConfig::SDL3)
+  target_compile_definitions(openfg-scaler PRIVATE
+    OPENFG_SCALER_HAVE_SDL3=1)
+endif()
+if(PIPEWIRE_FOUND AND DBUS_FOUND)
+  target_sources(openfg-scaler PRIVATE
+    "src/scaler/capture/pipewire.cpp")
+  target_link_libraries(openfg-scaler PRIVATE
+    PkgConfig::PIPEWIRE PkgConfig::DBUS)
+  target_compile_definitions(openfg-scaler PRIVATE
+    OPENFG_SCALER_HAVE_PIPEWIRE=1)
+endif()
+install(TARGETS openfg-scaler RUNTIME DESTINATION bin)
 
 add_library(openfg-layer SHARED
   "src/layer/layer.cpp"

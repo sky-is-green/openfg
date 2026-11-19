@@ -19,5 +19,14 @@
   `fsr1_easu.comp` and `fsr1_rcas.comp` and the `scaler-gpu` harness are
   openfg code.
 
+The companion scaler uses system libraries, not vendored code:
+
+- SDL3 (zlib licence) for window and Vulkan-surface creation.
+- PipeWire (MIT) for capture streams.
+- D-Bus (`libdbus-1`, AFL-2.1 or GPL-2.0+) for the desktop portal.
+
+They are optional build dependencies of `openfg-scaler` and do not affect the
+layer's dependency-free core.
+
 No lsfg-vk, Lossless Scaling, or other CC-BY-NC-ND code is present in this
 tree.

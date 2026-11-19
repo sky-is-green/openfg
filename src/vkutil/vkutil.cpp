@@ -23,7 +23,8 @@ namespace vkutil {
 vk::UniqueInstance createInstance(
     vk::detail::DispatchLoaderDynamic& dld,
     std::string_view name,
-    uint32_t apiVersion
+    uint32_t apiVersion,
+    std::span<const char* const> extensions
 ) {
     dld.init();
 
@@ -35,8 +36,12 @@ vk::UniqueInstance createInstance(
         .engineVersion = vk::makeVersion(1, 0, 0),
         .apiVersion = apiVersion
     };
+    const std::vector<const char*> enabledExtensions(
+        extensions.begin(), extensions.end());
     const vk::InstanceCreateInfo instanceInfo{
-        .pApplicationInfo = &appInfo
+        .pApplicationInfo = &appInfo,
+        .enabledExtensionCount = static_cast<uint32_t>(enabledExtensions.size()),
+        .ppEnabledExtensionNames = enabledExtensions.data()
     };
     auto instance{vk::createInstanceUnique(instanceInfo, nullptr, dld)};
     dld.init(*instance);

@@ -1,7 +1,22 @@
 # Companion scaler design
 
-Status: design only. The layer remains responsible for frame generation and
-the activation gate; the scaler is a separate capture/upscale/present app.
+Status: first slice implemented. The layer remains responsible for frame
+generation and the activation gate; the scaler is a separate
+capture/upscale/present app in the same repository.
+
+Implemented in `openfg-scaler`:
+
+- `CaptureSource` with a deterministic test pattern and a PipeWire ScreenCast
+  source (monitor or window, DMA-BUF import with a shared-memory fallback).
+- FSR1 EASU with optional RCAS, reusing the embedded shaders and constants.
+- SDL3 Vulkan swapchain presenter with aspect-fit letterboxing, windowed or
+  fullscreen.
+- Headless presenter with an RGBA8 frame dump for deterministic tests.
+- Frame/CPU timing summary and optional progress output.
+
+Not in this slice: click-through input passthrough, HDR/VRR, integer scaling,
+restore-token persistence, explicit PipeWire sync, neural inference and the
+Gamescope capture backend.
 
 ## Repository layout
 
@@ -24,6 +39,36 @@ The CMake target is `openfg-scaler` and installs alongside `openfg-layer`,
 `openfg-gui` and `openfg-tray`. PipeWire is an optional build dependency; the
 core layer remains dependency-free. Gamescope remains an external compositor
 that the scaler can launch or integrate with.
+
+## Build and run
+
+```sh
+cmake -S . -B build -G Ninja
+cmake --build build --target openfg-scaler
+
+# Deterministic test pattern in a window.
+./build/openfg-scaler --source test --windowed \
+  --input 1280x720 --output 2560x1440
+
+# Headless self-test with a raw RGBA8 dump.
+./build/openfg-scaler --headless --source test --static \
+  --input 640x360 --output 1280x720 --frames 1 \
+  --dump /tmp/scale-out.rgba --dump-input /tmp/scale-in.rgba
+
+# Capture the selected window through the desktop portal.
+./build/openfg-scaler --source pipewire --capture window \
+  --input 1280x720 --output 2560x1440 --fullscreen
+```
+
+The SDL3 presenter is built when `sdl3` is available through pkg-config.
+PipeWire capture is built when `libpipewire-0.3` and `dbus-1` are available.
+The test-pattern/headless path needs only Vulkan.
+
+`--input` is the requested capture size and the test-pattern size. The portal
+may negotiate a different size (a monitor stream is usually the monitor's
+native size), so the upscaler adapts to the first frame's actual extent.
+`--output` is the upscaled size; the presenter letterboxes it when the window
+aspect differs.
 
 ## Goal
 
@@ -203,13 +248,27 @@ demonstration. Do not publish its footage without permission; use it for
 internal validation and keep the public video on your own game captures or a
 permissively licensed benchmark.
 
+## Validation
+
+- The test pattern at 640x360 -> 1280x720 with EASU+RCAS matches
+  `scaler-gpu` within 1 LSB per channel on the same input frame.
+- The headless test pattern runs at ~510 fps for that size on the RX 7900 XT;
+  this measures the pipeline, not a game.
+- The PipeWire path was validated on KDE Plasma/Wayland with a DP-1
+  2560x1440 monitor stream: `BGRA`, linear DMA-BUF, one plane plus a sync
+  object, imported into Vulkan and upscaled/presented. Captured test frames
+  were deleted after checking the dimensions and pixel range.
+- Window capture uses the same portal/PipeWire code with `types = 2`; the
+  window is selected in the portal dialog.
+
 ## Milestones
 
-1. Gamescope capture + EASU/RCAS + fullscreen present at 1080p -> 1440p.
+1. ~~PipeWire capture + EASU/RCAS + windowed/fullscreen present~~ (first
+   slice; Gamescope capture is still a separate backend).
 2. Integer scaling, aspect ratio, sharpness, present timing.
 3. HDR and VRR.
 4. Neural spatial backend behind the same interface.
-5. PipeWire capture backend behind the same interface.
+5. ~~PipeWire capture backend behind the same interface.~~
 6. Upscale/FG ordering study.
 
 ## Licensing

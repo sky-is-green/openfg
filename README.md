@@ -32,6 +32,7 @@ the [technical white paper](docs/OPENFG-WHITEPAPER.md) for the full design.
 | **Content** | Process include/exclude, native and Wine/Proton names, video profile with scene-cut guard |
 | **HUD** | Static-UI mask removes doubled HUD text on generated frames |
 | **Controls** | TOML config, `OPENFG_*` overrides, CLI and Qt control panel |
+| **Companion scaler** | `openfg-scaler`: test pattern or PipeWire capture, EASU/RCAS, SDL3 window/fullscreen presenter, headless dump |
 | **Tooling** | `fg-lab`, `scaler-lab`, `scaler-gpu`, model-contract validator, synthetic benchmarks, HUD regression, log reports, GPU probe |
 
 ## Quick start
@@ -136,6 +137,32 @@ and two) refresh intervals and look uneven.
 This is an efficiency control, not an input-latency reduction. For lower
 latency, use the highest source rate that still leaves room for 2x (for
 example 60→120 or about 82→164 on 165 Hz), and prefer 2x over 3x/4x.
+
+## Companion scaler (preview)
+
+`openfg-scaler` is the in-repo module/executable for the companion
+capture/upscale/present path. It is not required by the frame-generation
+layer.
+
+```sh
+cmake -S . -B build -G Ninja
+cmake --build build --target openfg-scaler
+
+# Synthetic window: 1280x720 -> 2560x1440, EASU + RCAS.
+./build/openfg-scaler --source test --windowed \
+  --input 1280x720 --output 2560x1440
+
+# PipeWire window capture; approve the portal dialog and pick the game.
+./build/openfg-scaler --source pipewire --capture window \
+  --input 1280x720 --output 2560x1440 --fullscreen
+```
+
+The test-pattern and headless paths need only Vulkan. SDL3 enables the window
+presenter; `libpipewire-0.3` and `dbus-1` enable capture. The PipeWire path
+requests a DMA-BUF stream and falls back to shared memory. It does not persist
+the portal restore token, wait on explicit sync objects or implement a
+click-through overlay yet. See [docs/SCALER.md](docs/SCALER.md) for the
+interfaces, validation results and remaining work.
 
 ## How it works
 
