@@ -793,15 +793,24 @@ class MainWindow(QtWidgets.QMainWindow):
 
         buttons = QtWidgets.QHBoxLayout()
         buttons.setSpacing(8)
-        reload_button = QtWidgets.QPushButton("Reload")
+        reload_button = QtWidgets.QPushButton("Revert")
+        reload_button.setToolTip(
+            "Discard unsaved changes and reload the config file from disk.")
         reload_button.clicked.connect(self.reload)
-        validate_button = QtWidgets.QPushButton("Validate")
+        validate_button = QtWidgets.QPushButton("Check")
+        validate_button.setToolTip(
+            "Check the current values without saving or applying them.")
         validate_button.clicked.connect(self.validate)
         show_button = QtWidgets.QPushButton("Show config")
+        show_button.setToolTip(
+            "Show the effective configuration as openfg-cli reads it.")
         show_button.clicked.connect(self.show_config)
         open_button = QtWidgets.QPushButton("Open folder")
+        open_button.setToolTip("Open the folder containing conf.toml.")
         open_button.clicked.connect(self.open_config_folder)
         save_button = QtWidgets.QPushButton("Save")
+        save_button.setToolTip(
+            "Write the config file, then validate the saved file.")
         save_button.setDefault(True)
         save_button.clicked.connect(self.save)
         buttons.addWidget(reload_button)
@@ -1150,6 +1159,10 @@ class MainWindow(QtWidgets.QMainWindow):
         config = self._collect()
         if not self._validate_widgets(config):
             return
+        if not cli_path():
+            self._set_status(
+                "openfg-cli not found; cannot check the config.", True)
+            return
         # Validate the current widgets against a temporary copy, so unsaved
         # edits are checked without touching the real config.
         try:
@@ -1239,7 +1252,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.config["video_performance_mode"])
         self.video_safe.setChecked(self.config["video_safe"])
         self._update_cap_state()
-        self._set_status(f"Reloaded {short_path(config_path())}.")
+        self._set_status(f"Reverted to {short_path(config_path())}.")
 
 def main() -> int:
     app = QtWidgets.QApplication(sys.argv)
