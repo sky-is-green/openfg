@@ -30,6 +30,7 @@ else
 fi
 install -m 0644 "$repo/gui/openfg.svg" "$icondir/openfg.svg"
 install -m 0644 "$repo/gui/chevron-down.svg" "$appdir/chevron-down.svg"
+install -m 0644 "$repo/gui/chevron-up.svg" "$appdir/chevron-up.svg"
 install -m 0644 "$repo/gui/check.svg" "$appdir/check.svg"
 
 cat > "$bindir/openfg-gui" <<EOF

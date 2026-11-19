@@ -66,6 +66,38 @@ QLineEdit, QComboBox, QSpinBox, QPlainTextEdit {
     selection-background-color: #2ea043;
     selection-color: #ffffff;
 }
+QSpinBox { padding-right: 28px; }
+QSpinBox::up-button {
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    width: 22px;
+    border-left: 1px solid #2b333d;
+    border-bottom: 1px solid #2b333d;
+    border-top-right-radius: 5px;
+    background: #161b22;
+}
+QSpinBox::down-button {
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 22px;
+    border-left: 1px solid #2b333d;
+    border-top: 1px solid #2b333d;
+    border-bottom-right-radius: 5px;
+    background: #161b22;
+}
+QSpinBox::up-button:hover, QSpinBox::down-button:hover {
+    background: #232a33;
+}
+QSpinBox::up-arrow {
+    image: url("__UP__");
+    width: 9px;
+    height: 6px;
+}
+QSpinBox::down-arrow {
+    image: url("__DOWN__");
+    width: 9px;
+    height: 6px;
+}
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QPlainTextEdit:focus {
     border-color: #3fb950;
 }
@@ -120,6 +152,8 @@ def app_style() -> str:
     assets = Path(__file__).resolve().parent
     return (APP_STYLE
             .replace("__ARROW__", (assets / "chevron-down.svg").as_posix())
+            .replace("__UP__", (assets / "chevron-up.svg").as_posix())
+            .replace("__DOWN__", (assets / "chevron-down.svg").as_posix())
             .replace("__CHECK__", (assets / "check.svg").as_posix()))
 
 
@@ -805,6 +839,10 @@ class MainWindow(QtWidgets.QMainWindow):
         show_button.setToolTip(
             "Show the effective configuration as openfg-cli reads it.")
         show_button.clicked.connect(self.show_config)
+        launch_button = QtWidgets.QPushButton("Launch options")
+        launch_button.setToolTip(
+            "Show copyable launch options for Steam and other launchers.")
+        launch_button.clicked.connect(self.show_launch_options)
         open_button = QtWidgets.QPushButton("Open folder")
         open_button.setToolTip("Open the folder containing conf.toml.")
         open_button.clicked.connect(self.open_config_folder)
@@ -816,6 +854,7 @@ class MainWindow(QtWidgets.QMainWindow):
         buttons.addWidget(reload_button)
         buttons.addWidget(validate_button)
         buttons.addWidget(show_button)
+        buttons.addWidget(launch_button)
         buttons.addWidget(open_button)
         buttons.addStretch(1)
         buttons.addWidget(save_button)
@@ -1199,6 +1238,72 @@ class MainWindow(QtWidgets.QMainWindow):
         close = QtWidgets.QPushButton("Close")
         close.clicked.connect(dialog.accept)
         row = QtWidgets.QHBoxLayout()
+        row.addStretch(1)
+        row.addWidget(close)
+        layout.addLayout(row)
+        dialog.exec()
+
+    def show_launch_options(self) -> None:
+        path = config_path()
+        text = f"""OpenFG normally reads:
+  {path}
+
+No launch options are needed.
+
+Steam / Proton: Properties -> Launch Options
+
+  Disable OpenFG for this run:
+    DISABLE_OPENFG=1 %command%
+
+  Force enable even if the config says enabled = false:
+    OPENFG_ENABLE=1 %command%
+
+  Use another config file:
+    OPENFG_CONFIG=/path/to/another-conf.toml %command%
+
+  Cap presented frames (source gate = value / multiplier):
+    OPENFG_MAX_PRESENTED_FPS=60 %command%
+
+  Set a manual source gate:
+    OPENFG_TARGET_FPS=120 %command%
+
+  Write the layer log to a file:
+    OPENFG_LOG=/path/to/openfg.log %command%
+
+  Force debug logging:
+    OPENFG_DEBUG=1 %command%
+
+Non-Steam launchers
+
+  Prefix the same variables to the command. For example:
+    DISABLE_OPENFG=1 mangohud %command%
+
+Notes
+
+  %command% is Steam's placeholder; keep it at the end.
+  Environment variables apply only to that launch.
+  DISABLE_OPENFG=1 wins over everything.
+  If display detection fails, add OPENFG_REFRESH=165.
+  The config file is read once, when the application starts.
+"""
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("Launch options")
+        dialog.resize(860, 720)
+        layout = QtWidgets.QVBoxLayout(dialog)
+        viewer = QtWidgets.QPlainTextEdit(text)
+        viewer.setReadOnly(True)
+        viewer.setLineWrapMode(QtWidgets.QPlainTextEdit.NoWrap)
+        viewer.setFont(QtGui.QFontDatabase.systemFont(
+            QtGui.QFontDatabase.FixedFont))
+        layout.addWidget(viewer)
+        row = QtWidgets.QHBoxLayout()
+        copy = QtWidgets.QPushButton("Copy")
+        copy.setToolTip("Copy all launch options to the clipboard.")
+        copy.clicked.connect(
+            lambda: QtWidgets.QApplication.clipboard().setText(text))
+        close = QtWidgets.QPushButton("Close")
+        close.clicked.connect(dialog.accept)
+        row.addWidget(copy)
         row.addStretch(1)
         row.addWidget(close)
         layout.addLayout(row)

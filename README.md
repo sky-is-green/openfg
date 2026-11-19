@@ -171,6 +171,39 @@ Environment overrides: `OPENFG_ENABLE`, `OPENFG_GPU`, `OPENFG_CROSS_GPU`,
 `OPENFG_PERFORMANCE_MODE`, `OPENFG_DEBUG`, `OPENFG_REFRESH` and
 `OPENFG_NO_UI_MASK`.
 
+### Launch options
+
+The layer reads the config file automatically. For Steam, paste overrides into
+**Properties → Launch Options**; `%command%` is replaced by Steam. For other
+launchers, prefix the same variables to the command.
+
+```bash
+# Disable OpenFG for one run
+DISABLE_OPENFG=1 %command%
+
+# Force enable even if the config says enabled = false
+OPENFG_ENABLE=1 %command%
+
+# Use another config file
+OPENFG_CONFIG=/path/to/another-conf.toml %command%
+
+# Cap presented frames; with 2x the source gate is 30 fps
+OPENFG_MAX_PRESENTED_FPS=60 %command%
+
+# Set a manual source gate
+OPENFG_TARGET_FPS=120 %command%
+
+# Write the layer log to a file
+OPENFG_LOG=/path/to/openfg.log %command%
+
+# Force debug logging
+OPENFG_DEBUG=1 %command%
+```
+
+`DISABLE_OPENFG=1` wins over everything. If display detection fails, add
+`OPENFG_REFRESH=165`. The config file is read once, when the application
+starts. The control panel has the same examples behind **Launch options**.
+
 ### Pacing, HDR and cross-GPU
 
 - **Pacing.** `max_presented_fps = -1` is the low-latency setting: it stops
