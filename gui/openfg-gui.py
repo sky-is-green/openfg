@@ -893,17 +893,18 @@ class MainWindow(QtWidgets.QMainWindow):
             pacing = self.pacing.currentData()
             pacing_text = "capped source" if pacing == "capped" else "adaptive"
             threshold = self._effective_threshold()
-            if pacing == "capped":
+            if threshold <= 0:
+                pacing_text = ""
+            if threshold <= 0:
+                target_text = f"always generating ({multiplier}× source)"
+            elif pacing == "capped":
                 target_text = (
                     f"cap {threshold:.1f} source "
-                    f"({threshold * multiplier:.0f} presented)"
-                    if threshold > 0 else "always generating")
-            elif threshold > 0:
+                    f"({threshold * multiplier:.0f} presented)")
+            else:
                 target_text = (
                     f"gate {threshold:.1f} source "
                     f"({threshold * multiplier:.0f} presented)")
-            else:
-                target_text = f"always generating ({multiplier}× source)"
             gen = str(self.generator.currentData())
             gen_text = {"ffx": "FFX", "flow": "flow", "blend": "blend",
                         "hold": "hold", "off": "off"}.get(gen, gen)
@@ -911,8 +912,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 quality = ("performance" if self.performance.isChecked()
                            else "quality")
                 gen_text += f" {quality}"
-            text = (f"{multiplier}x · {cross} · {gpu_text} · {pacing_text} · "
-                    f"{target_text} · {gen_text}")
+            text = f"{multiplier}x · {cross} · {gpu_text} · "
+            if pacing_text:
+                text += f"{pacing_text} · "
+            text += f"{target_text} · {gen_text}"
             video_players = [line.strip() for line in
                              self.video_processes.toPlainText().splitlines() if line.strip()]
             if video_players:
