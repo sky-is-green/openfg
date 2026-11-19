@@ -82,9 +82,10 @@ native size), so the upscaler adapts to the first frame's actual extent.
 aspect differs. `--crop` applies after the portal negotiates the source size,
 so use the reported size from the first run if the crop is rejected.
 `--present-timing` waits for the display and reports capture-to-display
-latency; leave it off for normal use. `--no-dmabuf` copies through shared
-memory instead of importing a DMA-BUF; it is slower but useful for diagnosing
-driver or modifier issues.
+latency. It is a **diagnostic mode**: the display wait serializes the loop and
+reduces throughput, so leave it off for normal use. `--no-dmabuf` copies
+through shared memory instead of importing a DMA-BUF; it is slower but useful
+for diagnosing driver or modifier issues.
 
 ### Source resolution and modes
 
@@ -303,6 +304,10 @@ permissively licensed benchmark.
 - At 1280x720 -> 2560x1440, the GPU pass timings on the RX 7900 XT are
   ~0.32 ms p50 for EASU+RCAS and ~0.10 ms p50 for the present pass (test
   pattern, headless, timestamps around each pass).
+- With `--present-timing` off, the 1080p GravityMark run is 60.25 fps over
+  600 frames; acquire is 0.03 ms p50 and submit is 0.48 ms p50. Capture-to-
+  present is 0.71 ms p50. The present-timing diagnostic adds a 16.2 ms display
+  wait per frame and drops the same run to 55.2 fps.
 - GravityMark 1.89 was used as the artificial game window: 1280x720 client
   area (1280x748 including the KDE title bar), cropped to 1280x720 and
   upscaled to 2560x1440 fullscreen. 240 frames took 3.96 s (60.58 fps);

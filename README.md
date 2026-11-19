@@ -160,7 +160,8 @@ cmake --build build --target openfg-scaler
 
 `--crop` removes window decorations; `--present-timing` waits for the display
 and reports capture-to-display latency. It needs `VK_KHR_present_wait` and is
-off by default. `--no-dmabuf` forces the shared-memory capture path if a
+off by default; it is a diagnostic mode because the display wait reduces
+throughput. `--no-dmabuf` forces the shared-memory capture path if a
 driver or compositor produces an unreadable DMA-BUF.
 
 The current spatial path has two performance modes: 1080p -> 1440p and

@@ -74,7 +74,7 @@ void usage(const char* argv0)
         << "  --fullscreen             present fullscreen instead of a window\n"
         << "  --windowed               force a window (default)\n"
         << "  --vsync on|off           FIFO or immediate/mailbox (default: on)\n"
-        << "  --present-timing         wait for display and report display latency\n"
+        << "  --present-timing         diagnostic display wait; reduces throughput\n"
         << "  --no-dmabuf              copy PipeWire frames through shared memory\n"
         << "  --frames N               stop after N frames (0 = until quit)\n"
         << "  --headless               render offscreen, no window\n"
@@ -383,6 +383,11 @@ int main(int argc, char** argv)
         const auto started = std::chrono::steady_clock::now();
         std::vector<double> frameTimes;
         std::vector<double> captureLatencies;
+        std::vector<double> captureWaits;
+        std::vector<double> acquireTimes;
+        std::vector<double> submitTimes;
+        std::vector<double> sourceIntervals;
+        uint64_t lastSourceTimestamp = 0;
         std::vector<double> upscaleGpuTimes;
         std::vector<double> presentGpuTimes;
         uint64_t frameCount = 0;
@@ -396,6 +401,16 @@ int main(int argc, char** argv)
             Frame frame;
             if (!source->next(frame, error))
                 throw std::runtime_error(error);
+            const auto afterCapture = std::chrono::steady_clock::now();
+            captureWaits.push_back(
+                std::chrono::duration<double, std::milli>(
+                    afterCapture - frameStart).count());
+            if (lastSourceTimestamp != 0 &&
+                frame.timestampNs > lastSourceTimestamp)
+                sourceIntervals.push_back(
+                    static_cast<double>(
+                        frame.timestampNs - lastSourceTimestamp) / 1.0e6);
+            lastSourceTimestamp = frame.timestampNs;
 
             if (!options.dumpInput.empty() && !dumpedInput) {
                 std::string data;
@@ -412,6 +427,10 @@ int main(int argc, char** argv)
             if (!presenter->acquire(target, error))
                 throw std::runtime_error(error);
             (void)target;
+            const auto afterAcquire = std::chrono::steady_clock::now();
+            acquireTimes.push_back(
+                std::chrono::duration<double, std::milli>(
+                    afterAcquire - afterCapture).count());
 
             command->reset({}, runtime->dld);
             command->begin(
@@ -439,6 +458,10 @@ int main(int argc, char** argv)
                     *queryPool, 3, runtime->dld);
             if (!presenter->submit(*command, error))
                 throw std::runtime_error(error);
+            const auto afterSubmit = std::chrono::steady_clock::now();
+            submitTimes.push_back(
+                std::chrono::duration<double, std::milli>(
+                    afterSubmit - afterAcquire).count());
             if (gpuTiming) {
                 std::array<uint64_t, 4> timestamps{};
                 if (runtime->device->getQueryPoolResults(*queryPool, 0, 4,
@@ -495,6 +518,20 @@ int main(int argc, char** argv)
                       << " ms avg, " << percentile(frameTimes, 0.50)
                       << " p50, " << percentile(frameTimes, 0.95)
                       << " p95\n";
+        }
+        if (!captureWaits.empty()) {
+            std::cout << "capture wait: "
+                      << percentile(captureWaits, 0.50) << " p50, "
+                      << percentile(captureWaits, 0.95) << " p95; "
+                      << "acquire: " << percentile(acquireTimes, 0.50)
+                      << " p50, " << percentile(acquireTimes, 0.95)
+                      << " p95; submit: " << percentile(submitTimes, 0.50)
+                      << " p50, " << percentile(submitTimes, 0.95)
+                      << " p95\n";
+            if (!sourceIntervals.empty())
+                std::cout << "source interval: "
+                          << percentile(sourceIntervals, 0.50) << " p50, "
+                          << percentile(sourceIntervals, 0.95) << " p95\n";
         }
         if (!captureLatencies.empty()) {
             const double total = std::accumulate(
