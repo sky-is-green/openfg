@@ -156,9 +156,11 @@ Use a deterministic Vulkan workload before a real game:
 
 1. **`vkcube` smoke** — already installed. Run it under Gamescope at the
    target render size and confirm scaling, input and present behavior.
-2. **`vkmark` performance** — install the distro package and run a fixed
-   scene at native and at the lower internal resolution with Gamescope
-   FSR/NIS. Compare frame time, GPU load and power.
+2. **GravityMark** — modern Vulkan benchmark with rasterization, mesh shader
+   and ray-tracing modes, a CLI and regular updates. Run it at native 1440p
+   and at 1280x720 -> 1440p through Gamescope FSR/NIS; compare frame time,
+   GPU load and power. `vkmark` is older and only useful as a legacy
+   comparison.
 3. **Quality frames** — capture native and scaled output from the benchmark,
    then run the same frames through `scaler-gpu` EASU/RCAS and the neural
    model. Use `scaler-lab` for PSNR/SSIM/LPIPS and visual review.
@@ -167,7 +169,9 @@ Use a deterministic Vulkan workload before a real game:
 
 `vkcube` is a smoke test, not a performance benchmark. A benchmark scene also
 does not replace game validation; it just removes the game from the early
-plumbing loop.
+plumbing loop. Basemark GPU is a second modern option but its free version
+requires an internet connection and uploads results, so GravityMark is the
+better local automation target.
 
 ## Milestones
 

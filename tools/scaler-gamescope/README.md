@@ -50,14 +50,16 @@ Use a deterministic Vulkan workload before a game:
 gamescope -W 2560 -H 1440 -w 1280 -h 720 -f -F fsr -- \
   vkcube --width 1280 --height 720 --c 600 --present_mode 2
 
-# vkmark, if installed
+# GravityMark, modern Vulkan benchmark (download from tellusim.com)
 gamescope -W 2560 -H 1440 -w 1280 -h 720 -f -F fsr -- \
-  vkmark -s 1280x720 -b vertex:duration=20
+  ./GravityMark.x64 -vulkan -width 1280 -height 720 -fullscreen 1 \
+  -vsync 0 -benchmark 1 -close 1 -fps 1 -times /tmp/gravity-times.txt
 ```
 
-Compare against a native run without `-w/-h` and `-F`. Capture frames with
-OBS or `grim` for quality comparisons. `vkcube` is a pipeline smoke test;
-`vkmark` is the performance benchmark.
+Compare against a native run at 2560x1440 without `-w/-h` and `-F`. Capture
+frames with OBS or `grim` for quality comparisons. `vkcube` is a pipeline
+smoke test; GravityMark is the modern performance benchmark. `vkmark` is an
+older optional legacy comparison.
 
 ## Test plan
 
