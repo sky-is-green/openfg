@@ -20,13 +20,14 @@ Implemented in `openfg-scaler`:
 - `--crop WxH+X+Y` for window decorations and monitor sub-rectangles.
 - Headless presenter with an RGBA8 frame dump for deterministic tests.
 - `--filter passthrough` for a native/A-B and latency reference.
+- Optional `--filter neural` for a 2x ONNX/ncnn model package.
 - Portal restore-token persistence (`--forget-token` to clear it).
 - Frame/CPU timing summary, per-pass GPU timestamps and optional progress
   output.
 
-Not in this slice: HDR/VRR, integer scaling, explicit PipeWire sync, neural
-inference and the Gamescope capture backend. Real-game window/focus validation
-is still pending.
+Not in this slice: HDR/VRR, integer scaling, explicit PipeWire sync, the
+Gamescope capture backend and a zero-copy neural runtime. Real-game
+window/focus validation is still pending.
 
 ## Repository layout
 
@@ -42,6 +43,8 @@ src/scaler/
   capture/test_pattern.*         deterministic synthetic source
   capture/pipewire.*             portal + PipeWire DMA-BUF source
   upscale/easu.*                 FSR1 EASU + RCAS
+  upscale/neural.*               optional ncnn 2x neural backend
+  upscale/neural_ncnn.*          ncnn boundary with no Vulkan header conflicts
   upscale/passthrough.hpp        native/A-B reference
   upscale/fsr1_constants.*       shared CPU-side constants
   present/presenter.hpp          presenter interface + factory
@@ -80,8 +83,9 @@ cmake --build build --target openfg-scaler
 
 The SDL3 presenter is built when `sdl3` is available through pkg-config.
 PipeWire capture is built when `libpipewire-0.3` and `dbus-1` are available;
-Wayland (`wayland-client`) enables the mouse click-through input region. The
-test-pattern/headless path needs only Vulkan.
+Wayland (`wayland-client`) enables the mouse click-through input region.
+ncnn is optional and enables `--filter neural`. The test-pattern/headless path
+needs only Vulkan.
 
 `--input` is the requested capture size and the test-pattern size. The portal
 may negotiate a different size (a monitor stream is usually the monitor's
@@ -264,6 +268,39 @@ explicit and avoids doing Vulkan work on the PipeWire data thread.
 - Reset on scene cuts; protect HUD/text; fall back to spatial on low
   confidence.
 - Not a replacement for engine-data temporal upscaling.
+
+## Neural 2x backend (v0)
+
+The first training-lane package is a 20-channel, 3-residual-block CNN with a
+PixelShuffle 2x head and 24,452 parameters. It is SDR sRGB, fully
+convolutional, and clamped to `[0,1]`. The proxy weights are local-only
+because they were trained on game footage; the synthetic pretrain is the
+public integration artifact.
+
+The quality evidence on the held-out Wilds proxy set is:
+LPIPS `0.1168` vs Lanczos `0.1340`, DISTS `0.01114` vs `0.01141`,
+PSNR/SSIM at parity. The HUD/text crop also wins LPIPS/DISTS, but its SSIM is
+slightly below Lanczos (`0.9331` vs `0.9345`). See the model card for the
+data caveats (compressed h264, two games, mostly static scenes, approximate
+HUD masks). The app-lane EASU comparison is the missing piece; it is run with
+`tools/scaler-lab` on the same held-out pairs.
+
+The optional runtime uses ncnn Vulkan. Convert the package once:
+
+```sh
+python3 tools/model-ncnn.py /path/to/model-package --out-dir /tmp/model-ncnn
+openfg-scaler --source pipewire --capture window --filter neural \
+  --model /tmp/model-ncnn/model-opt.param \
+  --input 1280x720 --crop 1280x720+0+28 \
+  --output 2560x1440 --fullscreen
+```
+
+The v0 model is 2x, so the runtime rejects 1080p -> 1440p (1.33x); use EASU
+for that path, or 720p -> 1440p / 1080p -> 4K for the model. The ncnn backend
+is a validation backend: it transfers through CPU memory and measured about
+**34 ms p50** at 720p -> 1440p on the RX 7900 XT (24-27 fps), versus the
+training lane's 2.29 ms GPU-only proxy. A zero-copy Vulkan runtime is the next
+performance step.
 
 ## Presentation
 

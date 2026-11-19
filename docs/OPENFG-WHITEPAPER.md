@@ -59,7 +59,11 @@ presents it fullscreen. On a 1080p GravityMark window upscaled to 1440p it
 sustained 60.25 fps with 0.71 ms capture-to-present latency; the fullscreen
 Wayland overlay is non-focusable and passes mouse input through. The 1080p
 path is a performance mode, not a quality mode: 720p is visibly soft, and
-spatial upscaling does not match native 1440p. This paper documents the layer
+spatial upscaling does not match native 1440p. A first proxy 2x neural
+upscaler (20 channels, 3 residual blocks, 24,452 parameters) beats Lanczos on
+LPIPS/DISTS on the held-out game with PSNR/SSIM at parity, but its optional
+ncnn validation runtime is about 34 ms per 720p frame; a zero-copy Vulkan
+runtime is future work. This paper documents the layer
 hooks and present protocol, both flow pipelines, the interpolation and mask
 math, pacing, activation, the scaler interfaces and DMA-BUF handshake,
 cross-GPU and HDR paths, the evaluation methodology, and the limits of the
@@ -77,6 +81,7 @@ evidence.
 | The gate is an efficiency control | On 165 Hz with 2x, generation starts below 82.5 source fps and stays native above it; uncapped gameplay is quiet |
 | The companion scaler works | 1080p GravityMark window -> 1440p fullscreen: 60.25 fps, 0.71 ms capture-to-present p50, 0.29 ms EASU+RCAS |
 | The overlay can pass input | A background window received a mouse click through the empty Wayland input region of the fullscreen overlay |
+| The neural v0 beats Lanczos perceptually | Wilds held-out: LPIPS 0.1168 vs 0.1340, DISTS 0.01114 vs 0.01141, PSNR/SSIM parity; HUD SSIM 0.9331 vs 0.9345 |
 
 Three layer results carry the paper:
 
@@ -958,7 +963,7 @@ minimum.
 | **Performance** | 1080p -> 1440p (1.33×) | Playable; still a spatial upscale, not native quality |
 | **Ultra performance** | 720p -> 1440p (4× pixels) | Visibly soft/noisy on high-detail scenes |
 | **Native reference** | source = output, `--filter passthrough` | No spatial upscale; A/B and latency baseline |
-| **Quality** | native 1440p or neural | Native is not a scaler mode; the neural backend is not wired |
+| **Quality** | native 1440p or neural | Native is not a scaler mode; the v0 neural runtime is a local proxy, not a shipping quality backend |
 
 On the 640×360 test pattern, the EASU+RCAS output matches `scaler-gpu` within
 1 LSB per channel on the same input. At 1280×720 -> 2560×1440, Vulkan
@@ -976,9 +981,27 @@ to worst-case for a spatial filter. Comparing RCAS settings on the same frame,
 sharpness 0 is the crunchiest and noisiest, 4 is a middle ground, and 8–12 is
 cleaner but softer; EASU without RCAS has the cleanest edges. The quality is
 source-limited: spatial upscaling cannot recover detail that was never
-rendered. The neural model contract in `docs/MODEL-CONTRACT.md` defines the
-package and fixed test vector for a future quality backend; no neural package
-is wired into the runtime yet.
+rendered.
+
+A first neural 2x package is now available. It is a 20-channel, 3-residual-
+block CNN with a PixelShuffle head and 24,452 parameters, trained on
+synthetic pretrain plus a local proxy set. On the held-out Wilds proxy it
+beats Lanczos on LPIPS (0.1168 vs 0.1340) and DISTS (0.01114 vs 0.01141),
+with PSNR/SSIM at parity; the HUD/text crop also wins LPIPS/DISTS, but its
+SSIM is slightly below Lanczos (0.9331 vs 0.9345). The proxy weights are
+local-only because the training frames are game footage, and the data is
+compressed h264 from two games with mostly static scenes and approximate HUD
+masks. The app lane is running the missing EASU comparison on the same
+held-out pairs.
+
+The first runtime uses optional ncnn Vulkan. It validates the ONNX conversion
+(against the ONNX output, max difference 0.006, p99 0.0018) but moves the
+frame through CPU memory and uses a generic convolution: the full
+720p -> 1440p scaler path measured about **31.9 ms p50 / 58.9 ms p95**
+(27 fps), not the training lane's 2.29 ms GPU-only PyTorch proxy. The v0
+model is strictly 2x: 720p -> 1440p and 1080p -> 4K fit; 1080p -> 1440p is
+1.33x and stays on EASU. A zero-copy Vulkan runtime is the next performance
+step.
 
 ### 10.4 Presentation, pacing and latency
 
@@ -1046,8 +1069,12 @@ The companion scaler is not finished:
   with GravityMark and the test pattern.
 - Portal capture adds compositor overhead; a game can run slower while being
   captured, especially at 1080p.
-- The 1080p path is performance, not quality. Native 1440p and the future
-  neural upscaler remain the quality reference.
+- The 1080p path is performance, not quality. Native 1440p and a future
+  production neural runtime remain the quality reference.
+- The v0 neural proxy is local-only, 2x, trained on compressed h264 from two
+  games with mostly static scenes and approximate HUD masks. Its HUD SSIM is
+  slightly below Lanczos, and its ncnn validation runtime is not real-time
+  (about 34 ms at 720p -> 1440p).
 - Click-through mouse input is Wayland-only; keyboard focus still needs a
   real-game test.
 - No HDR, VRR, integer scaling or explicit sync-object wait.
@@ -1176,6 +1203,11 @@ the claim would be most useful. This section separates the two.
 - **Click-through evidence is mouse-only.** The empty Wayland input region was
   verified with a background window; keyboard focus was not verified against a
   real game.
+- **The neural v0 evidence is a proxy.** It uses compressed h264 from two
+  games, mostly static test scenes and approximate HUD masks, and its ncnn
+  runtime is far slower than the PyTorch GPU-only proxy. The gains over
+  Lanczos are modest and the HUD SSIM is slightly lower. It is not a
+  real-capture v1 result.
 
 ### 12.2 What is not claimed
 
@@ -1234,6 +1266,15 @@ the claim would be most useful. This section separates the two.
 13. **Click-through focus and an exit path.** Validate keyboard focus in a real
     game and add an OSD/tray control so a non-focusable overlay can be stopped
     without the terminal.
+14. **A zero-copy neural runtime.** Move the model onto the scaler's Vulkan
+    device/queue and eliminate the CPU readback/upload. The current ncnn
+    validation backend is 31.9 ms p50 at 720p; the PyTorch GPU-only proxy is
+    2.29 ms. Then run the model against real-capture v1 pairs.
+15. **FSR3.1 frame generation as a layer backend.** The FidelityFX SDK 2.4.0
+    ships MIT FSR3.1.6 frame generation with a Vulkan swapchain; it expects
+    game motion vectors and depth and is a candidate for a future layer
+    backend, not the capture scaler. FSR4.1.2 is a signed binary/ML
+    distribution and is outside the MIT-only boundary.
 
 ---
 
@@ -1271,8 +1312,12 @@ openfg-gpu-probe
   --input 1920x1080 --crop 1920x1080+0+28 \
   --output 2560x1440 --fullscreen --sharpness 4
 
-# Validate a neural model package when the training lane provides one
+# Validate and convert a neural model package
 python3 tools/model-contract.py /path/to/model-package --require-expected
+python3 tools/model-ncnn.py /path/to/model-package --out-dir /tmp/model-ncnn
+./build/openfg-scaler --headless --source test --filter neural \
+  --model /tmp/model-ncnn/model-opt.param \
+  --input 1280x720 --output 2560x1440 --frames 3
 
 # Regenerate the figures in this paper
 python3 tools/make_paper_figures.py
@@ -1309,10 +1354,12 @@ notices installed under `share/licenses/openfg/ffx/`.
 
 The companion scaler uses system libraries rather than vendored code: SDL3
 (zlib) for the window and Vulkan surface, PipeWire (MIT) for capture, D-Bus
-(AFL-2.1 or GPL-2.0+) for the portal and Wayland (MIT) for the click-through
-input region. They are optional build dependencies and do not affect the
-layer's dependency-free core. Neural weights, when released, are governed by
-the model package's `config.json` and `docs/MODEL-CONTRACT.md`.
+(AFL-2.1 or GPL-2.0+) for the portal, Wayland (MIT) for the click-through
+input region and ncnn (BSD-3) for the optional neural runtime. They are
+optional build dependencies and do not affect the layer's dependency-free
+core. The proxy v0 weights are local-only and not redistributed; neural
+weights, when released, are governed by the model package's `config.json` and
+`docs/MODEL-CONTRACT.md`. FSR4 signed binaries/weights are not used.
 
 No Lossless Scaling assets, `lsfg-vk.dll` or lsfg-vk source code are used.
 

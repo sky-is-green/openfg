@@ -143,6 +143,7 @@ if(PkgConfig_FOUND)
   pkg_check_modules(PIPEWIRE QUIET IMPORTED_TARGET libpipewire-0.3)
   pkg_check_modules(DBUS QUIET IMPORTED_TARGET dbus-1)
   pkg_check_modules(WAYLAND QUIET IMPORTED_TARGET wayland-client)
+  pkg_check_modules(NCNN QUIET IMPORTED_TARGET ncnn)
 endif()
 
 add_executable(openfg-scaler
@@ -173,6 +174,14 @@ if(WAYLAND_FOUND)
   target_link_libraries(openfg-scaler PRIVATE PkgConfig::WAYLAND)
   target_compile_definitions(openfg-scaler PRIVATE
     OPENFG_SCALER_HAVE_WAYLAND=1)
+endif()
+if(NCNN_FOUND)
+  target_sources(openfg-scaler PRIVATE
+    "src/scaler/upscale/neural.cpp"
+    "src/scaler/upscale/neural_ncnn.cpp")
+  target_link_libraries(openfg-scaler PRIVATE PkgConfig::NCNN)
+  target_compile_definitions(openfg-scaler PRIVATE
+    OPENFG_SCALER_HAVE_NCNN=1)
 endif()
 if(PIPEWIRE_FOUND AND DBUS_FOUND)
   target_sources(openfg-scaler PRIVATE

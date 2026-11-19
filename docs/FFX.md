@@ -150,3 +150,27 @@ or `lsfg-vk` on the same swapchain.
 The project remains MIT. FidelityFX OF is AMD MIT code and is not clean-room
 openfg code. If you redistribute a binary, keep the notices under
 `share/licenses/openfg/ffx/` (installed by CMake) and `THIRD_PARTY.md`.
+
+## FidelityFX SDK 2.4.0 review
+
+The current SDK is 2.4.0 ("Redstone") and includes more than the 1.1.4 tree
+vendored here. The relevant pieces and why they are not a drop-in replacement:
+
+- **FSR 3.1.6 Frame Generation** is MIT source with a Vulkan swapchain and a
+  frame-generation API. It expects game-provided motion vectors and depth and
+  a swapchain integration; it is a candidate for a future layer backend, not
+  for the capture scaler. The SDK's 1440p frame-generation memory estimate is
+  214 MB.
+- **FSR 4.1.2 Upscaling** is an ML upscaler distributed as a **signed binary**
+  and requires motion vectors, depth and camera jitter. It is not MIT source
+  or MIT weights, so it is outside this project's MIT-only/no-proprietary
+  boundary. It is also a temporal upscaler, not a spatial scaler for the
+  capture path.
+- **FSR 1 EASU/RCAS** and **FidelityFX Optical Flow 1.1.2** remain the
+  applicable MIT pieces. The scaler uses FSR1; the layer uses optical flow.
+- Updating the vendored optical flow to the 3.1.6 generation is a separate
+  quality/pacing evaluation; it is not a shader rename and would need a new
+  ground-truth and real-game gate.
+
+The useful reference material is the FSR3 frame-generation swapchain's pacing
+and UI-composition design, not its model or binary distribution.

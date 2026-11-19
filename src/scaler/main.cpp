@@ -6,6 +6,9 @@
 #include "scaler/scaler.hpp"
 #include "scaler/upscale/easu.hpp"
 #include "scaler/upscale/passthrough.hpp"
+#ifdef OPENFG_SCALER_HAVE_NCNN
+#include "scaler/upscale/neural.hpp"
+#endif
 #include "scaler/vulkan.hpp"
 
 #ifdef OPENFG_SCALER_HAVE_PIPEWIRE
@@ -41,6 +44,7 @@ struct Options {
     bool cropSet{false};
     uint32_t scale{2};
     std::string filter{"easu+rcas"};
+    std::string model;
     float sharpness{4.0F};
     uint64_t frames{0};
     bool headless{false};
@@ -73,8 +77,9 @@ void usage(const char* argv0)
         << "Output:\n"
         << "  --output WxH             upscaled resolution (default: input x scale)\n"
         << "  --scale N                output = input * N (default: 2)\n"
-        << "  --filter easu|easu+rcas|passthrough\n"
+        << "  --filter easu|easu+rcas|passthrough|neural\n"
         << "                           spatial filter (default: easu+rcas)\n"
+        << "  --model PATH.param       ncnn 2x model for --filter neural\n"
         << "  --sharpness N            RCAS sharpness 0..20 (default: 4; 0=max)\n"
         << "  --fullscreen             present fullscreen instead of a window\n"
         << "  --windowed               force a window (default)\n"
@@ -178,6 +183,8 @@ Options parseOptions(int argc, char** argv)
                 std::stoul(std::string(nextArg(argc, argv, index, "--scale"))));
         } else if (argument == "--filter") {
             options.filter = std::string(nextArg(argc, argv, index, "--filter"));
+        } else if (argument == "--model") {
+            options.model = std::string(nextArg(argc, argv, index, "--model"));
         } else if (argument == "--sharpness") {
             options.sharpness = std::stof(
                 std::string(nextArg(argc, argv, index, "--sharpness")));
@@ -228,9 +235,21 @@ Options parseOptions(int argc, char** argv)
         throw std::runtime_error(
             "--capture must be monitor or window");
     if (options.filter != "easu" && options.filter != "easu+rcas" &&
-        options.filter != "passthrough")
+        options.filter != "passthrough" && options.filter != "neural")
         throw std::runtime_error(
-            "--filter must be easu, easu+rcas or passthrough");
+            "--filter must be easu, easu+rcas, passthrough or neural");
+    if (options.filter == "neural") {
+        if (options.model.empty())
+            throw std::runtime_error(
+                "--filter neural needs --model PATH.param");
+        if (options.output.width != options.input.width * 2 ||
+            options.output.height != options.input.height * 2)
+            throw std::runtime_error(
+                "the v0 neural model is 2x; use 720p -> 1440p or "
+                "1080p -> 4K (1080p -> 1440p is 1.33x, use EASU)");
+    } else if (!options.model.empty()) {
+        throw std::runtime_error("--model requires --filter neural");
+    }
     if (options.cropSet && options.source != "pipewire")
         throw std::runtime_error(
             "--crop requires --source pipewire");
@@ -373,7 +392,15 @@ int main(int argc, char** argv)
         presenter->show();
 
         std::unique_ptr<Upscaler> upscaler;
-        if (options.filter == "passthrough") {
+        if (options.filter == "neural") {
+#ifdef OPENFG_SCALER_HAVE_NCNN
+            upscaler = std::make_unique<NeuralUpscaler>(
+                *runtime, options.model);
+#else
+            throw std::runtime_error(
+                "this build has no ncnn support (install ncnn or use EASU)");
+#endif
+        } else if (options.filter == "passthrough") {
             upscaler = std::make_unique<PassthroughUpscaler>();
         } else {
             upscaler = std::make_unique<EasuUpscaler>(
@@ -411,6 +438,7 @@ int main(int argc, char** argv)
         std::vector<double> acquireTimes;
         std::vector<double> submitTimes;
         std::vector<double> sourceIntervals;
+        std::vector<double> neuralTimes;
         uint64_t lastSourceTimestamp = 0;
         std::vector<double> upscaleGpuTimes;
         std::vector<double> presentGpuTimes;
@@ -446,6 +474,13 @@ int main(int argc, char** argv)
             }
 
             upscaler->resize(frame.extent, options.output);
+            const auto prepareStart = std::chrono::steady_clock::now();
+            if (!upscaler->prepare(*runtime, frame, error))
+                throw std::runtime_error(error);
+            if (options.filter == "neural")
+                neuralTimes.push_back(
+                    std::chrono::duration<double, std::milli>(
+                        std::chrono::steady_clock::now() - prepareStart).count());
 
             PresentTarget target;
             if (!presenter->acquire(target, error))
@@ -542,6 +577,15 @@ int main(int argc, char** argv)
                       << " ms avg, " << percentile(frameTimes, 0.50)
                       << " p50, " << percentile(frameTimes, 0.95)
                       << " p95\n";
+        }
+        if (!neuralTimes.empty()) {
+            const double total = std::accumulate(
+                neuralTimes.begin(), neuralTimes.end(), 0.0);
+            std::cout << "neural: " << total /
+                    static_cast<double>(neuralTimes.size())
+                      << " ms avg, " << percentile(neuralTimes, 0.50)
+                      << " p50, " << percentile(neuralTimes, 0.95)
+                      << " p95 (readback + ncnn + upload)\n";
         }
         if (!captureWaits.empty()) {
             std::cout << "capture wait: "

@@ -261,3 +261,34 @@ because it serializes the loop and lowers throughput.
 Do not commit game captures, portal frames or raw dumps. The scaler is a
 screen-capture tool: only run the capture tests when you intend to grant the
 permission, and delete any dumps after checking them.
+
+## Neural model package
+
+Validate a training package before wiring it in:
+
+```sh
+python3 tools/model-contract.py /path/to/model-package --require-expected
+```
+
+The validator accepts the public `config.json`/`testvector/` layout and the
+v0 `model-config.json`/`test-vector/` layout, including PNG or NPY test
+vectors. The current v0 package is a **2x** model: 720p -> 1440p is the
+intended point; 1080p -> 1440p is 1.33x and must stay on EASU; 1080p -> 4K is
+the other 2x point.
+
+Convert the package to the optional ncnn backend:
+
+```sh
+python3 tools/model-ncnn.py /path/to/model-package \
+  --onnx2ncnn /path/to/onnx2ncnn \
+  --ncnnoptimize /path/to/ncnnoptimize \
+  --out-dir /tmp/model-ncnn
+
+openfg-scaler --headless --source test --filter neural \
+  --model /tmp/model-ncnn/model-opt.param \
+  --input 1280x720 --output 2560x1440 --frames 3
+```
+
+The ncnn backend is a validation backend and is not real-time at 720p yet.
+Do not commit model weights trained on game footage; keep the package and
+captures local unless the model card explicitly permits redistribution.

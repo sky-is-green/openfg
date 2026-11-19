@@ -37,7 +37,7 @@ validation and distribution packages remain open. Read the
 | **Content** | Process include/exclude, native and Wine/Proton names, video profile with scene-cut guard |
 | **HUD** | Static-UI mask removes doubled HUD text on generated frames |
 | **Controls** | TOML config, `OPENFG_*` overrides, CLI and Qt control panel |
-| **Companion scaler** | `openfg-scaler`: PipeWire ScreenCast window/monitor capture over DMA-BUF, EASU/RCAS, SDL3 fullscreen presenter, click-through overlay, headless dump |
+| **Companion scaler** | `openfg-scaler`: PipeWire ScreenCast window/monitor capture over DMA-BUF, EASU/RCAS, optional 2x neural model, SDL3 fullscreen presenter, click-through overlay, headless dump |
 | **Tooling** | `fg-lab`, `scaler-lab`, `scaler-gpu`, model-contract validator, synthetic benchmarks, HUD regression, log reports, GPU probe |
 
 ## Quick start
@@ -208,6 +208,36 @@ vector. 1080p is the performance option; 720p is ultra performance. Neither is
 a quality mode. Native 1440p and the future neural upscaler remain the quality
 reference. See [docs/SCALER.md](docs/SCALER.md) for interfaces, validation and
 the remaining real-game/VRR/HDR work.
+
+### Neural 2x v0 (optional)
+
+The training lane's first package is a 20-channel, 3-block residual CNN with a
+PixelShuffle 2x head and 24,452 parameters. On the held-out Wilds proxy set it
+beats Lanczos on LPIPS (`0.1168` vs `0.1340`) and DISTS (`0.01114` vs
+`0.01141`), with PSNR/SSIM at parity. The HUD/text crop also wins LPIPS/DISTS,
+but its SSIM is slightly below Lanczos (`0.9331` vs `0.9345`).
+
+The weights are **local-only** because they were trained on game footage. The
+synthetic pretrain is the public integration artifact. The model is 2x:
+
+- 720p -> 1440p is the intended performance point.
+- 1080p -> 4K is 2x.
+- 1080p -> 1440p is 1.33x and remains an EASU path; the runtime rejects it.
+
+The optional ncnn Vulkan backend is a validation backend, not yet a
+production runtime:
+
+```sh
+python3 tools/model-ncnn.py /path/to/model-package --out-dir /tmp/model-ncnn
+openfg-scaler --source test --headless --filter neural \
+  --model /tmp/model-ncnn/model-opt.param \
+  --input 1280x720 --output 2560x1440 --dump /tmp/neural.rgba
+```
+
+It measured about **34 ms p50** at 720p -> 1440p on the RX 7900 XT
+(24-27 fps), versus the training lane's 2.29 ms GPU-only PyTorch proxy,
+because the current ncnn path transfers through CPU memory and uses a generic
+convolution. A zero-copy custom Vulkan runtime is the next step.
 
 ## How it works
 
@@ -387,7 +417,9 @@ Companion scaler:
 - [ ] Integer scaling, configurable aspect policy and explicit
       `SPA_DATA_SyncObj` synchronization.
 - [ ] HDR and VRR in the capture/present path.
-- [ ] Neural spatial upscaler and model plugin API.
+- [x] ~~Neural spatial v0 runtime (optional ncnn validation backend).~~
+- [ ] Zero-copy Vulkan neural runtime and model plugin API.
+- [ ] Real-capture v1 model and broader game evaluation.
 - [ ] Measure capture-to-present latency against native and Lossless Scaling.
 
 Research:
@@ -559,8 +591,9 @@ Wayland.
 Requirements: C++20 compiler, CMake 3.20+, Ninja, `glslc` (shaderc),
 `glslangValidator` (glslang), Vulkan headers (vendored) and Python 3 for
 shader embedding. The scaler's optional dependencies are SDL3 (window
-presenter), `libpipewire-0.3` + `dbus-1` (capture) and `wayland-client`
-(mouse click-through); a build without them is headless/test-pattern only.
+presenter), `libpipewire-0.3` + `dbus-1` (capture), `wayland-client`
+(mouse click-through) and `ncnn` (neural backend); a build without them is
+headless/test-pattern only, and without ncnn `--filter neural` is unavailable.
 
 ```sh
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -605,8 +638,11 @@ Flatpak packages are not published yet.
   quality mode, and 720p is visibly soft on high-detail content.
 - Click-through mouse input is Wayland-only. The overlay is non-focusable on
   both, but X11 does not get an empty input region.
-- The scaler does not wait on explicit `SPA_DATA_SyncObj` synchronization,
-  does not support HDR/VRR yet, and has no neural backend.
+- The scaler does not wait on explicit `SPA_DATA_SyncObj` synchronization and
+  does not support HDR/VRR yet.
+- The neural v0 runtime uses ncnn and is currently ~34 ms at 720p -> 1440p;
+  it is a validation backend, not real-time. The proxy weights are local-only,
+  the model is 2x, and HUD SSIM is slightly below Lanczos.
 - Input-to-photon latency is not measured; only present latency and generator
   cost are.
 - The backend's Vulkan device/instance is intentionally leaked at process exit:

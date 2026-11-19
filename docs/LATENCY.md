@@ -242,3 +242,17 @@ play. It needs `VK_KHR_present_id` and `VK_KHR_present_wait`.
 
 The 720p -> 1440p ultra-performance mode is about 60 fps on the same source
 but visibly softer; 1080p is the performance mode. Neither is a quality mode.
+
+## Neural 2x backend (v0)
+
+The training lane's proxy model is 2.29 ms p50 / 2.37 ms p95 GPU-only at
+720p -> 1440p (170 MB peak) and 5.12 ms p50 at 1080p -> 4K (380 MB) on the
+RX 7900 XT. Those are PyTorch/MIOpen numbers, not the scaler runtime.
+
+The first optional runtime uses ncnn Vulkan and transfers the frame through
+CPU memory. The full scaler path measured **31.9 ms p50 / 58.9 ms p95** at
+720p -> 1440p (about 27 fps) including readback, ncnn inference and upload.
+That is a validation backend, not a real-time path. The model is correct
+(ONNX-vs-ncnn max diff 0.006, p99 0.0018), but a zero-copy Vulkan/model
+runtime is required before it can meet a 60 fps budget. Do not compare the
+2.29 ms proxy with the 31.9 ms ncnn path as if they were the same measurement.

@@ -8,6 +8,8 @@
 
 namespace openfg::scaler {
 
+struct Runtime;
+
 /// One captured frame. The image is owned by the capture source and is
 /// valid until the next call to CaptureSource::next().
 struct Frame {
@@ -43,6 +45,16 @@ class Upscaler {
 public:
     virtual ~Upscaler() = default;
     virtual void resize(vk::Extent2D input, vk::Extent2D output) = 0;
+
+    /// Optional synchronous work before the present command buffer is
+    /// recorded. The default is a no-op; the neural backend reads the frame
+    /// back, runs inference and uploads its output here.
+    virtual bool prepare(
+        Runtime&,
+        const Frame&,
+        std::string&
+    ) { return true; }
+
     virtual void record(
         vk::CommandBuffer command,
         vk::ImageView input,
