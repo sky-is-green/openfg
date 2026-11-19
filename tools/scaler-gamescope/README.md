@@ -80,4 +80,6 @@ older optional legacy comparison.
   model; it tests the workflow around it.
 - A custom neural pass means forking or patching Gamescope. Verify the license
   and maintenance cost before committing.
+- GravityMark's free evaluation licence is for testing, not commercial
+  demonstration; get permission before publishing its footage.
 - No game captures or game assets belong in the repository.
