@@ -2,12 +2,16 @@
 # SPDX-License-Identifier: MIT
 """Unit tests for the scaler-lab metrics and resize helpers."""
 
+import argparse
+import json
 import math
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 import numpy as np
+from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import scaler_lab  # noqa: E402
@@ -44,6 +48,32 @@ class MetricsTest(unittest.TestCase):
         image = np.full((8, 8, 3), 0.25, dtype=np.float32)
         out = scaler_lab.resize(image, (8, 8), "lanczos")
         np.testing.assert_allclose(out, image, atol=1e-6)
+
+    def test_manifest_pairs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "high").mkdir()
+            (root / "low").mkdir()
+            Image.new("RGB", (16, 16), (200, 20, 20)).save(root / "high" / "a.png")
+            Image.new("RGB", (8, 8), (20, 200, 20)).save(root / "low" / "a.png")
+            (root / "dataset.json").write_text(json.dumps({
+                "scale": 2,
+                "items": [{
+                    "name": "game/scene/0001",
+                    "game": "game",
+                    "scene": "scene",
+                    "split": "test",
+                    "low": "low/a.png",
+                    "high": "high/a.png",
+                }],
+            }), encoding="utf-8")
+            args = argparse.Namespace(
+                manifest=root / "dataset.json", split="test", limit=0)
+            pairs = scaler_lab.manifest_pairs(args)
+            self.assertEqual(len(pairs), 1)
+            self.assertEqual(pairs[0]["game"], "game")
+            self.assertEqual(pairs[0]["split"], "test")
+            self.assertAlmostEqual(pairs[0]["scale"], 2.0)
 
 
 if __name__ == "__main__":

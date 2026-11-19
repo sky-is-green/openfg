@@ -4,7 +4,7 @@
 
 Compares resampling backends on low/high image pairs or on synthetic pairs
 made by downsampling a reference image. It reports PSNR, SSIM and CPU time.
-The Vulkan/EASU/RCAS/neural backends will be added on top of the same schema.
+The Vulkan/EASU/RCAS/neural backends will use the same manifest and CSV.
 
 Examples:
 
@@ -13,14 +13,15 @@ Examples:
         --reference tools/testdata --glob '*_gt.png' \
         --scale 2 --backend lanczos --out /tmp/scaler.csv
 
-    # Real low/high pairs, same relative paths
+    # Real low/high pairs with a manifest
     python3 tools/scaler-lab/scaler_lab.py \
-        --reference captures/high --input captures/low \
+        --manifest captures/dataset.json --split test \
         --backend lanczos --out /tmp/scaler.csv
 """
 
 import argparse
 import csv
+import json
 import math
 import sys
 import time
@@ -91,11 +92,61 @@ def find_images(root, glob):
     return sorted(path for path in root.rglob(glob) if path.is_file())
 
 
-def make_pairs(args):
+def load_manifest(path):
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise SystemExit(f"cannot read manifest {path}: {error}")
+    items = manifest.get("items")
+    if not isinstance(items, list) or not items:
+        raise SystemExit(f"{path}: 'items' must be a non-empty list")
+    base = path.parent
+    for item in items:
+        if not isinstance(item, dict):
+            raise SystemExit(f"{path}: each item must be an object")
+        for key in ("name", "low", "high"):
+            if not isinstance(item.get(key), str) or not item[key]:
+                raise SystemExit(f"{path}: item missing string '{key}'")
+    return base, manifest
+
+
+def manifest_pairs(args):
+    base, manifest = load_manifest(args.manifest)
+    selected = []
+    for item in manifest["items"]:
+        split = item.get("split", "")
+        if args.split != "all" and split != args.split:
+            continue
+        if args.limit > 0 and len(selected) >= args.limit:
+            break
+        low_path = base / item["low"]
+        high_path = base / item["high"]
+        if not low_path.is_file():
+            raise SystemExit(f"missing low-resolution image: {low_path}")
+        if not high_path.is_file():
+            raise SystemExit(f"missing high-resolution image: {high_path}")
+        low = load_image(low_path)
+        high = load_image(high_path)
+        scale = high.shape[1] / low.shape[1] if low.shape[1] else 0.0
+        selected.append({
+            "name": item["name"],
+            "game": item.get("game", ""),
+            "scene": item.get("scene", ""),
+            "split": split,
+            "hdr": bool(item.get("hdr", False)),
+            "low": low,
+            "reference": high,
+            "scale": scale,
+        })
+    if not selected:
+        raise SystemExit(f"{args.manifest}: no items for split {args.split!r}")
+    return selected
+
+
+def directory_pairs(args):
     references = find_images(args.reference, args.glob)
     if not references:
         raise SystemExit(f"no images matched {args.glob!r} under {args.reference}")
-
     if args.limit > 0:
         references = references[:args.limit]
     if args.input and args.reference.is_file() and not args.input.is_file():
@@ -105,6 +156,7 @@ def make_pairs(args):
     for reference_path in references:
         reference = load_image(reference_path)
         height, width = reference.shape[:2]
+        name = str(reference_path.relative_to(args.reference))
         if args.input:
             if args.input.is_file():
                 low_path = args.input
@@ -113,30 +165,47 @@ def make_pairs(args):
             if not low_path.is_file():
                 raise SystemExit(f"missing low-resolution pair: {low_path}")
             low = load_image(low_path)
-            low_h, low_w = low.shape[:2]
-            scale = width / low_w if low_w else 0.0
-            name = str(reference_path.relative_to(args.reference))
-            pairs.append((name, low, reference, scale))
-            continue
-
-        low_w = max(1, round(width / args.scale))
-        low_h = max(1, round(height / args.scale))
-        low = resize(reference, (low_w, low_h), args.downsample)
-        name = str(reference_path.relative_to(args.reference))
-        pairs.append((name, low, reference, width / low_w))
+            scale = width / low.shape[1] if low.shape[1] else 0.0
+        else:
+            low_w = max(1, round(width / args.scale))
+            low_h = max(1, round(height / args.scale))
+            low = resize(reference, (low_w, low_h), args.downsample)
+            scale = width / low_w
+        pairs.append({
+            "name": name,
+            "game": "",
+            "scene": "",
+            "split": "",
+            "hdr": False,
+            "low": low,
+            "reference": reference,
+            "scale": scale,
+        })
     return pairs
+
+
+def make_pairs(args):
+    if args.manifest:
+        return manifest_pairs(args)
+    return directory_pairs(args)
 
 
 def main():
     parser = argparse.ArgumentParser(
         description="Compare upscaling backends on low/high image pairs.")
-    parser.add_argument("--reference", type=Path, required=True,
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--reference", type=Path,
                         help="High-resolution image or directory.")
+    source.add_argument("--manifest", type=Path,
+                        help="JSON manifest describing low/high pairs.")
     parser.add_argument("--input", type=Path,
                         help="Low-resolution image or directory. Omit to "
                              "downsample the reference.")
     parser.add_argument("--glob", default="*.png",
                         help="Reference glob when --reference is a directory.")
+    parser.add_argument("--split", choices=("all", "train", "val", "test"),
+                        default="all",
+                        help="Manifest split to evaluate.")
     parser.add_argument("--scale", type=float, default=2.0,
                         help="Downsample factor for synthetic pairs.")
     parser.add_argument("--backend", choices=sorted(METHODS), default="lanczos",
@@ -145,7 +214,7 @@ def main():
     parser.add_argument("--downsample", choices=downsamplers, default="box",
                         help="Synthetic downsample filter. 'box' is nearest.")
     parser.add_argument("--limit", type=int, default=0,
-                        help="Only process the first N references (0 = all).")
+                        help="Only process the first N pairs (0 = all).")
     parser.add_argument("--out", type=Path, default=Path("scaler-lab.csv"),
                         help="CSV report path.")
     args = parser.parse_args()
@@ -153,28 +222,36 @@ def main():
         raise SystemExit("--scale must be positive")
     if args.downsample == "box":
         args.downsample = "nearest"
+    if args.manifest and args.input:
+        raise SystemExit("--input is for --reference mode; manifests carry pairs")
 
     pairs = make_pairs(args)
     rows = []
     print(f"{'image':<36} {'scale':>6} {'psnr':>8} {'ssim':>8} {'ms':>8}")
-    for name, low, reference, scale in pairs:
+    for pair in pairs:
+        reference = pair["reference"]
         started = time.perf_counter()
-        upscaled = resize(low, (reference.shape[1], reference.shape[0]),
+        upscaled = resize(pair["low"],
+                          (reference.shape[1], reference.shape[0]),
                           args.backend)
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         value_psnr = psnr(reference, upscaled)
         value_ssim = ssim(reference, upscaled)
         rows.append({
-            "image": name,
+            "image": pair["name"],
+            "game": pair["game"],
+            "scene": pair["scene"],
+            "split": pair["split"],
+            "hdr": "1" if pair["hdr"] else "0",
             "backend": args.backend,
-            "scale": f"{scale:.3f}",
+            "scale": f"{pair['scale']:.3f}",
             "width": reference.shape[1],
             "height": reference.shape[0],
             "psnr": f"{value_psnr:.4f}" if math.isfinite(value_psnr) else "inf",
             "ssim": f"{value_ssim:.6f}",
             "ms": f"{elapsed_ms:.3f}",
         })
-        print(f"{name[:36]:<36} {scale:>6.2f} "
+        print(f"{pair['name'][:36]:<36} {pair['scale']:>6.2f} "
               f"{value_psnr:>8.3f} {value_ssim:>8.4f} {elapsed_ms:>8.2f}")
 
     args.out.parent.mkdir(parents=True, exist_ok=True)

@@ -76,8 +76,9 @@ Vulkan EASU/RCAS and neural backends will be added behind the same interface.
 - SSIM on luma with a Gaussian window (`sigma=1.5`).
 - CPU resize time.
 
-The CSV contains `image`, `backend`, `scale`, `width`, `height`, `psnr`,
-`ssim` and `ms`. The console prints per-pair rows and the mean PSNR/SSIM.
+The CSV contains `image`, `game`, `scene`, `split`, `hdr`, `backend`, `scale`,
+`width`, `height`, `psnr`, `ssim` and `ms`. The console prints per-pair rows
+and the mean PSNR/SSIM. Directory mode leaves the metadata columns empty.
 
 Current limits:
 
@@ -85,6 +86,29 @@ Current limits:
 - No LPIPS, DISTS, VMAF, temporal metrics or HDR yet.
 - CPU timing only; no Vulkan/GPU timestamps yet.
 - Validate on held-out games, not just held-out frames.
+
+## Training (optional)
+
+The training scaffold is a small residual CNN with a pixel-shuffle head. It is
+meant for local experiments, not a finished recipe. Install the optional
+dependencies:
+
+```sh
+python3 -m pip install -r tools/scaler-lab/requirements-train.txt
+```
+
+Train from a manifest:
+
+```sh
+python3 tools/scaler-lab/train.py   --manifest dataset/dataset.json   --train-split train --val-split val   --patch 128 --batch-size 8 --epochs 20   --out runs/spatial-2x
+```
+
+The run writes `config.json`, `history.csv`, `last.pt`, `best.pt` and an
+optional ONNX export (`--onnx runs/spatial-2x/model.onnx`). Validation reports
+PSNR; use `scaler_lab.py` for the full metric suite and held-out-game results.
+
+Do not commit game captures or checkpoints trained on them. Public weights need
+a clean data statement and a compatible license.
 
 ## Tests
 

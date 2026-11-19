@@ -1,0 +1,26 @@
+{
+  "name": "example-scaling-v1",
+  "scale": 2,
+  "items": [
+    {
+      "name": "game-a/scene-01/0001",
+      "game": "game-a",
+      "scene": "scene-01",
+      "split": "train",
+      "low": "low/game-a/scene-01/0001.png",
+      "high": "high/game-a/scene-01/0001.png",
+      "fps": 60,
+      "hdr": false
+    },
+    {
+      "name": "game-b/scene-01/0001",
+      "game": "game-b",
+      "scene": "scene-01",
+      "split": "test",
+      "low": "low/game-b/scene-01/0001.png",
+      "high": "high/game-b/scene-01/0001.png",
+      "fps": 60,
+      "hdr": false
+    }
+  ]
+}

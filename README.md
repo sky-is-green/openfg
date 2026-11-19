@@ -477,6 +477,8 @@ Flatpak packages are not published yet.
 | [docs/LATENCY.md](docs/LATENCY.md) | Pacing modes, measured latency, generator cost |
 | [docs/TESTING.md](docs/TESTING.md) | Install checks, test matrix, reporting checklist |
 | [docs/VIDEO.md](docs/VIDEO.md) | mpv setup, scene-cut guard, video limitations |
+| [docs/SCALER.md](docs/SCALER.md) | Companion scaler architecture, capture backends, upscaler interfaces |
+| [tools/scaler-lab/DATASET.md](tools/scaler-lab/DATASET.md) | scaler-lab dataset schema and capture protocol |
 
 ## License
 
