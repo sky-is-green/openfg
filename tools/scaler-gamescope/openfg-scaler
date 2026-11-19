@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
+# Prototype Gamescope wrapper for the companion scaler.
+#
+# This uses Gamescope's built-in FSR1/NIS/SGSR upscalers. It validates the
+# render-scale workflow, input, HDR/VRR and capture path before the custom
+# OpenFG upscaler is wired in.
+set -euo pipefail
+
+usage() {
+    cat <<'EOF'
+usage: openfg-scaler [options] -- <command...>
+
+Options:
+  --render WxH       internal render size (default: 1280x720)
+  --output WxH       output size; omit to let Gamescope use the display
+  --filter NAME      fsr, nis, sgsr, linear, nearest or pixel (default: fsr)
+  --sharpness N      Gamescope sharpness 0..20 (default: 2)
+  --refresh HZ       nested refresh rate
+  --hdr              enable HDR output
+  --adaptive-sync    enable adaptive sync when available
+  --mangoapp         use Gamescope's MangoHud integration
+  -h, --help         show this help
+
+Examples:
+  openfg-scaler --render 1280x720 --filter fsr -- %command%
+  openfg-scaler --render 1920x1080 --output 2560x1440 -- %command%
+EOF
+}
+
+render="1280x720"
+output=""
+filter="fsr"
+sharpness="2"
+refresh=""
+hdr=0
+adaptive=0
+mangoapp=0
+command=()
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --render) render="${2:-}"; shift 2 ;;
+        --output) output="${2:-}"; shift 2 ;;
+        --filter) filter="${2:-}"; shift 2 ;;
+        --sharpness) sharpness="${2:-}"; shift 2 ;;
+        --refresh) refresh="${2:-}"; shift 2 ;;
+        --hdr) hdr=1; shift ;;
+        --adaptive-sync) adaptive=1; shift ;;
+        --mangoapp) mangoapp=1; shift ;;
+        -h|--help) usage; exit 0 ;;
+        --) shift; command=("$@"); break ;;
+        *) echo "openfg-scaler: unknown option: $1" >&2; usage >&2; exit 2 ;;
+    esac
+done
+
+if ! command -v gamescope >/dev/null 2>&1; then
+    echo "openfg-scaler: gamescope not found" >&2
+    exit 1
+fi
+if [ "${#command[@]}" -eq 0 ]; then
+    echo "openfg-scaler: missing command after --" >&2
+    usage >&2
+    exit 2
+fi
+if ! [[ "$render" =~ ^[0-9]+x[0-9]+$ ]]; then
+    echo "openfg-scaler: --render must be WIDTHxHEIGHT" >&2
+    exit 2
+fi
+
+args=(-w "${render%x*}" -h "${render#*x}" -f)
+if [ -n "$output" ]; then
+    if ! [[ "$output" =~ ^[0-9]+x[0-9]+$ ]]; then
+        echo "openfg-scaler: --output must be WIDTHxHEIGHT" >&2
+        exit 2
+    fi
+    args+=(-W "${output%x*}" -H "${output#*x}")
+fi
+if [ -n "$refresh" ]; then
+    args+=(-r "$refresh")
+fi
+case "$filter" in
+    fsr|nis|sgsr|linear|nearest|pixel) args+=(-F "$filter") ;;
+    *) echo "openfg-scaler: unknown --filter $filter" >&2; exit 2 ;;
+esac
+if ! [[ "$sharpness" =~ ^[0-9]+$ ]] || [ "$sharpness" -gt 20 ]; then
+    echo "openfg-scaler: --sharpness must be 0..20" >&2
+    exit 2
+fi
+args+=(--sharpness "$sharpness")
+[ "$hdr" -eq 1 ] && args+=(--hdr-enabled)
+[ "$adaptive" -eq 1 ] && args+=(--adaptive-sync)
+[ "$mangoapp" -eq 1 ] && args+=(--mangoapp)
+
+echo "openfg-scaler: gamescope ${args[*]} -- ${command[*]}" >&2
+exec gamescope "${args[@]}" -- "${command[@]}"

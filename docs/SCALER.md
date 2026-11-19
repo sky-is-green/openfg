@@ -50,6 +50,10 @@ PipeWire modes.
   cost before forking.
 - This is the recommended core because it solves the hard capture, input and
   display problems in one place.
+- A prototype wrapper lives in
+  [`tools/scaler-gamescope/`](../tools/scaler-gamescope/README.md). It uses
+  Gamescope's built-in FSR/NIS/SGSR to validate the workflow before the
+  custom pass is wired in.
 
 ### PipeWire (later drop-in)
 
