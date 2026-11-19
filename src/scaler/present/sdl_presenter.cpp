@@ -7,11 +7,17 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_vulkan.h>
 
+#ifdef OPENFG_SCALER_HAVE_WAYLAND
+#include <wayland-client.h>
+#endif
+
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <iostream>
 #include <stdexcept>
 #include <string>
+#include <cstring>
 
 namespace openfg::scaler {
 namespace {
@@ -49,6 +55,29 @@ namespace {
         return vk::PresentModeKHR::eFifo;
     }
 
+#ifdef OPENFG_SCALER_HAVE_WAYLAND
+    struct WaylandRegistryState {
+        wl_compositor* compositor{};
+    };
+
+    void registryGlobal(
+        void* data,
+        wl_registry* registry,
+        uint32_t name,
+        const char* interface,
+        uint32_t version
+    ) {
+        auto* state = static_cast<WaylandRegistryState*>(data);
+        if (!state->compositor &&
+            std::strcmp(interface, wl_compositor_interface.name) == 0)
+            state->compositor = static_cast<wl_compositor*>(
+                wl_registry_bind(registry, name, &wl_compositor_interface,
+                    std::min(version, 4U)));
+    }
+
+    void registryGlobalRemove(void*, wl_registry*, uint32_t) {}
+#endif
+
     vk::CompositeAlphaFlagBitsKHR chooseAlpha(
         vk::CompositeAlphaFlagsKHR supported
     ) {
@@ -75,6 +104,8 @@ SdlPresenter::SdlPresenter(PresentOptions options)
         flags |= SDL_WINDOW_FULLSCREEN;
     if (options_.hidden)
         flags |= SDL_WINDOW_HIDDEN;
+    if (options_.clickThrough)
+        flags |= SDL_WINDOW_NOT_FOCUSABLE;
     window_ = SDL_CreateWindow(
         options_.title.c_str(),
         static_cast<int>(options_.size.width),
@@ -83,6 +114,10 @@ SdlPresenter::SdlPresenter(PresentOptions options)
     if (!window_)
         throw std::runtime_error(
             std::string("SDL window creation failed: ") + SDL_GetError());
+    if (options_.clickThrough) {
+        SDL_SetWindowFocusable(window_, false);
+        SDL_SetWindowAlwaysOnTop(window_, true);
+    }
 }
 
 SdlPresenter::~SdlPresenter()
@@ -102,6 +137,12 @@ SdlPresenter::~SdlPresenter()
     }
     if (window_)
         SDL_DestroyWindow(window_);
+#ifdef OPENFG_SCALER_HAVE_WAYLAND
+    if (waylandCompositor_) {
+        wl_compositor_destroy(waylandCompositor_);
+        waylandCompositor_ = nullptr;
+    }
+#endif
     SDL_Quit();
 }
 
@@ -365,10 +406,52 @@ bool SdlPresenter::submit(vk::CommandBuffer command, std::string& error)
     return true;
 }
 
+void SdlPresenter::setupClickThrough()
+{
+#ifdef OPENFG_SCALER_HAVE_WAYLAND
+    if (!window_ || !options_.clickThrough)
+        return;
+    const char* driver = SDL_GetCurrentVideoDriver();
+    if (!driver || std::strcmp(driver, "wayland") != 0)
+        return;
+    auto* display = static_cast<wl_display*>(SDL_GetPointerProperty(
+        SDL_GetWindowProperties(window_),
+        SDL_PROP_WINDOW_WAYLAND_DISPLAY_POINTER, nullptr));
+    auto* surface = static_cast<wl_surface*>(SDL_GetPointerProperty(
+        SDL_GetWindowProperties(window_),
+        SDL_PROP_WINDOW_WAYLAND_SURFACE_POINTER, nullptr));
+    if (!display || !surface)
+        return;
+
+    WaylandRegistryState state;
+    static const wl_registry_listener listener{
+        .global = &registryGlobal,
+        .global_remove = &registryGlobalRemove
+    };
+    wl_registry* registry = wl_display_get_registry(display);
+    wl_registry_add_listener(registry, &listener, &state);
+    wl_display_roundtrip(display);
+    wl_registry_destroy(registry);
+    waylandCompositor_ = state.compositor;
+    if (!waylandCompositor_)
+        return;
+
+    wl_region* empty = wl_compositor_create_region(waylandCompositor_);
+    wl_surface_set_input_region(surface, empty);
+    wl_surface_commit(surface);
+    wl_region_destroy(empty);
+    std::cout << "click-through: empty Wayland input region\n";
+#else
+    (void)0;
+#endif
+}
+
 void SdlPresenter::show()
 {
-    if (window_)
+    if (window_) {
         SDL_ShowWindow(window_);
+        setupClickThrough();
+    }
 }
 
 void SdlPresenter::pollEvents()

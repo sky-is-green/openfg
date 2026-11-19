@@ -12,7 +12,9 @@ Implemented in `openfg-scaler`:
   buffer block; `--no-dmabuf` forces the shared-memory path.
 - FSR1 EASU with optional RCAS, reusing the embedded shaders and constants.
 - SDL3 Vulkan swapchain presenter with aspect-fit letterboxing, windowed or
-  fullscreen.
+  fullscreen. In fullscreen PipeWire mode the window is non-focusable and, on
+  Wayland, has an empty input region so mouse clicks pass through to the game.
+  `--no-click-through` disables this for debugging.
 - Optional `--present-timing` using `VK_KHR_present_id` and
   `VK_KHR_present_wait` for capture-to-display latency.
 - `--crop WxH+X+Y` for window decorations and monitor sub-rectangles.
@@ -65,7 +67,8 @@ cmake --build build --target openfg-scaler
   --dump /tmp/scale-out.rgba --dump-input /tmp/scale-in.rgba
 
 # Capture the selected window through the desktop portal. Crop the KDE title
-# bar so the source is exactly 1280x720.
+# bar so the source is exactly 1280x720. The fullscreen PipeWire overlay is
+# click-through by default; use --no-click-through while debugging.
 ./build/openfg-scaler --source pipewire --capture window \
   --input 1280x720 --crop 1280x720+0+28 \
   --output 2560x1440 --fullscreen --present-timing
@@ -176,7 +179,11 @@ PipeWire modes.
   `~/.local/state/openfg/`, mode `0600`). The token is single-use and is
   refreshed after every successful start. `--forget-token` deletes the saved
   token so the portal prompts again.
-- Still missing: click-through presentation and waiting on
+- Click-through is Wayland-only for mouse input. On X11 the window is still
+  non-focusable but does not pass clicks through. Because the overlay never
+  takes keyboard focus, Escape cannot close it; stop the process from the
+  terminal until an OSD/tray control exists.
+- Still missing: real-game input/focus validation and waiting on
   `SPA_DATA_SyncObj` for explicit synchronization.
 - The scaler window is created hidden and shown only after capture starts, so
   it does not appear in the portal's window picker.

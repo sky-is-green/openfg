@@ -48,6 +48,8 @@ struct Options {
     bool presentTiming{false};
     bool useDmaBuf{true};
     bool forgetToken{false};
+    bool clickThrough{false};
+    bool noClickThrough{false};
     bool animate{true};
     std::string gpu{"auto"};
     std::string dump;
@@ -78,6 +80,8 @@ void usage(const char* argv0)
         << "  --present-timing         diagnostic display wait; reduces throughput\n"
         << "  --no-dmabuf              copy PipeWire frames through shared memory\n"
         << "  --forget-token           forget the saved portal capture permission\n"
+        << "  --click-through          non-focusable overlay with no mouse input\n"
+        << "  --no-click-through       keep the scaler window focusable\n"
         << "  --frames N               stop after N frames (0 = until quit)\n"
         << "  --headless               render offscreen, no window\n"
         << "  --dump PATH              write the last headless frame as RGBA8\n"
@@ -193,6 +197,10 @@ Options parseOptions(int argc, char** argv)
             options.useDmaBuf = false;
         } else if (argument == "--forget-token") {
             options.forgetToken = true;
+        } else if (argument == "--click-through") {
+            options.clickThrough = true;
+        } else if (argument == "--no-click-through") {
+            options.noClickThrough = true;
         } else if (argument == "--static") {
             options.animate = false;
         } else if (argument == "--gpu") {
@@ -300,6 +308,9 @@ int main(int argc, char** argv)
             .presentTiming = options.presentTiming,
             .headless = options.headless,
             .hidden = options.source == "pipewire",
+            .clickThrough = !options.noClickThrough &&
+                (options.clickThrough ||
+                    (options.source == "pipewire" && options.fullscreen)),
             .title = "OpenFG Scaler"
         };
         std::unique_ptr<Runtime> runtime;

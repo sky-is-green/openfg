@@ -18,6 +18,7 @@ struct PresentOptions {
     bool presentTiming{false};
     bool headless{false};
     bool hidden{false};
+    bool clickThrough{false};
     std::string title{"OpenFG Scaler"};
 };
 

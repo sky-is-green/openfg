@@ -142,6 +142,7 @@ if(PkgConfig_FOUND)
   pkg_check_modules(SDL3 QUIET IMPORTED_TARGET sdl3)
   pkg_check_modules(PIPEWIRE QUIET IMPORTED_TARGET libpipewire-0.3)
   pkg_check_modules(DBUS QUIET IMPORTED_TARGET dbus-1)
+  pkg_check_modules(WAYLAND QUIET IMPORTED_TARGET wayland-client)
 endif()
 
 add_executable(openfg-scaler
@@ -167,6 +168,11 @@ if(SDL3_FOUND)
   target_link_libraries(openfg-scaler PRIVATE PkgConfig::SDL3)
   target_compile_definitions(openfg-scaler PRIVATE
     OPENFG_SCALER_HAVE_SDL3=1)
+endif()
+if(WAYLAND_FOUND)
+  target_link_libraries(openfg-scaler PRIVATE PkgConfig::WAYLAND)
+  target_compile_definitions(openfg-scaler PRIVATE
+    OPENFG_SCALER_HAVE_WAYLAND=1)
 endif()
 if(PIPEWIRE_FOUND AND DBUS_FOUND)
   target_sources(openfg-scaler PRIVATE

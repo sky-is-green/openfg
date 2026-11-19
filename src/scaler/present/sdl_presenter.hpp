@@ -7,6 +7,8 @@
 #include <vector>
 
 struct SDL_Window;
+struct wl_compositor;
+struct wl_registry;
 
 namespace openfg::scaler {
 
@@ -35,6 +37,7 @@ public:
     vk::Extent2D size() const override { return extent_; }
 
 private:
+    void setupClickThrough();
     void destroySwapchain();
     bool createSwapchain(std::string& error);
     bool createFramebuffers(std::string& error);
@@ -55,6 +58,10 @@ private:
     uint32_t imageIndex_{0};
     bool pipelineReady_{false};
     bool presentTiming_{false};
+#ifdef OPENFG_SCALER_HAVE_WAYLAND
+    wl_compositor* waylandCompositor_{};
+    wl_registry* waylandRegistry_{};
+#endif
     uint64_t presentId_{0};
     PresentPipeline pipeline_;
     vk::UniqueSemaphore available_;
