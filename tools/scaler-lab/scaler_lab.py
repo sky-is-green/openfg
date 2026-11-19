@@ -23,7 +23,11 @@ import argparse
 import csv
 import json
 import math
+import re
+import shutil
+import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -38,6 +42,7 @@ METHODS = {
     "bicubic": RESAMPLE.BICUBIC,
     "lanczos": RESAMPLE.LANCZOS,
 }
+GPU_BACKENDS = ("easu", "rcas", "easu+rcas")
 
 
 def load_image(path):
@@ -55,6 +60,55 @@ def resize(image, size, method):
     resized = Image.fromarray(data, mode="RGB").resize(
         (target_w, target_h), METHODS[method])
     return np.asarray(resized, dtype=np.float32) / 255.0
+
+
+def find_scaler_gpu(explicit):
+    if explicit:
+        path = Path(explicit)
+        return path if path.is_file() else None
+    repo = Path(__file__).resolve().parents[2]
+    for candidate in (repo / "build" / "scaler-gpu",):
+        if candidate.is_file():
+            return candidate
+    found = shutil.which("scaler-gpu")
+    return Path(found) if found else None
+
+
+def run_scaler_gpu(tool, low, reference, backend):
+    """Run the Vulkan EASU/RCAS harness and return RGB float + GPU ms."""
+    height, width = low.shape[:2]
+    out_height, out_width = reference.shape[:2]
+    started = time.perf_counter()
+    with tempfile.TemporaryDirectory(prefix="scaler-lab-gpu-") as directory:
+        root = Path(directory)
+        input_path = root / "low.rgba"
+        output_path = root / "high.rgba"
+        rgba = np.rint(np.clip(low, 0.0, 1.0) * 255.0).astype(np.uint8)
+        rgba = np.dstack([rgba, np.full((height, width), 255, dtype=np.uint8)])
+        input_path.write_bytes(rgba.tobytes())
+        command = [
+            str(tool),
+            "--input", str(input_path),
+            "--output", str(output_path),
+            "--width", str(width),
+            "--height", str(height),
+            "--out-width", str(out_width),
+            "--out-height", str(out_height),
+            "--filter", backend,
+            "--iterations", "3",
+        ]
+        result = subprocess.run(command, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise SystemExit(
+                f"scaler-gpu failed ({result.returncode}):\n"
+                f"{result.stdout}{result.stderr}")
+        raw = np.frombuffer(output_path.read_bytes(), dtype=np.uint8)
+        raw = raw.reshape(out_height, out_width, 4)
+        image = raw[..., :3].astype(np.float32) / 255.0
+        match = re.search(r"gpu avg:\s*([\d.]+)\s*ms", result.stdout)
+        gpu_ms = float(match.group(1)) if match else None
+    wall_ms = (time.perf_counter() - started) * 1000.0
+    return image, gpu_ms, wall_ms
 
 
 def psnr(reference, test):
@@ -247,8 +301,10 @@ def main():
                         help="Manifest split to evaluate.")
     parser.add_argument("--scale", type=float, default=2.0,
                         help="Downsample factor for synthetic pairs.")
-    parser.add_argument("--backend", choices=sorted(METHODS), default="lanczos",
-                        help="Upscaling filter.")
+    parser.add_argument("--backend", choices=sorted(METHODS) + list(GPU_BACKENDS),
+                        default="lanczos", help="Upscaling filter.")
+    parser.add_argument("--scaler-gpu", type=Path,
+                        help="Path to the scaler-gpu binary for GPU backends.")
     downsamplers = sorted(set(METHODS) | {"box"})
     parser.add_argument("--downsample", choices=downsamplers, default="box",
                         help="Synthetic downsample filter. 'box' is nearest.")
@@ -285,16 +341,29 @@ def main():
             lpips_model = lpips_model.cuda()
         lpips_model.eval()
 
+    gpu_tool = None
+    if args.backend in GPU_BACKENDS:
+        gpu_tool = find_scaler_gpu(args.scaler_gpu)
+        if gpu_tool is None:
+            raise SystemExit(
+                "--backend easu/rcas/easu+rcas needs scaler-gpu. Build it with "
+                "cmake --build build --target scaler-gpu, or pass --scaler-gpu.")
+
     pairs = make_pairs(args)
     rows = []
     print(f"{'image':<36} {'scale':>6} {'psnr':>8} {'ssim':>8} {'ms':>8}")
     for pair in pairs:
         reference = pair["reference"]
-        started = time.perf_counter()
-        upscaled = resize(pair["low"],
-                          (reference.shape[1], reference.shape[0]),
-                          args.backend)
-        elapsed_ms = (time.perf_counter() - started) * 1000.0
+        if gpu_tool is not None:
+            upscaled, gpu_ms, elapsed_ms = run_scaler_gpu(
+                gpu_tool, pair["low"], reference, args.backend)
+        else:
+            started = time.perf_counter()
+            upscaled = resize(pair["low"],
+                              (reference.shape[1], reference.shape[0]),
+                              args.backend)
+            elapsed_ms = (time.perf_counter() - started) * 1000.0
+            gpu_ms = None
         value_psnr = psnr(reference, upscaled)
         value_ssim = ssim(reference, upscaled)
         value_lpips = (compute_lpips(lpips_model, reference, upscaled)
@@ -320,6 +389,7 @@ def main():
             "ssim": f"{value_ssim:.6f}",
             "lpips": f"{value_lpips:.6f}" if value_lpips is not None else "",
             "ms": f"{elapsed_ms:.3f}",
+            "gpu_ms": f"{gpu_ms:.4f}" if gpu_ms is not None else "",
         })
         print(f"{pair['name'][:36]:<36} {pair['scale']:>6.2f} "
               f"{value_psnr:>8.3f} {value_ssim:>8.4f} {elapsed_ms:>8.2f}")

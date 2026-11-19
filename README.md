@@ -308,7 +308,8 @@ Benchmarks:
       Lanczos, PSNR/SSIM and CSV reports.
 - [x] FSR1 EASU/RCAS baseline in `scaler-gpu` (Vulkan; ~0.14 ms EASU,
       ~1.4 ms EASU+RCAS at 1440p).
-- [ ] EASU/RCAS and neural backends in the Python `scaler-lab` harness.
+- [x] EASU/RCAS backends in `scaler-lab` via `--backend` and `--scaler-gpu`.
+- [ ] Neural backend in `scaler-lab`.
 - [ ] LPIPS/DISTS/VMAF, temporal metrics and HUD-region crops.
 - [ ] Live capture-to-present latency and frame-pacing harness.
 

@@ -78,18 +78,31 @@ from the pair widths.
 
 ## Backends
 
-`nearest`, `bilinear`, `bicubic`, `lanczos`. These are CPU baselines. The
-Vulkan EASU/RCAS and neural backends will be added behind the same interface.
+CPU: `nearest`, `bilinear`, `bicubic`, `lanczos`.
+
+Vulkan: `easu`, `rcas`, `easu+rcas` through `tools/scaler-gpu`. Build it first:
+
+```sh
+cmake --build build --target scaler-gpu
+python3 tools/scaler-lab/scaler_lab.py   --manifest dataset/dataset.json --split test   --backend easu+rcas --scaler-gpu build/scaler-gpu   --out /tmp/easu.csv
+```
+
+The harness finds `build/scaler-gpu` automatically when it exists; pass
+`--scaler-gpu` for another path. The neural backend will use the same
+interface.
 
 ## Metrics
 
 - PSNR on RGB.
 - SSIM on luma with a Gaussian window (`sigma=1.5`).
 - Optional LPIPS with `--lpips` and `--lpips-net alex|vgg`.
-- CPU resize time.
+- CPU resize time for CPU backends; process wall time and reported GPU time for
+  `scaler-gpu` backends.
 
 The CSV contains `image`, `game`, `scene`, `split`, `hdr`, `backend`, `scale`,
-`width`, `height`, `psnr`, `ssim`, `lpips` and `ms`. The console prints
+`width`, `height`, `psnr`, `ssim`, `lpips`, `ms` and `gpu_ms`. `ms` is the
+CPU resize or process wall time; `gpu_ms` is the timestamped pass time reported
+by `scaler-gpu`. The console prints
 per-pair rows, the mean PSNR/SSIM and a per-game/split summary. A
 `*.summary.csv` file is written next to the main report. Directory mode leaves
 the metadata columns empty.
