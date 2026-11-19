@@ -32,7 +32,7 @@ the [technical white paper](docs/OPENFG-WHITEPAPER.md) for the full design.
 | **Content** | Process include/exclude, native and Wine/Proton names, video profile with scene-cut guard |
 | **HUD** | Static-UI mask removes doubled HUD text on generated frames |
 | **Controls** | TOML config, `OPENFG_*` overrides, CLI and Qt control panel |
-| **Tooling** | `fg-lab`, `scaler-lab` and `scaler-gpu` harnesses, synthetic benchmarks, HUD regression test, GPU probe |
+| **Tooling** | `fg-lab`, `scaler-lab`, `scaler-gpu`, synthetic benchmarks, HUD regression, log reports, GPU probe |
 
 ## Quick start
 
@@ -397,6 +397,9 @@ python3 tools/ghost_bench.py --scene ghost --generator ffx
 python3 tools/hud_bench.py --gpu auto
 python3 tools/hud_alpha_bench.py --gpu auto
 python3 tools/tile_bench.py --width 2560 --height 1440
+
+# Summarise one or more layer logs
+python3 tools/openfg-report.py raw/*.log --detail
 ```
 
 The standalone `scaler-gpu` harness runs FSR1 EASU/RCAS on raw RGBA and reports
@@ -489,6 +492,7 @@ Flatpak packages are not published yet.
 | [docs/LATENCY.md](docs/LATENCY.md) | Pacing modes, measured latency, generator cost |
 | [docs/TESTING.md](docs/TESTING.md) | Install checks, test matrix, reporting checklist |
 | [docs/VIDEO.md](docs/VIDEO.md) | mpv setup, scene-cut guard, video limitations |
+| [docs/REPORTING.md](docs/REPORTING.md) | Layer-log metrics and `openfg-report` |
 | [docs/SCALER.md](docs/SCALER.md) | Companion scaler architecture, capture backends, upscaler interfaces |
 | [tools/scaler-lab/DATASET.md](tools/scaler-lab/DATASET.md) | scaler-lab dataset schema and capture protocol |
 
