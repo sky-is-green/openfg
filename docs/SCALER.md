@@ -3,6 +3,28 @@
 Status: design only. The layer remains responsible for frame generation and
 the activation gate; the scaler is a separate capture/upscale/present app.
 
+## Repository layout
+
+The scaler is a **module and executable in this repository**, not a separate
+project or repository. It shares `vkutil`, the configuration code, shader
+embedding, CI, docs and releases with the layer.
+
+```text
+src/scaler/
+  main.cpp
+  capture.hpp              CaptureSource / Frame interfaces
+  capture/pipewire.cpp     portal + PipeWire DMA-BUF source
+  capture/gamescope.cpp    nested-compositor source
+  upscale/easu_rcas.cpp    spatial baseline
+  upscale/model.cpp        model package runtime
+  present/vulkan.cpp       fullscreen presenter
+```
+
+The CMake target is `openfg-scaler` and installs alongside `openfg-layer`,
+`openfg-gui` and `openfg-tray`. PipeWire is an optional build dependency; the
+core layer remains dependency-free. Gamescope remains an external compositor
+that the scaler can launch or integrate with.
+
 ## Goal
 
 Run a game at a lower internal resolution, upscale it to the display, and
