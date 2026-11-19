@@ -32,7 +32,7 @@ the [technical white paper](docs/OPENFG-WHITEPAPER.md) for the full design.
 | **Content** | Process include/exclude, native and Wine/Proton names, video profile with scene-cut guard |
 | **HUD** | Static-UI mask removes doubled HUD text on generated frames |
 | **Controls** | TOML config, `OPENFG_*` overrides, CLI and Qt control panel |
-| **Tooling** | `fg-lab`, `scaler-lab`, `scaler-gpu`, synthetic benchmarks, HUD regression, log reports, GPU probe |
+| **Tooling** | `fg-lab`, `scaler-lab`, `scaler-gpu`, model-contract validator, synthetic benchmarks, HUD regression, log reports, GPU probe |
 
 ## Quick start
 
@@ -513,6 +513,7 @@ Flatpak packages are not published yet.
 | [docs/TESTING.md](docs/TESTING.md) | Install checks, test matrix, reporting checklist |
 | [docs/VIDEO.md](docs/VIDEO.md) | mpv setup, scene-cut guard, video limitations |
 | [docs/REPORTING.md](docs/REPORTING.md) | Layer-log metrics and `openfg-report` |
+| [docs/MODEL-CONTRACT.md](docs/MODEL-CONTRACT.md) | Neural model package and fixed test-vector contract |
 | [docs/SCALER.md](docs/SCALER.md) | Companion scaler architecture, capture backends, upscaler interfaces |
 | [tools/scaler-lab/DATASET.md](tools/scaler-lab/DATASET.md) | scaler-lab dataset schema and capture protocol |
 

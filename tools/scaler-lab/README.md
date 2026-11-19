@@ -165,6 +165,15 @@ a clean data statement and a compatible license.
 python3 tools/scaler-lab/test_scaler_lab.py
 ```
 
+## Model packages
+
+The training lane hands off a model package described in
+[`docs/MODEL-CONTRACT.md`](../../docs/MODEL-CONTRACT.md). Validate it with:
+
+```sh
+python3 tools/model-contract.py /path/to/model-package --require-expected
+```
+
 ## Data rules
 
 Game captures stay local. Do not commit them to the repository or bundle them
