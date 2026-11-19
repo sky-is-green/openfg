@@ -74,9 +74,9 @@ process/video profiles and a live summary of the effective mode.
 
 Presets:
 
-- **Efficiency - 2x** — 2x, automatic refresh ÷ multiplier threshold, capped source, FFX.
-- **Quality** — 2x, generate on every frame, full-resolution FFX.
-- **Performance** — 2x, half-resolution flow, ~50% cheaper at 1440p.
+- **Efficiency - 2x** — 2x only below the automatic refresh ÷ multiplier threshold; capped source, FFX.
+- **Always 2x** — 2x on every real frame, full-resolution FFX. No threshold; the presented rate can exceed the display.
+- **Always 2x · Fast** — 2x on every real frame, half-resolution flow, ~50% cheaper at 1440p.
 - **Video · 4x** — 4x for a Vulkan player, adds `mpv` and the cut guard.
 
 Nothing is written until **Save**. Changes apply to applications started
@@ -107,6 +107,10 @@ as **Start below**.
 - Turn **Max presented FPS** off to use **Start below** alone. That allows a
   threshold above refresh ÷ multiplier, which can exceed the display and add
   delay.
+
+To disable the gate entirely, use **Max presented FPS: Off** and
+**Start below: Auto**, or the **Always 2x** preset. The layer then generates
+on every real frame, even when the presented rate exceeds the display.
 
 The panel also reports the display cadence. For the cleanest motion, the
 presented rate should divide the refresh evenly: 60 and 120 fps on a 120 Hz

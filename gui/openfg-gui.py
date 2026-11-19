@@ -470,14 +470,14 @@ class MainWindow(QtWidgets.QMainWindow):
             "start and the lowest added frame delay.",
             lambda: self._apply_preset("latency")), 0, 0)
         preset_layout.addWidget(preset(
-            "Quality",
-            "2x, always generate, full-resolution optical flow (FFX by "
-            "default).",
+            "Always 2x",
+            "2x on every real frame, full-resolution FFX. No activation "
+            "threshold; the presented rate can exceed the display.",
             lambda: self._apply_preset("quality")), 0, 1)
         preset_layout.addWidget(preset(
-            "Performance",
-            "2x, always generate, half-resolution flow. About 50% faster at "
-            "1440p with slightly softer edges.",
+            "Always 2x · Fast",
+            "2x on every real frame, half-resolution flow. About 50% faster "
+            "at 1440p with slightly softer edges; it can exceed the display.",
             lambda: self._apply_preset("performance")), 1, 0)
         preset_layout.addWidget(preset(
             "Video · 4x",
@@ -485,9 +485,9 @@ class MainWindow(QtWidgets.QMainWindow):
             "video profile and enables the cut guard.",
             lambda: self._apply_preset("video")), 1, 1)
         preset_layout.addWidget(hint(
-            "Presets apply 2x, same GPU and FFX. The automatic start "
-            "threshold is display refresh / multiplier. Nothing is written "
-            "until Save."), 2, 0, 1, 2)
+            "Efficiency uses the display refresh / multiplier threshold. "
+            "Always 2x generates on every real frame, even above the display "
+            "refresh. Nothing is written until Save."), 2, 0, 1, 2)
         root.addWidget(presets)
 
         # Frame generation settings
