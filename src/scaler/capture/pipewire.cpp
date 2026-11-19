@@ -29,6 +29,7 @@
 #include <string>
 #include <sys/mman.h>
 #include <unistd.h>
+#include <unordered_map>
 #include <vector>
 
 namespace openfg::scaler {
@@ -527,7 +528,19 @@ struct PipeWireSource::Impl {
     uint64_t modifier{0};
     uint32_t spaFormat{0};
 
+    struct CachedImport {
+        std::unique_ptr<ImportedImage> image;
+        int fd{-1};
+        uint32_t offset{};
+        uint32_t size{};
+        int32_t stride{};
+        uint64_t modifier{};
+        vk::Extent2D extent{};
+        vk::Format format{vk::Format::eUndefined};
+    };
+
     std::array<RingImage, 3> ring;
+    std::unordered_map<const spa_buffer*, CachedImport> imports;
     std::array<bool, 3> initialized{};
     std::array<bool, 3> busy{};
     bool ringReady{false};
@@ -1172,6 +1185,41 @@ struct PipeWireSource::Impl {
         return true;
     }
 
+    ImportedImage* cachedImage(
+        const spa_buffer* buffer,
+        const spa_data& data,
+        uint32_t offset,
+        int32_t stride,
+        uint32_t size,
+        std::string& error
+    ) {
+        auto& cached = imports[buffer];
+        if (cached.image &&
+            cached.fd == static_cast<int>(data.fd) &&
+            cached.offset == offset &&
+            cached.size == size &&
+            cached.stride == stride &&
+            cached.modifier == modifier &&
+            cached.extent == extent &&
+            cached.format == format)
+            return cached.image.get();
+
+        cached.image = std::make_unique<ImportedImage>();
+        if (!importDmaBuf(data, offset, stride, size,
+                *cached.image, error)) {
+            cached.image.reset();
+            return nullptr;
+        }
+        cached.fd = static_cast<int>(data.fd);
+        cached.offset = offset;
+        cached.size = size;
+        cached.stride = stride;
+        cached.modifier = modifier;
+        cached.extent = extent;
+        cached.format = format;
+        return cached.image.get();
+    }
+
     bool copyFrame(Queued& queued, int index, std::string& error)
     {
         spa_buffer* buffer = queued.buffer->buffer;
@@ -1213,10 +1261,12 @@ struct PipeWireSource::Impl {
             ? data.chunk->size
             : static_cast<uint32_t>(stride) * extent.height;
 
-        ImportedImage imported;
+        ImportedImage* imported = nullptr;
         bool isDmaBuf = false;
         if (data.type == SPA_DATA_DmaBuf && data.fd >= 0) {
-            if (!importDmaBuf(data, offset, stride, size, imported, error))
+            imported = cachedImage(
+                buffer, data, offset, stride, size, error);
+            if (!imported)
                 return false;
             isDmaBuf = true;
         } else if (!copySharedMemory(data, offset, stride, error)) {
@@ -1240,7 +1290,7 @@ struct PipeWireSource::Impl {
             runtime.dld);
 
         if (isDmaBuf) {
-            imageBarrier(*imported.image,
+            imageBarrier(*imported->image,
                 vk::ImageLayout::eUndefined,
                 vk::ImageLayout::eTransferSrcOptimal,
                 {}, vk::AccessFlagBits::eTransferRead,
@@ -1318,7 +1368,7 @@ struct PipeWireSource::Impl {
                     1
                 }
             };
-            command->copyImage(*imported.image,
+            command->copyImage(*imported->image,
                 vk::ImageLayout::eTransferSrcOptimal,
                 *ring[index].image,
                 vk::ImageLayout::eTransferDstOptimal, { copy },
@@ -1346,7 +1396,6 @@ struct PipeWireSource::Impl {
             return false;
         }
         initialized[index] = true;
-        imported.reset();
         return true;
     }
 
@@ -1486,6 +1535,7 @@ struct PipeWireSource::Impl {
         }
         portal.close();
         runtime.device->waitIdle(runtime.dld);
+        imports.clear();
 
         if (stagingMapped) {
             runtime.device->unmapMemory(*stagingMemory, runtime.dld);
