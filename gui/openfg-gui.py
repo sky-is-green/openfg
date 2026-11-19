@@ -181,6 +181,14 @@ def config_path() -> Path:
     return base / "openfg" / "conf.toml"
 
 
+def profiles_dir() -> Path:
+    env = os.environ.get("OPENFG_PROFILE_DIR")
+    if env:
+        return Path(env)
+    base = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config"))
+    return base / "openfg" / "profiles"
+
+
 def cli_path():
     candidates = [
         os.environ.get("OPENFG_CLI"),
@@ -844,6 +852,10 @@ class MainWindow(QtWidgets.QMainWindow):
         launch_button.setToolTip(
             "Show copyable launch options for Steam and other launchers.")
         launch_button.clicked.connect(self.show_launch_options)
+        profiles_button = QtWidgets.QPushButton("Profiles")
+        profiles_button.setToolTip(
+            "Save the current settings as a per-game profile.")
+        profiles_button.clicked.connect(self.show_profiles)
         open_button = QtWidgets.QPushButton("Open folder")
         open_button.setToolTip("Open the folder containing conf.toml.")
         open_button.clicked.connect(self.open_config_folder)
@@ -856,6 +868,7 @@ class MainWindow(QtWidgets.QMainWindow):
         buttons.addWidget(validate_button)
         buttons.addWidget(show_button)
         buttons.addWidget(launch_button)
+        buttons.addWidget(profiles_button)
         buttons.addWidget(open_button)
         buttons.addStretch(1)
         buttons.addWidget(save_button)
@@ -1296,6 +1309,84 @@ If display detection fails, add OPENFG_REFRESH=165.
         row.addStretch(1)
         row.addWidget(close)
         layout.addLayout(row)
+        dialog.exec()
+
+    def show_profiles(self) -> None:
+        directory = profiles_dir()
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("Per-game profiles")
+        dialog.resize(640, 460)
+        layout = QtWidgets.QVBoxLayout(dialog)
+        layout.addWidget(hint(
+            "A profile is a full config named after the game process. The "
+            "layer uses <process>.toml when that process starts."))
+        form = QtWidgets.QFormLayout()
+        name = QtWidgets.QLineEdit()
+        name.setPlaceholderText("Wonderlands.exe")
+        form.addRow("Process name:", name)
+        layout.addLayout(form)
+
+        listing = QtWidgets.QListWidget()
+        listing.setMinimumHeight(160)
+        layout.addWidget(listing)
+
+        def refresh():
+            listing.clear()
+            directory.mkdir(parents=True, exist_ok=True)
+            for path in sorted(directory.glob("*.toml")):
+                listing.addItem(path.stem)
+
+        def choose(item):
+            name.setText(item.text())
+
+        listing.itemClicked.connect(choose)
+
+        def save_profile():
+            process = name.text().strip()
+            if process.lower().endswith(".toml"):
+                process = process[:-5]
+            if not process or "/" in process or "\\" in process:
+                QtWidgets.QMessageBox.warning(
+                    dialog, "Profile", "Enter a process name without slashes.")
+                return
+            config = self._collect()
+            config["enabled"] = True
+            config["include"] = [process]
+            config["exclude"] = []
+            if not self._validate_widgets(config):
+                return
+            directory.mkdir(parents=True, exist_ok=True)
+            path = directory / f"{process}.toml"
+            try:
+                with tempfile.TemporaryDirectory(prefix="openfg-profile-") as temp:
+                    probe = Path(temp) / "conf.toml"
+                    save_config_to(probe, config)
+                    ok, message = run_cli_validate(probe)
+                if not ok:
+                    self._set_status(message, True)
+                    return
+                save_config_to(path, config)
+            except OSError as error:
+                self._set_status(f"Cannot write {path}: {error}", True)
+                return
+            self._set_status(f"Saved profile {short_path(path)}.")
+            refresh()
+            name.clear()
+
+        actions = QtWidgets.QHBoxLayout()
+        save = QtWidgets.QPushButton("Save current settings")
+        save.clicked.connect(save_profile)
+        folder = QtWidgets.QPushButton("Open folder")
+        folder.clicked.connect(lambda: QtGui.QDesktopServices.openUrl(
+            QtCore.QUrl.fromLocalFile(str(directory))))
+        close = QtWidgets.QPushButton("Close")
+        close.clicked.connect(dialog.accept)
+        actions.addWidget(save)
+        actions.addWidget(folder)
+        actions.addStretch(1)
+        actions.addWidget(close)
+        layout.addLayout(actions)
+        refresh()
         dialog.exec()
 
     def open_config_folder(self) -> None:

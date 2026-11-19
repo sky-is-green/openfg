@@ -735,8 +735,20 @@ LoadResult load(const std::filesystem::path& path) {
     return result;
 }
 
+namespace {
+    std::filesystem::path profilePath(const std::vector<std::string>& names);
+}
+
 const LoadResult& processConfig() {
-    static const LoadResult result = load();
+    static const LoadResult result = [] {
+        // An explicit config path wins over the per-game profile directory.
+        if (const char* explicitConfig = std::getenv("OPENFG_CONFIG");
+            explicitConfig && *explicitConfig)
+            return load();
+        const auto names = processNames();
+        const auto profile = profilePath(names);
+        return profile.empty() ? load() : load(profile);
+    }();
     return result;
 }
 
@@ -788,6 +800,55 @@ std::vector<std::string> processNames() {
 }
 
 namespace {
+    std::string lower(std::string value) {
+        std::transform(value.begin(), value.end(), value.begin(),
+            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return value;
+    }
+
+    std::filesystem::path profilesDirectory() {
+        if (const char* profileDir = std::getenv("OPENFG_PROFILE_DIR");
+            profileDir && *profileDir)
+            return profileDir;
+        if (const char* xdg = std::getenv("XDG_CONFIG_HOME"); xdg && *xdg)
+            return std::filesystem::path(xdg) / "openfg" / "profiles";
+        if (const char* home = std::getenv("HOME"); home && *home)
+            return std::filesystem::path(home) / ".config" / "openfg" / "profiles";
+        return "/etc/openfg/profiles";
+    }
+
+    std::filesystem::path profilePath(const std::vector<std::string>& names) {
+        if (names.empty())
+            return {};
+        const auto directory = profilesDirectory();
+        std::error_code ec;
+        if (!std::filesystem::is_directory(directory, ec))
+            return {};
+
+        // Prefer a Wine/Proton .exe name over the loader process name.
+        std::vector<std::string> ordered;
+        for (const auto& name : names)
+            if (name.size() > 4 && lower(name).ends_with(".exe"))
+                ordered.push_back(name);
+        for (const auto& name : names) {
+            if (std::find(ordered.begin(), ordered.end(), name) == ordered.end())
+                ordered.push_back(name);
+        }
+
+        for (const auto& name : ordered) {
+            const auto wanted = lower(name);
+            for (const auto& entry : std::filesystem::directory_iterator(directory, ec)) {
+                if (ec)
+                    break;
+                if (!entry.is_regular_file(ec) || entry.path().extension() != ".toml")
+                    continue;
+                if (lower(entry.path().stem().string()) == wanted)
+                    return entry.path();
+            }
+        }
+        return {};
+    }
+
     bool matchesConfig(const Config& config, const std::vector<std::string>& names) {
         if (listMatches(config.exclude, names))
             return false;

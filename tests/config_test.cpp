@@ -5,7 +5,11 @@
 #include "config/config.hpp"
 
 #include <cstdio>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <string>
+#include <unistd.h>
 
 namespace {
 
@@ -128,6 +132,26 @@ int main() {
     broken.replace(position, std::string("multiplier = 4").size(), "multiplier = 5");
     const auto invalid = parse(broken, "invalid.toml");
     expect(!invalid.error.empty(), "an invalid video multiplier is rejected");
+
+    const auto names = processNames();
+    if (!names.empty()) {
+        const auto directory = std::filesystem::temp_directory_path() /
+            ("openfg-profile-test-" + std::to_string(::getpid()));
+        std::filesystem::create_directories(directory);
+        const auto profilePath = directory / (names.front() + ".toml");
+        {
+            std::ofstream profile{profilePath};
+            profile << "[openfg]\nenabled = true\nmax_presented_fps = 60\n";
+        }
+        unsetenv("OPENFG_CONFIG");
+        setenv("OPENFG_PROFILE_DIR", directory.c_str(), 1);
+        const auto& profile = processConfig();
+        expect(profile.path == profilePath, "per-game profile path selected");
+        expect(profile.config.maxPresentedFps == 60,
+            "per-game profile config loaded");
+        std::filesystem::remove_all(directory);
+        unsetenv("OPENFG_PROFILE_DIR");
+    }
 
     if (failures == 0)
         std::printf("config checks passed\n");

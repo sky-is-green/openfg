@@ -69,8 +69,8 @@ process loads it; the config decides whether it is active. Use
 ## Control panel
 
 `openfg-gui` edits the same file. It includes presets, the activation gate, a
-GPU capability probe, application filters, video profiles and a live summary
-of the effective mode.
+GPU capability probe, application filters, video profiles, per-game profiles
+and a live summary of the effective mode.
 
 For UI work, `scripts/install-gui.sh --dev` symlinks the installed launcher to
 `gui/openfg-gui.py`; edits appear on the next launch without reinstalling.
@@ -144,6 +144,19 @@ example 60→120 or about 82→164 on 165 Hz), and prefer 2x over 3x/4x.
 
 The layer reads `$XDG_CONFIG_HOME/openfg/conf.toml`, falling back to
 `~/.config/openfg/conf.toml`. `OPENFG_CONFIG` overrides the path.
+
+### Per-game profiles
+
+The layer also looks for a profile named after the current process in
+`$XDG_CONFIG_HOME/openfg/profiles/<process>.toml` (default
+`~/.config/openfg/profiles/`). If a profile exists, it is used instead of the
+base config for that process. `OPENFG_CONFIG` still wins over profiles;
+`OPENFG_PROFILE_DIR` overrides the profile directory.
+
+The control panel's **Profiles** button saves the current settings as a full
+profile and sets its process include to the name you enter. A profile is a
+complete config, not a partial override, so copy the settings you want it to
+use.
 
 | Key | Default | Meaning |
 |---|---|---|
