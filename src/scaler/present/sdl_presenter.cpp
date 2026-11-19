@@ -268,8 +268,7 @@ bool SdlPresenter::acquire(PresentTarget& target, std::string& error)
     uint32_t index{0};
     auto result = runtime_->device->acquireNextImageKHR(
         *swapchain_, UINT64_MAX, *available_, nullptr, &index, runtime_->dld);
-    if (result == vk::Result::eErrorOutOfDateKHR ||
-        result == vk::Result::eSuboptimalKHR) {
+    if (result == vk::Result::eErrorOutOfDateKHR) {
         if (!recreateSwapchain(error))
             return false;
         result = runtime_->device->acquireNextImageKHR(
@@ -277,6 +276,7 @@ bool SdlPresenter::acquire(PresentTarget& target, std::string& error)
             runtime_->dld);
     }
     if (result == vk::Result::eSuboptimalKHR) {
+        // The image and semaphore are valid; recreate after this frame.
         resizePending_ = true;
     } else if (result != vk::Result::eSuccess) {
         error = "swapchain image acquisition failed";
