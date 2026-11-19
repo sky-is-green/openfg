@@ -268,6 +268,45 @@ Real-world reference points:
   a hard cut from 12.21 dB (blend) to 99 dB (current frame).
 - Present-latency measurements and caveats: [docs/LATENCY.md](docs/LATENCY.md).
 
+## Roadmap
+
+Near term (layer and control panel):
+
+- [ ] Per-game profiles: choose the gate and mode by process name.
+- [ ] Status OSD/tray: gate state, multiplier and start/stop transitions.
+- [ ] Benchmark/telemetry mode: p50/p95, overhead, CSV/JSON export.
+- [ ] Auto-tune the gate and multiplier from display refresh and frame time.
+- [ ] Reduce start/stop churn and improve frame pacing.
+- [ ] HDR/VRR-aware presentation and pacing.
+
+Companion upscaler/compositor:
+
+- [ ] Pick the capture/present backend: PipeWire window capture or a
+      Gamescope-style nested compositor.
+- [ ] Spatial upscaler: FSR1/EASU + RCAS-style sharpening, integer scaling and
+      aspect-ratio controls.
+- [ ] HDR and VRR in the capture/present path.
+- [ ] Neural spatial upscaler: small CNN, FP16, local training.
+- [ ] Model plugin API for user-supplied upscalers.
+- [ ] Measure capture-to-present latency against native and Lossless Scaling.
+
+Research:
+
+- [ ] Neural frame generation: small flow/interpolation model vs FFX flow.
+- [ ] Training pipeline: local high-fps captures, held-out-game evaluation and
+      synthetic data.
+- [ ] Compare upscale -> frame-gen against frame-gen -> upscale for quality and
+      latency.
+
+Needs engine integration:
+
+- [ ] Temporal upscaler with motion vectors, depth, jitter and masks.
+
+A layer cannot reliably obtain motion vectors and depth from VKD3D without
+game cooperation. Heuristic buffer detection or injection is fragile and can
+trip anti-cheat, so true temporal upscaling is parked until a game or engine
+partner wants the integration.
+
 ## HUD ghosting
 
 Frame interpolation warps the whole image, including screen-locked HUD text.
