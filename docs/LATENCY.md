@@ -50,7 +50,9 @@ around 41. Dividing evenly matters too: 60 or 120 presented fps on 165 Hz is
 vblanks. A 120 Hz display mode makes 60 and 120 presented fps exact.
 `max_presented_fps = -1` derives that cap from the detected display
 refresh automatically. `target_fps` remains a manual activation threshold;
-when both are set, the stricter one wins. Above the effective threshold the
+when both are set, the stricter one wins. The UI calls it **Start below
+(source)**; both values are source rates, and the presented rate is
+`source × multiplier`. Above the effective threshold the
 layer stays off, which is the efficiency feature, not a latency reduction.
 For lower latency, raise the source rate (30→60, 60→120, or ~82→164 on
 165 Hz) rather than raising the threshold; a higher threshold only decides

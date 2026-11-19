@@ -582,24 +582,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
         root.addWidget(settings)
 
-        # Latency settings
-        latency = QtWidgets.QGroupBox("Latency")
-        latency_layout = QtWidgets.QVBoxLayout(latency)
-        latency_form = QtWidgets.QFormLayout()
-        latency_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
-
-        self.pacing = QtWidgets.QComboBox()
-        self.pacing.addItem("Adaptive (1 s threshold dwell)", "adaptive")
-        self.pacing.addItem("Capped source (start immediately)", "capped")
-        self.pacing.setSizePolicy(
-            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-        index = self.pacing.findData(self.config["pacing"])
-        self.pacing.setCurrentIndex(index if index >= 0 else 0)
-        self.pacing.setToolTip(
-            "Adaptive waits for a sustained drop below the target. Capped "
-            "starts immediately; cap the game yourself at refresh ÷ multiplier."
-        )
-        latency_form.addRow("Pacing:", self.pacing)
+        # Activation gate
+        gate = QtWidgets.QGroupBox("Activation gate")
+        gate_layout = QtWidgets.QVBoxLayout(gate)
+        gate_form = QtWidgets.QFormLayout()
+        gate_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
 
         self.target_fps = QtWidgets.QSpinBox()
         self.target_fps.setRange(0, 1000)
@@ -610,21 +597,21 @@ class MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
         self.target_fps.setValue(self.config["target_fps"])
         self.target_fps.setToolTip(
-            "Manual activation threshold: start generation only below this "
-            "native rate. 0 = no manual threshold; the presented cap still "
-            "applies. The effective threshold is min(this, max presented / "
-            "multiplier). Use about 82 fps for 2x on 165 Hz."
+            "Manual source-rate gate: generate only below this native rate. "
+            "0 = no manual gate; the presented cap still applies. The "
+            "effective gate is min(this, max presented / multiplier). On "
+            "165 Hz with 2x, 82.5 source = 165 presented."
         )
-        self.target_note = hint("")
-        latency_form.addRow("Start below:", self.target_fps)
+        gate_form.addRow("Start below (source):", self.target_fps)
 
         self.max_presented = QtWidgets.QComboBox()
         self.max_presented.addItem("Off", 0)
         self.max_presented.addItem("Auto (detected display refresh)", -1)
         self.max_presented.addItem("Custom", 1)
         self.max_presented.setToolTip(
-            "Stop when presented fps would exceed this value. Auto reads the "
-            "display refresh; set OPENFG_REFRESH if detection fails."
+            "Presented-rate cap; also sets the automatic source gate = this / "
+            "multiplier. Auto reads the display refresh; Off disables the "
+            "gate. 165 presented with 2x = 82.5 source."
         )
         self.max_presented_spin = QtWidgets.QSpinBox()
         self.max_presented_spin.setRange(20, 1000)
@@ -646,8 +633,37 @@ class MainWindow(QtWidgets.QMainWindow):
         cap_row = QtWidgets.QHBoxLayout()
         cap_row.addWidget(self.max_presented, 1)
         cap_row.addWidget(self.max_presented_spin)
-        latency_form.addRow("Max presented FPS:", cap_row)
+        gate_form.addRow("Max presented FPS:", cap_row)
         self.max_presented_spin.setEnabled(self.max_presented.currentData() == 1)
+
+        self.target_note = hint("")
+        self.cadence_note = hint("")
+        gate_layout.addLayout(gate_form)
+        gate_layout.addWidget(self.target_note)
+        gate_layout.addWidget(self.cadence_note)
+        gate_layout.addWidget(hint(
+            "Above the gate, generation is off; below it, generated frames "
+            "are inserted. This controls efficiency, not input latency."))
+        root.addWidget(gate)
+
+        # Latency settings
+        latency = QtWidgets.QGroupBox("Latency")
+        latency_layout = QtWidgets.QVBoxLayout(latency)
+        latency_form = QtWidgets.QFormLayout()
+        latency_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
+
+        self.pacing = QtWidgets.QComboBox()
+        self.pacing.addItem("Adaptive (1 s threshold dwell)", "adaptive")
+        self.pacing.addItem("Capped source (start immediately)", "capped")
+        self.pacing.setSizePolicy(
+            QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+        index = self.pacing.findData(self.config["pacing"])
+        self.pacing.setCurrentIndex(index if index >= 0 else 0)
+        self.pacing.setToolTip(
+            "Adaptive waits for a sustained drop below the target. Capped "
+            "starts immediately; cap the game yourself at the source gate."
+        )
+        latency_form.addRow("Pacing:", self.pacing)
 
         self.performance = QtWidgets.QCheckBox(
             "Performance mode (half-resolution flow)")
@@ -659,13 +675,9 @@ class MainWindow(QtWidgets.QMainWindow):
         latency_form.addRow("", self.performance)
 
         latency_layout.addLayout(latency_form)
-        latency_layout.addWidget(self.target_note)
-        self.cadence_note = hint("")
-        latency_layout.addWidget(self.cadence_note)
         latency_layout.addWidget(hint(
-            "Frame generation raises the presented rate; it does not lower "
-            "input latency. See docs/LATENCY.md for the measurement method."))
-
+            "Pacing and generator cost only. Frame generation raises the "
+            "presented rate; it does not lower input latency."))
         root.addWidget(latency)
 
         # Process filters
@@ -878,25 +890,20 @@ class MainWindow(QtWidgets.QMainWindow):
             gpu = self._selected_gpu()
             gpu_text = "application GPU" if gpu == "auto" else gpu
             cross = "second GPU" if self.cross_gpu.isChecked() else "same GPU"
-            target = int(self.target_fps.value())
-            cap = int(self.max_presented.currentData())
             pacing = self.pacing.currentData()
             pacing_text = "capped source" if pacing == "capped" else "adaptive"
             threshold = self._effective_threshold()
             if pacing == "capped":
                 target_text = (
-                    f"cap at {threshold:.1f} fps" if threshold > 0
-                    else "always generating")
+                    f"cap {threshold:.1f} source "
+                    f"({threshold * multiplier:.0f} presented)"
+                    if threshold > 0 else "always generating")
             elif threshold > 0:
-                target_text = f"starts below {threshold:.1f} fps"
+                target_text = (
+                    f"gate {threshold:.1f} source "
+                    f"({threshold * multiplier:.0f} presented)")
             else:
-                target_text = "always generating"
-            if cap == -1:
-                cap_text = " · auto presented cap"
-            elif cap == 1:
-                cap_text = f" · ≤{self.max_presented_spin.value()} presented fps"
-            else:
-                cap_text = ""
+                target_text = f"always generating ({multiplier}× source)"
             gen = str(self.generator.currentData())
             gen_text = {"ffx": "FFX", "flow": "flow", "blend": "blend",
                         "hold": "hold", "off": "off"}.get(gen, gen)
@@ -905,7 +912,7 @@ class MainWindow(QtWidgets.QMainWindow):
                            else "quality")
                 gen_text += f" {quality}"
             text = (f"{multiplier}x · {cross} · {gpu_text} · {pacing_text} · "
-                    f"{target_text}{cap_text} · {gen_text}")
+                    f"{target_text} · {gen_text}")
             video_players = [line.strip() for line in
                              self.video_processes.toPlainText().splitlines() if line.strip()]
             if video_players:
@@ -944,15 +951,17 @@ class MainWindow(QtWidgets.QMainWindow):
         return cap_threshold
 
     def _update_cadence_note(self) -> None:
-        cap = int(self.max_presented.currentData())
         refresh = self.display_refresh if self.display_refresh >= 20 else 0.0
-        if cap == 0 or refresh <= 0:
+        multiplier = max(2, int(self.multiplier.currentData()))
+        threshold = self._effective_threshold()
+        if threshold <= 0 or refresh <= 0:
             self.cadence_note.setText("")
             return
-        presented = (
-            refresh if cap == -1 else float(self.max_presented_spin.value()))
-        if presented <= 0:
-            self.cadence_note.setText("")
+        presented = threshold * multiplier
+        if presented > refresh * 1.01:
+            self.cadence_note.setText(
+                f"Cadence: {presented:.0f} presented fps exceeds "
+                f"{refresh:.0f} Hz; frames will be dropped.")
             return
         ratio = refresh / presented
         nearest = round(ratio)
@@ -969,44 +978,40 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _update_target_note(self) -> None:
         self._update_cadence_note()
-        if self.pacing.currentData() == "capped":
-            threshold = self._effective_threshold()
-            if threshold > 0:
-                self.target_note.setText(
-                    f"Starts immediately. Cap the game at {threshold:.1f} fps "
-                    "(the activation threshold); the safety stop is above "
-                    "105% of that. This controls efficiency, not input "
-                    "latency.")
-            else:
-                self.target_note.setText(
-                    "Starts immediately. No activation threshold: cap the "
-                    "game or generation runs on every real frame. This "
-                    "controls efficiency, not input latency.")
-            return
         threshold = self._effective_threshold()
         target = int(self.target_fps.value())
         cap_threshold = self._cap_threshold()
+        multiplier = max(2, int(self.multiplier.currentData()))
+        if self.pacing.currentData() == "capped":
+            if threshold > 0:
+                self.target_note.setText(
+                    f"Starts immediately. Cap the game at {threshold:.1f} "
+                    f"source fps ({threshold * multiplier:.0f} presented); "
+                    f"the safety stop is above {threshold * 1.05:.1f}.")
+            else:
+                self.target_note.setText(
+                    "Starts immediately. No gate: every real frame is generated.")
+            return
         if threshold <= 0:
             self.target_note.setText(
-                "No automatic threshold: generates on every real frame; each "
-                "multiplier adds display delay.")
+                "No gate: every real frame is generated. Presented is "
+                f"{multiplier}× source and can exceed the display.")
         elif target <= 0:
             self.target_note.setText(
-                f"Auto threshold: {threshold:.1f} fps "
-                f"(display refresh / multiplier). Above this, OpenFG stays "
-                "off. This controls efficiency, not input latency.")
+                f"Auto gate: {threshold:.1f} source fps "
+                f"({threshold * multiplier:.0f} presented with {multiplier}x).")
         elif cap_threshold > 0 and target > cap_threshold:
             self.target_note.setText(
-                f"Manual target {target} fps is above the automatic cap "
-                f"{cap_threshold:.1f} fps; the effective threshold is "
-                f"{cap_threshold:.1f} fps. Turn the presented cap off to use "
-                "the manual value (it can exceed the display). This controls "
-                "efficiency, not input latency.")
+                f"Manual {target} is above the automatic {cap_threshold:.1f} "
+                f"source gate; effective gate {cap_threshold:.1f} source "
+                f"({cap_threshold * multiplier:.0f} presented). Turn the "
+                f"presented cap off to use {target} "
+                f"({target * multiplier:.0f} presented; it can exceed the "
+                "display).")
         else:
             self.target_note.setText(
-                f"Manual threshold: {target} fps; automatic cap "
-                f"{cap_threshold:.1f} fps. Above this, OpenFG stays off. "
-                "This controls efficiency, not input latency.")
+                f"Manual gate: {target} source fps "
+                f"({target * multiplier:.0f} presented with {multiplier}x).")
 
     def _collect(self) -> dict:
         return {

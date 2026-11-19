@@ -67,8 +67,9 @@ process loads it; the config decides whether it is active. Use
 
 ## Control panel
 
-`openfg-gui` edits the same file. It includes presets, a GPU capability probe,
-process/video profiles and a live summary of the effective mode.
+`openfg-gui` edits the same file. It includes presets, the activation gate, a
+GPU capability probe, process/video profiles and a live summary of the
+effective mode.
 
 ![OpenFG Control](docs/assets/openfg-control.png)
 
@@ -92,6 +93,10 @@ automatic threshold is **display refresh ÷ multiplier**:
 | 165 Hz | 82.5 fps | 55 fps | 41.25 fps |
 | 144 Hz | 72 fps | 48 fps | 36 fps |
 | 120 Hz | 60 fps | 40 fps | 30 fps |
+
+The threshold is a **source** rate. With 2x, 82.5 source = 165 presented;
+120 source would be 240 presented, beyond a 165 Hz display. The UI labels it
+**Start below (source)**.
 
 Above that rate (with a small hysteresis band) the layer turns off: no
 generated frames, no generator work and no added display delay. That is what
@@ -145,7 +150,7 @@ The layer reads `$XDG_CONFIG_HOME/openfg/conf.toml`, falling back to
 | `generator` | `"ffx"` | `ffx`, `flow`, `blend`, `hold` or `off`. |
 | `performance_mode` | `false` | Half-resolution flow: cheaper, slightly softer edges. |
 | `pacing` | `"adaptive"` | `adaptive` waits for a sustained drop; `capped` starts immediately. |
-| `target_fps` | `0` | Manual activation threshold. `0` = no manual threshold; the presented cap still applies. The effective threshold is `min(target_fps, max_presented_fps / multiplier)`. |
+| `target_fps` | `0` | Manual source-rate threshold. `0` = no manual threshold; the presented cap still applies. The effective threshold is `min(target_fps, max_presented_fps / multiplier)`. |
 | `max_presented_fps` | `0` | Presented-frame cap; also sets the automatic activation threshold when non-zero. `-1` = detected display refresh; `0` = off. |
 | `present_timing` | `false` | Present-id/wait latency instrumentation. |
 | `debug` | `false` | Per-frame logging to stderr. |

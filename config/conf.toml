@@ -24,7 +24,8 @@ target_fps = 0
 
 # Cap presented frames per second and set the automatic activation threshold:
 # source threshold = this value / multiplier. -1 = detected display refresh
-# (the efficiency default), 0 = off, or an explicit value such as 165.
+# (recommended for efficiency), 0 = off (always generate), or an explicit
+# value such as 165.
 max_presented_fps = 0
 
 # Half-resolution flow: for flow it also narrows refinement; for ffx it runs
