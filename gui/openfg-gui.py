@@ -1276,11 +1276,12 @@ Steam / Proton: Properties -> Launch Options
 Non-Steam launchers
 
   Prefix the same variables to the command. For example:
-    DISABLE_OPENFG=1 mangohud %command%
+    DISABLE_OPENFG=1 mangohud ./your-game
 
 Notes
 
-  %command% is Steam's placeholder; keep it at the end.
+  %command% is Steam's placeholder; keep it at the end for Steam.
+  For other launchers, replace it with the game command.
   Environment variables apply only to that launch.
   DISABLE_OPENFG=1 wins over everything.
   If display detection fails, add OPENFG_REFRESH=165.
