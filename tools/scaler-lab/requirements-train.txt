@@ -1,3 +1,9 @@
+# Install torch for your backend first:
+#   CPU smoke test:
+#     pip install --index-url https://download.pytorch.org/whl/cpu torch
+#   AMD ROCm:
+#     install python-pytorch-rocm from your distro, or a matching ROCm wheel
 torch>=2.1
 onnx>=1.15
+onnxscript>=0.1
 lpips>=0.1.4

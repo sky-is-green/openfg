@@ -52,7 +52,7 @@ def evaluate(model, loader, device, amp):
         for low, high in loader:
             low = low.to(device, non_blocking=True)
             high = high.to(device, non_blocking=True)
-            with torch.cuda.amp.autocast(enabled=amp):
+            with torch.amp.autocast("cuda", enabled=amp):
                 prediction = model(low)
                 loss = charbonnier(prediction, high)
             total_loss += loss.item() * low.shape[0]
@@ -117,7 +117,7 @@ def main():
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer, T_max=max(1, args.epochs))
-    grad_scaler = torch.cuda.amp.GradScaler(enabled=amp)
+    grad_scaler = torch.amp.GradScaler("cuda", enabled=amp)
 
     start_epoch = 0
     best_psnr = 0.0
@@ -162,7 +162,7 @@ def main():
             low = low.to(device, non_blocking=True)
             high = high.to(device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
-            with torch.cuda.amp.autocast(enabled=amp):
+            with torch.amp.autocast("cuda", enabled=amp):
                 prediction = model(low)
                 loss = charbonnier(prediction, high)
             grad_scaler.scale(loss).backward()

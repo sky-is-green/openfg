@@ -111,11 +111,15 @@ Current limits:
 ## Training (optional)
 
 The training scaffold is a small residual CNN with a pixel-shuffle head. It is
-meant for local experiments, not a finished recipe. Install the optional
-dependencies:
+meant for local experiments, not a finished recipe.
+
+Install torch for your backend first. On AMD, the distro `python-pytorch-rocm`
+package is usually the cleanest option; for a CPU smoke test:
 
 ```sh
-python3 -m pip install -r tools/scaler-lab/requirements-train.txt
+python3 -m venv ~/.venvs/openfg-train
+~/.venvs/openfg-train/bin/pip install --index-url https://download.pytorch.org/whl/cpu torch
+~/.venvs/openfg-train/bin/pip install -r tools/scaler-lab/requirements-train.txt
 ```
 
 Train from a manifest:
@@ -125,8 +129,19 @@ python3 tools/scaler-lab/train.py   --manifest dataset/dataset.json   --train-sp
 ```
 
 The run writes `config.json`, `history.csv`, `last.pt`, `best.pt` and an
-optional ONNX export (`--onnx runs/spatial-2x/model.onnx`). Validation reports
-PSNR; use `scaler_lab.py` for the full metric suite and held-out-game results.
+optional ONNX export (`--onnx runs/spatial-2x/model.onnx`). PyTorch 2.15 writes
+the weights to an adjacent `model.onnx.data` file. Validation reports PSNR;
+use `scaler_lab.py` for the full metric suite and held-out-game results.
+
+A one-epoch CPU smoke run is useful before a real training run:
+
+```sh
+~/.venvs/openfg-train/bin/python tools/scaler-lab/train.py \
+  --manifest /tmp/openfg-synthetic/dataset.json \
+  --train-split train --val-split val \
+  --epochs 1 --batch-size 1 --patch 64 --limit-train 4 --limit-val 1 \
+  --workers 0 --device cpu --no-amp --out /tmp/openfg-train-smoke
+```
 
 Do not commit game captures or checkpoints trained on them. Public weights need
 a clean data statement and a compatible license.
