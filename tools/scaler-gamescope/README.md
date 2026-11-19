@@ -82,4 +82,7 @@ older optional legacy comparison.
   and maintenance cost before committing.
 - GravityMark's free evaluation licence is for testing, not commercial
   demonstration; get permission before publishing its footage.
+- Close benchmark windows explicitly. GravityMark demo mode does not exit on
+  its own; benchmark mode needs `-close 1`. Kill the process group or close the
+  window after a capture, and make sure Gamescope itself has exited.
 - No game captures or game assets belong in the repository.
