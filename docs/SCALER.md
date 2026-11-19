@@ -150,6 +150,25 @@ The first is cheaper and keeps the existing layer; the second can preserve more
 detail but needs FG at display resolution. Do not choose by intuition; compare
 quality, latency and GPU cost.
 
+## Validation ladder
+
+Use a deterministic Vulkan workload before a real game:
+
+1. **`vkcube` smoke** — already installed. Run it under Gamescope at the
+   target render size and confirm scaling, input and present behavior.
+2. **`vkmark` performance** — install the distro package and run a fixed
+   scene at native and at the lower internal resolution with Gamescope
+   FSR/NIS. Compare frame time, GPU load and power.
+3. **Quality frames** — capture native and scaled output from the benchmark,
+   then run the same frames through `scaler-gpu` EASU/RCAS and the neural
+   model. Use `scaler-lab` for PSNR/SSIM/LPIPS and visual review.
+4. **Real games** — final compatibility, HUD, particles, transparency and
+   anti-cheat validation.
+
+`vkcube` is a smoke test, not a performance benchmark. A benchmark scene also
+does not replace game validation; it just removes the game from the early
+plumbing loop.
+
 ## Milestones
 
 1. Gamescope capture + EASU/RCAS + fullscreen present at 1080p -> 1440p.

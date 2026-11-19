@@ -41,6 +41,24 @@ instead of wrapping the game in `mangohud`.
 | `--adaptive-sync` | Enable adaptive sync when available. |
 | `--mangoapp` | Use Gamescope's MangoHud integration. |
 
+## Benchmark smoke
+
+Use a deterministic Vulkan workload before a game:
+
+```sh
+# vkcube smoke; 600 frames, then exit
+gamescope -W 2560 -H 1440 -w 1280 -h 720 -f -F fsr -- \
+  vkcube --width 1280 --height 720 --c 600 --present_mode 2
+
+# vkmark, if installed
+gamescope -W 2560 -H 1440 -w 1280 -h 720 -f -F fsr -- \
+  vkmark --benchmark --size 1280x720 --duration 20
+```
+
+Compare against a native run without `-w/-h` and `-F`. Capture frames with
+OBS or `grim` for quality comparisons. `vkcube` is a pipeline smoke test;
+`vkmark` is the performance benchmark.
+
 ## Test plan
 
 1. Run a deterministic game scene at native resolution and at
