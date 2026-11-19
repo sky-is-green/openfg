@@ -62,7 +62,7 @@ void usage(const char* argv0)
         << "  --source test|pipewire   capture backend (default: test)\n"
         << "  --capture monitor|window  PipeWire source type (default: monitor)\n"
         << "  --input WxH              source resolution (default: 1280x720)\n"
-        << "  --crop WxH+X+Y           crop the captured window/frame\n"
+        << "  --crop WxH+X+Y           crop the PipeWire capture\n"
         << "  --static                 freeze the test pattern\n\n"
         << "Output:\n"
         << "  --output WxH             upscaled resolution (default: input x scale)\n"
@@ -211,6 +211,9 @@ Options parseOptions(int argc, char** argv)
     if (options.filter != "easu" && options.filter != "easu+rcas")
         throw std::runtime_error(
             "--filter must be easu or easu+rcas");
+    if (options.cropSet && options.source != "pipewire")
+        throw std::runtime_error(
+            "--crop requires --source pipewire");
     if (options.scale < 1 || options.scale > 4)
         throw std::runtime_error("--scale must be 1..4");
     if (options.sharpness < 0.0F || options.sharpness > 20.0F)
