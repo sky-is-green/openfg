@@ -696,6 +696,26 @@ LoadResult load(const std::filesystem::path& path) {
     }
     if (const auto value = envBool("OPENFG_PERFORMANCE_MODE"); value)
         config.performanceMode = *value;
+    if (const char* generator = std::getenv("OPENFG_GENERATOR");
+        generator && *generator) {
+        const std::string value{generator};
+        if (value == "ffx" || value == "flow" || value == "blend" ||
+            value == "hold" || value == "off")
+            config.generator = value;
+        else
+            result.warnings.push_back(
+                "OPENFG_GENERATOR must be ffx, flow, blend, hold or off; ignored");
+    }
+    if (const char* pacing = std::getenv("OPENFG_PACING"); pacing && *pacing) {
+        const std::string value{pacing};
+        if (value == "adaptive" || value == "capped")
+            config.pacing = value;
+        else
+            result.warnings.push_back(
+                "OPENFG_PACING must be adaptive or capped; ignored");
+    }
+    if (const auto value = envBool("OPENFG_PRESENT_TIMING"); value)
+        config.presentTiming = *value;
     if (const auto value = envBool("OPENFG_DEBUG"); value)
         config.debug = *value;
 

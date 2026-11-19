@@ -10,6 +10,7 @@ started afterwards.
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -1244,64 +1245,51 @@ class MainWindow(QtWidgets.QMainWindow):
         dialog.exec()
 
     def show_launch_options(self) -> None:
-        path = config_path()
-        text = f"""OpenFG normally reads:
-  {path}
+        gpu = self._selected_gpu()
+        cap = int(self.max_presented.currentData())
+        if cap == 1:
+            cap = int(self.max_presented_spin.value())
+        args = [
+            f"OPENFG_ENABLE={1 if self.enabled.isChecked() else 0}",
+            f"OPENFG_GPU={shlex.quote(gpu)}",
+            f"OPENFG_CROSS_GPU={1 if self.cross_gpu.isChecked() else 0}",
+            f"OPENFG_MULTIPLIER={int(self.multiplier.currentData())}",
+            f"OPENFG_TARGET_FPS={int(self.target_fps.value())}",
+            f"OPENFG_MAX_PRESENTED_FPS={cap}",
+            f"OPENFG_PERFORMANCE_MODE={1 if self.performance.isChecked() else 0}",
+            f"OPENFG_GENERATOR={self.generator.currentData()}",
+            f"OPENFG_PACING={self.pacing.currentData()}",
+            f"OPENFG_PRESENT_TIMING={1 if self.present_timing.isChecked() else 0}",
+            f"OPENFG_DEBUG={1 if self.debug.isChecked() else 0}",
+        ]
+        line = " ".join(args) + " %command%"
+        text = f"""Generated from the current controls, not the saved file:
 
-No launch options are needed.
+{line}
 
-Steam / Proton: Properties -> Launch Options
+Steam: paste into Properties -> Launch Options.
+Other launchers: prefix the variables to the command; %command% is Steam's
+placeholder, so replace it with the game command.
 
-  Disable OpenFG for this run:
-    DISABLE_OPENFG=1 %command%
-
-  Force enable even if the config says enabled = false:
-    OPENFG_ENABLE=1 %command%
-
-  Use another config file:
-    OPENFG_CONFIG=/path/to/another-conf.toml %command%
-
-  Cap presented frames (source gate = value / multiplier):
-    OPENFG_MAX_PRESENTED_FPS=60 %command%
-
-  Set a manual source gate:
-    OPENFG_TARGET_FPS=120 %command%
-
-  Write the layer log to a file:
-    OPENFG_LOG=/path/to/openfg.log %command%
-
-  Force debug logging:
-    OPENFG_DEBUG=1 %command%
-
-Non-Steam launchers
-
-  Prefix the same variables to the command. For example:
-    DISABLE_OPENFG=1 mangohud ./your-game
-
-Notes
-
-  %command% is Steam's placeholder; keep it at the end for Steam.
-  For other launchers, replace it with the game command.
-  Environment variables apply only to that launch.
-  DISABLE_OPENFG=1 wins over everything.
-  If display detection fails, add OPENFG_REFRESH=165.
-  The config file is read once, when the application starts.
+Application filter and video profile are config-file only.
+To bypass the layer entirely for one run, use DISABLE_OPENFG=1.
+If display detection fails, add OPENFG_REFRESH=165.
 """
         dialog = QtWidgets.QDialog(self)
         dialog.setWindowTitle("Launch options")
-        dialog.resize(860, 720)
+        dialog.resize(900, 520)
         layout = QtWidgets.QVBoxLayout(dialog)
         viewer = QtWidgets.QPlainTextEdit(text)
         viewer.setReadOnly(True)
-        viewer.setLineWrapMode(QtWidgets.QPlainTextEdit.NoWrap)
+        viewer.setLineWrapMode(QtWidgets.QPlainTextEdit.WidgetWidth)
         viewer.setFont(QtGui.QFontDatabase.systemFont(
             QtGui.QFontDatabase.FixedFont))
         layout.addWidget(viewer)
         row = QtWidgets.QHBoxLayout()
-        copy = QtWidgets.QPushButton("Copy")
-        copy.setToolTip("Copy all launch options to the clipboard.")
+        copy = QtWidgets.QPushButton("Copy args")
+        copy.setToolTip("Copy the generated arguments to the clipboard.")
         copy.clicked.connect(
-            lambda: QtWidgets.QApplication.clipboard().setText(text))
+            lambda: QtWidgets.QApplication.clipboard().setText(line))
         close = QtWidgets.QPushButton("Close")
         close.clicked.connect(dialog.accept)
         row.addWidget(copy)

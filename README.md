@@ -168,7 +168,8 @@ The layer reads `$XDG_CONFIG_HOME/openfg/conf.toml`, falling back to
 
 Environment overrides: `OPENFG_ENABLE`, `OPENFG_GPU`, `OPENFG_CROSS_GPU`,
 `OPENFG_MULTIPLIER`, `OPENFG_TARGET_FPS`, `OPENFG_MAX_PRESENTED_FPS`,
-`OPENFG_PERFORMANCE_MODE`, `OPENFG_DEBUG`, `OPENFG_REFRESH` and
+`OPENFG_PERFORMANCE_MODE`, `OPENFG_GENERATOR`, `OPENFG_PACING`,
+`OPENFG_PRESENT_TIMING`, `OPENFG_DEBUG`, `OPENFG_REFRESH` and
 `OPENFG_NO_UI_MASK`.
 
 ### Launch options
@@ -196,9 +197,16 @@ OPENFG_TARGET_FPS=120 %command%
 # Write the layer log to a file
 OPENFG_LOG=/path/to/openfg.log %command%
 
+# Pin the generator and pacing
+OPENFG_GENERATOR=ffx OPENFG_PACING=capped %command%
+
 # Force debug logging
 OPENFG_DEBUG=1 %command%
 ```
+
+The control panel's **Launch options** button generates one line from the
+current controls, including the generator and pacing, and copies it with one
+click.
 
 `DISABLE_OPENFG=1` wins over everything. If display detection fails, add
 `OPENFG_REFRESH=165`. The config file is read once, when the application
