@@ -40,7 +40,7 @@ struct Options {
     bool cropSet{false};
     uint32_t scale{2};
     std::string filter{"easu+rcas"};
-    float sharpness{0.0F};
+    float sharpness{4.0F};
     uint64_t frames{0};
     bool headless{false};
     bool fullscreen{false};
@@ -70,7 +70,7 @@ void usage(const char* argv0)
         << "  --output WxH             upscaled resolution (default: input x scale)\n"
         << "  --scale N                output = input * N (default: 2)\n"
         << "  --filter easu|easu+rcas  spatial filter (default: easu+rcas)\n"
-        << "  --sharpness N            RCAS sharpness 0..20 (default: 0)\n"
+        << "  --sharpness N            RCAS sharpness 0..20 (default: 4; 0=max)\n"
         << "  --fullscreen             present fullscreen instead of a window\n"
         << "  --windowed               force a window (default)\n"
         << "  --vsync on|off           FIFO or immediate/mailbox (default: on)\n"

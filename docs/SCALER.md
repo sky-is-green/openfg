@@ -86,6 +86,18 @@ latency; leave it off for normal use. `--no-dmabuf` copies through shared
 memory instead of importing a DMA-BUF; it is slower but useful for diagnosing
 driver or modifier issues.
 
+### Source resolution
+
+1080p -> 1440p (1.33x) is the recommended quality point. 720p -> 1440p is an
+ultra-performance mode: it is a 4x pixel increase and spatial upscaling cannot
+recover the missing detail. On a high-contrast, high-detail scene such as
+GravityMark's asteroid field, 720p looks visibly soft and noisy; 1080p is
+significantly sharper and playable. Neither can match a native 1440p render.
+
+RCAS sharpness defaults to 4 (0 is maximum sharpening, 20 is minimum). Lower
+values crisp edges but amplify noise and halos; higher values are cleaner and
+softer. `--filter easu` disables RCAS entirely for the cleanest edges.
+
 ## Goal
 
 Run a game at a lower internal resolution, upscale it to the display, and
