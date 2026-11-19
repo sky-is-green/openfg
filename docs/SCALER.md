@@ -27,12 +27,16 @@ embedding, CI, docs and releases with the layer.
 ```text
 src/scaler/
   main.cpp
-  capture.hpp              CaptureSource / Frame interfaces
-  capture/pipewire.cpp     portal + PipeWire DMA-BUF source
-  capture/gamescope.cpp    nested-compositor source
-  upscale/easu_rcas.cpp    spatial baseline
-  upscale/model.cpp        model package runtime
-  present/vulkan.cpp       fullscreen presenter
+  scaler.hpp                     CaptureSource / Upscaler / Frame
+  vulkan.hpp / vulkan.cpp        context and readback helpers
+  capture/test_pattern.*         deterministic synthetic source
+  capture/pipewire.*             portal + PipeWire DMA-BUF source
+  upscale/easu.*                 FSR1 EASU + RCAS
+  upscale/fsr1_constants.*       shared CPU-side constants
+  present/presenter.hpp          presenter interface + factory
+  present/pipeline.*             fullscreen present pass
+  present/sdl_presenter.*        SDL3 swapchain presenter
+  present/headless_presenter.*   offscreen presenter and dump
 ```
 
 The CMake target is `openfg-scaler` and installs alongside `openfg-layer`,
@@ -107,7 +111,7 @@ already-generated output.
 The capture backend is the only part that differs between the Gamescope and
 PipeWire modes.
 
-### Gamescope-style (default)
+### Gamescope-style (recommended core, not implemented)
 
 - The game runs inside a nested compositor at a lower internal resolution.
 - The capture source is the compositor's composed output texture.
@@ -122,7 +126,7 @@ PipeWire modes.
   Gamescope's built-in FSR/NIS/SGSR to validate the workflow before the
   custom pass is wired in.
 
-### PipeWire (later drop-in)
+### PipeWire (implemented drop-in)
 
 - Capture a game window through xdg-desktop-portal/KDE screencast.
 - Import DMA-BUF into Vulkan, upscale, present in a fullscreen borderless
@@ -132,49 +136,55 @@ PipeWire modes.
 - Risks: portal permission prompts, window selection, HDR metadata, VRR,
   compositor latency and input-focus edge cases.
 - The upscaler and presenter must not change when this backend is added.
-- A one-frame probe in `tools/scaler-pipewire/` has validated the
-  portal -> PipeWire node -> GStreamer path on KDE Wayland. The next step is a
-  C++ DMA-BUF source and Vulkan presenter, not GStreamer.
+- `src/scaler/capture/pipewire.cpp` implements the production source:
+  portal session, monitor/window selection, DMA-BUF import and a
+  shared-memory fallback. It supersedes the GStreamer probe in
+  `tools/scaler-pipewire/`.
+- Still missing: click-through presentation, restore-token persistence and
+  waiting on `SPA_DATA_SyncObj` for explicit synchronization.
 
 ## Interfaces
 
 ```cpp
 struct Frame {
-    VkImage image;
-    VkSemaphore ready;
-    VkExtent2D extent;
-    VkFormat format;
-    VkColorSpaceKHR colorSpace;
+    vk::Image image;
+    vk::ImageView view;
+    vk::Extent2D extent;
+    vk::Format format;
     uint64_t sequence;
     uint64_t timestampNs;
-    bool hdr;
 };
 
 class CaptureSource {
 public:
-    virtual ~CaptureSource() = default;
-    virtual bool start() = 0;
-    virtual bool next(Frame& frame) = 0;
+    virtual bool start(std::string& error) = 0;
+    virtual bool next(Frame& frame, std::string& error) = 0;
     virtual void stop() = 0;
+    virtual std::string description() const = 0;
 };
 
 class Upscaler {
 public:
-    virtual ~Upscaler() = default;
-    virtual bool prepare(const Frame& input, VkExtent2D output) = 0;
-    virtual bool run(const Frame& input, VkImage output,
-                     VkSemaphore done) = 0;
+    virtual void resize(vk::Extent2D input, vk::Extent2D output) = 0;
+    virtual void record(vk::CommandBuffer command,
+                        vk::ImageView input,
+                        vk::Extent2D inputExtent) = 0;
+    virtual vk::ImageView view() const = 0;
+    virtual vk::Extent2D outputExtent() const = 0;
 };
 
-class Presenter {
-public:
-    virtual ~Presenter() = default;
-    virtual bool present(const Frame& frame) = 0;
-};
+class Presenter { /* acquire, record, submit, pollEvents, saveFrame */ };
 ```
 
-Keep the frame ownership and synchronization explicit. The PipeWire backend
-will add a DMA-BUF import step behind `CaptureSource::next`.
+The capture source owns its image. The source leaves a frame in
+`VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL`; the upscaler writes an RGBA32F
+image and leaves it in the same layout for the presenter. The presenter owns
+the swapchain (or offscreen image), window, fences and semaphores.
+
+The production PipeWire source uses a three-image ring. The main thread copies
+an imported DMA-BUF into a ring image, waits for the copy fence, then returns
+the buffer to PipeWire. This keeps buffer ownership and synchronization
+explicit and avoids doing Vulkan work on the PipeWire data thread.
 
 ## Upscalers
 
