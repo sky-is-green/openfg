@@ -104,6 +104,11 @@ native 1440p render. A **quality** mode means native resolution or a
 neural/higher-quality upscaler; the EASU path is not a quality mode and the
 neural backend is not wired yet.
 
+`--filter passthrough` is a diagnostic reference: it presents the captured
+frame without EASU/RCAS. Use an output equal to the capture size for a native
+comparison, or a larger output to isolate the presenter's linear scaling and
+the capture/present overhead.
+
 RCAS sharpness defaults to 4 (0 is maximum sharpening, 20 is minimum). Lower
 values crisp edges but amplify noise and halos; higher values are cleaner and
 softer. `--filter easu` disables RCAS entirely for the cleanest edges.

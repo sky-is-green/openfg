@@ -5,6 +5,7 @@
 #include "scaler/present/presenter.hpp"
 #include "scaler/scaler.hpp"
 #include "scaler/upscale/easu.hpp"
+#include "scaler/upscale/passthrough.hpp"
 #include "scaler/vulkan.hpp"
 
 #ifdef OPENFG_SCALER_HAVE_PIPEWIRE
@@ -72,7 +73,8 @@ void usage(const char* argv0)
         << "Output:\n"
         << "  --output WxH             upscaled resolution (default: input x scale)\n"
         << "  --scale N                output = input * N (default: 2)\n"
-        << "  --filter easu|easu+rcas  spatial filter (default: easu+rcas)\n"
+        << "  --filter easu|easu+rcas|passthrough\n"
+        << "                           spatial filter (default: easu+rcas)\n"
         << "  --sharpness N            RCAS sharpness 0..20 (default: 4; 0=max)\n"
         << "  --fullscreen             present fullscreen instead of a window\n"
         << "  --windowed               force a window (default)\n"
@@ -225,9 +227,10 @@ Options parseOptions(int argc, char** argv)
     if (options.capture != "monitor" && options.capture != "window")
         throw std::runtime_error(
             "--capture must be monitor or window");
-    if (options.filter != "easu" && options.filter != "easu+rcas")
+    if (options.filter != "easu" && options.filter != "easu+rcas" &&
+        options.filter != "passthrough")
         throw std::runtime_error(
-            "--filter must be easu or easu+rcas");
+            "--filter must be easu, easu+rcas or passthrough");
     if (options.cropSet && options.source != "pipewire")
         throw std::runtime_error(
             "--crop requires --source pipewire");
@@ -369,9 +372,14 @@ int main(int argc, char** argv)
             throw std::runtime_error(error);
         presenter->show();
 
-        auto upscaler = std::make_unique<EasuUpscaler>(
-            *runtime, options.input, options.output,
-            options.filter == "easu+rcas", options.sharpness);
+        std::unique_ptr<Upscaler> upscaler;
+        if (options.filter == "passthrough") {
+            upscaler = std::make_unique<PassthroughUpscaler>();
+        } else {
+            upscaler = std::make_unique<EasuUpscaler>(
+                *runtime, options.input, options.output,
+                options.filter == "easu+rcas", options.sharpness);
+        }
         auto command = vkutil::createCommandBuffer(
             runtime->dld, *runtime->device, *runtime->commandPool);
 
