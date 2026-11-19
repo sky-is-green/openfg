@@ -32,7 +32,7 @@ the [technical white paper](docs/OPENFG-WHITEPAPER.md) for the full design.
 | **Content** | Process include/exclude, native and Wine/Proton names, video profile with scene-cut guard |
 | **HUD** | Static-UI mask removes doubled HUD text on generated frames |
 | **Controls** | TOML config, `OPENFG_*` overrides, CLI and Qt control panel |
-| **Tooling** | `fg-lab` harness, synthetic benchmarks, HUD regression test, GPU probe |
+| **Tooling** | `fg-lab` and `scaler-lab` harnesses, synthetic benchmarks, HUD regression test, GPU probe |
 
 ## Quick start
 
@@ -301,6 +301,14 @@ Research:
 - [ ] Compare upscale -> frame-gen against frame-gen -> upscale for quality and
       latency.
 - [ ] Publish models, training code and evaluation scripts on Hugging Face.
+
+Benchmarks:
+
+- [x] Offline `scaler-lab` v0: synthetic/real pairs, nearest/bilinear/bicubic/
+      Lanczos, PSNR/SSIM and CSV reports.
+- [ ] EASU/RCAS and neural backends in `scaler-lab`.
+- [ ] LPIPS/DISTS/VMAF, temporal metrics and HUD-region crops.
+- [ ] Live capture-to-present latency and frame-pacing harness.
 
 Needs engine integration:
 
