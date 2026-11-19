@@ -294,19 +294,23 @@ Companion upscaler/compositor:
 Research:
 
 - [ ] Neural frame generation: small flow/interpolation model vs FFX flow.
+- [ ] Capture-based temporal approximation: recurrent upscaler with estimated
+      flow and history, without engine motion vectors or depth.
 - [ ] Training pipeline: local high-fps captures, held-out-game evaluation and
       synthetic data.
 - [ ] Compare upscale -> frame-gen against frame-gen -> upscale for quality and
       latency.
+- [ ] Publish models, training code and evaluation scripts on Hugging Face.
 
 Needs engine integration:
 
-- [ ] Temporal upscaler with motion vectors, depth, jitter and masks.
+- [ ] True temporal upscaler with motion vectors, depth, jitter and masks.
 
 A layer cannot reliably obtain motion vectors and depth from VKD3D without
 game cooperation. Heuristic buffer detection or injection is fragile and can
-trip anti-cheat, so true temporal upscaling is parked until a game or engine
-partner wants the integration.
+trip anti-cheat, so the engine-data path is parked until a game or engine
+partner wants the integration. The capture-based approximation is a separate
+research item with a lower ceiling.
 
 ## HUD ghosting
 
