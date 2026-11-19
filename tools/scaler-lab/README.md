@@ -74,16 +74,26 @@ Vulkan EASU/RCAS and neural backends will be added behind the same interface.
 
 - PSNR on RGB.
 - SSIM on luma with a Gaussian window (`sigma=1.5`).
+- Optional LPIPS with `--lpips` and `--lpips-net alex|vgg`.
 - CPU resize time.
 
 The CSV contains `image`, `game`, `scene`, `split`, `hdr`, `backend`, `scale`,
-`width`, `height`, `psnr`, `ssim` and `ms`. The console prints per-pair rows
-and the mean PSNR/SSIM. Directory mode leaves the metadata columns empty.
+`width`, `height`, `psnr`, `ssim`, `lpips` and `ms`. The console prints
+per-pair rows, the mean PSNR/SSIM and a per-game/split summary. A
+`*.summary.csv` file is written next to the main report. Directory mode leaves
+the metadata columns empty.
+
+Save upscaled frames for visual review with:
+
+```sh
+python3 tools/scaler-lab/scaler_lab.py   --manifest dataset/dataset.json --split test   --backend lanczos --save-upscaled /tmp/upscaled   --out /tmp/report.csv
+```
 
 Current limits:
 
 - 8-bit sRGB images only.
-- No LPIPS, DISTS, VMAF, temporal metrics or HDR yet.
+- No DISTS, VMAF, temporal metrics or HDR yet.
+- LPIPS needs `torch` and `lpips`; the first run may download feature weights.
 - CPU timing only; no Vulkan/GPU timestamps yet.
 - Validate on held-out games, not just held-out frames.
 

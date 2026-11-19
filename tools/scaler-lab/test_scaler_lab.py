@@ -49,6 +49,24 @@ class MetricsTest(unittest.TestCase):
         out = scaler_lab.resize(image, (8, 8), "lanczos")
         np.testing.assert_allclose(out, image, atol=1e-6)
 
+    def test_summarize(self):
+        rows = [
+            {"game": "a", "split": "test", "psnr": "30.0", "ssim": "0.9",
+             "lpips": "0.1"},
+            {"game": "a", "split": "test", "psnr": "20.0", "ssim": "0.7",
+             "lpips": "0.3"},
+            {"game": "b", "split": "test", "psnr": "inf", "ssim": "1.0",
+             "lpips": ""},
+        ]
+        summary = scaler_lab.summarize(rows)
+        self.assertEqual(len(summary), 2)
+        first = summary[0]
+        self.assertEqual(first["game"], "a")
+        self.assertEqual(first["pairs"], 2)
+        self.assertAlmostEqual(float(first["psnr"]), 25.0)
+        self.assertAlmostEqual(float(first["ssim"]), 0.8)
+        self.assertAlmostEqual(float(first["lpips"]), 0.2)
+
     def test_manifest_pairs(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

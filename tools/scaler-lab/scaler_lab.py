@@ -86,6 +86,45 @@ def ssim(reference, test, sigma=1.5):
     return float(np.mean(numerator / np.maximum(denominator, 1e-12)))
 
 
+def compute_lpips(model, reference, test):
+    """LPIPS for one RGB float pair. The model is created by main()."""
+    import torch
+
+    def tensor(image):
+        return (torch.from_numpy(image)
+                .permute(2, 0, 1).unsqueeze(0) * 2.0 - 1.0)
+
+    device = next(model.parameters()).device
+    with torch.no_grad():
+        return float(model(tensor(reference).to(device),
+                           tensor(test).to(device)).item())
+
+
+def summarize(rows):
+    """Aggregate rows by game and split for the report."""
+    groups = {}
+    for row in rows:
+        key = (row["game"] or "all", row["split"] or "")
+        groups.setdefault(key, []).append(row)
+    summary = []
+    for (game, split), items in sorted(groups.items()):
+        psnr_values = [float(row["psnr"]) for row in items
+                       if row["psnr"] != "inf"]
+        lpips_values = [float(row["lpips"]) for row in items
+                        if row["lpips"]]
+        summary.append({
+            "game": game,
+            "split": split,
+            "pairs": len(items),
+            "psnr": (f"{sum(psnr_values) / len(psnr_values):.4f}"
+                     if psnr_values else "inf"),
+            "ssim": f"{sum(float(row['ssim']) for row in items) / len(items):.6f}",
+            "lpips": (f"{sum(lpips_values) / len(lpips_values):.6f}"
+                      if lpips_values else ""),
+        })
+    return summary
+
+
 def find_images(root, glob):
     if root.is_file():
         return [root]
@@ -217,6 +256,12 @@ def main():
                         help="Only process the first N pairs (0 = all).")
     parser.add_argument("--out", type=Path, default=Path("scaler-lab.csv"),
                         help="CSV report path.")
+    parser.add_argument("--save-upscaled", type=Path,
+                        help="Write upscaled PNGs to this directory.")
+    parser.add_argument("--lpips", action="store_true",
+                        help="Also compute LPIPS (requires torch and lpips).")
+    parser.add_argument("--lpips-net", choices=("alex", "vgg"), default="alex",
+                        help="LPIPS feature network.")
     args = parser.parse_args()
     if args.scale <= 0.0:
         raise SystemExit("--scale must be positive")
@@ -224,6 +269,21 @@ def main():
         args.downsample = "nearest"
     if args.manifest and args.input:
         raise SystemExit("--input is for --reference mode; manifests carry pairs")
+
+    lpips_model = None
+    if args.lpips:
+        try:
+            import lpips
+            import torch
+        except ImportError as error:
+            raise SystemExit(
+                "--lpips requires torch and lpips: "
+                "python3 -m pip install -r "
+                "tools/scaler-lab/requirements-train.txt") from error
+        lpips_model = lpips.LPIPS(net=args.lpips_net)
+        if torch.cuda.is_available():
+            lpips_model = lpips_model.cuda()
+        lpips_model.eval()
 
     pairs = make_pairs(args)
     rows = []
@@ -237,6 +297,15 @@ def main():
         elapsed_ms = (time.perf_counter() - started) * 1000.0
         value_psnr = psnr(reference, upscaled)
         value_ssim = ssim(reference, upscaled)
+        value_lpips = (compute_lpips(lpips_model, reference, upscaled)
+                       if lpips_model is not None else None)
+        if args.save_upscaled:
+            args.save_upscaled.mkdir(parents=True, exist_ok=True)
+            name = pair["name"].replace("/", "_").replace("\\", "_")
+            if not name.lower().endswith(".png"):
+                name += ".png"
+            data = np.rint(np.clip(upscaled, 0.0, 1.0) * 255.0).astype(np.uint8)
+            Image.fromarray(data, mode="RGB").save(args.save_upscaled / name)
         rows.append({
             "image": pair["name"],
             "game": pair["game"],
@@ -249,6 +318,7 @@ def main():
             "height": reference.shape[0],
             "psnr": f"{value_psnr:.4f}" if math.isfinite(value_psnr) else "inf",
             "ssim": f"{value_ssim:.6f}",
+            "lpips": f"{value_lpips:.6f}" if value_lpips is not None else "",
             "ms": f"{elapsed_ms:.3f}",
         })
         print(f"{pair['name'][:36]:<36} {pair['scale']:>6.2f} "
@@ -260,12 +330,25 @@ def main():
         writer.writeheader()
         writer.writerows(rows)
 
+    summary = summarize(rows)
+    summary_path = args.out.with_name(args.out.stem + ".summary.csv")
+    with summary_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=list(summary[0]))
+        writer.writeheader()
+        writer.writerows(summary)
+
     finite = [float(row["psnr"]) for row in rows if row["psnr"] != "inf"]
     print()
     print(f"{len(rows)} pair(s), backend {args.backend}, report {args.out}")
     if finite:
         print(f"mean PSNR {sum(finite) / len(finite):.3f} dB")
     print(f"mean SSIM {sum(float(row['ssim']) for row in rows) / len(rows):.4f}")
+    print()
+    print(f"{'game':<24} {'split':<6} {'pairs':>5} {'psnr':>8} {'ssim':>8}")
+    for row in summary:
+        print(f"{row['game'][:24]:<24} {row['split']:<6} {row['pairs']:>5} "
+              f"{row['psnr']:>8} {row['ssim']:>8}")
+    print(f"summary {summary_path}")
     return 0
 
 
