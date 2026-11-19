@@ -20,24 +20,35 @@ included.
 
 ## Synthetic pairs
 
-Generate a deterministic scene set with the existing frame generator:
+Generate a deterministic low/high dataset and manifest:
+
+```sh
+python3 tools/scaler-lab/gen_synthetic.py \
+  --out /tmp/openfg-synthetic --frames 8 --high 1280x720
+```
+
+Then run a held-out scene split:
+
+```sh
+python3 tools/scaler-lab/scaler_lab.py \
+  --manifest /tmp/openfg-synthetic/dataset.json --split test \
+  --backend lanczos --out /tmp/scaler.csv
+```
+
+The generator reuses the `pan`, `occlude`, `zoom`, `static` and `ghost`
+scenes. `static` is the validation split and `ghost` is the test split. This
+is training smoke data, not a final quality verdict.
+
+For a quick one-frame check, the older `tools/testdata/gen_frames.py` output
+still works:
 
 ```sh
 python3 tools/testdata/gen_frames.py --width 1280 --height 720 \
   --out /tmp/openfg-testdata
-```
-
-Then downscale/upscale and report:
-
-```sh
 python3 tools/scaler-lab/scaler_lab.py \
   --reference /tmp/openfg-testdata --glob '*_gt.png' \
   --scale 2 --backend lanczos --out /tmp/scaler.csv
 ```
-
-Use `--downsample box` (nearest) for an aliased source or `--downsample
-lanczos` for a cleaner one. The synthetic source is intentionally simple: it
-gives a fast regression signal, not a final quality verdict.
 
 ## Real low/high pairs
 
