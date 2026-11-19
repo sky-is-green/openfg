@@ -1067,11 +1067,12 @@ struct PipeWireSource::Impl {
                 .mipLevel = 0,
                 .arrayLayer = 0
             }, runtime.dld);
-        std::cout << "pipewire import: offset=" << imageLayout.offset
-                  << " rowPitch=" << imageLayout.rowPitch
-                  << " size=" << imageLayout.size
-                  << " dmabuf_offset=" << offset
-                  << " dmabuf_stride=" << stride << "\n";
+        if (!reportedMode)
+            std::cout << "pipewire import: offset=" << imageLayout.offset
+                      << " rowPitch=" << imageLayout.rowPitch
+                      << " size=" << imageLayout.size
+                      << " dmabuf_offset=" << offset
+                      << " dmabuf_stride=" << stride << "\n";
         return true;
     }
 
