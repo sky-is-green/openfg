@@ -72,8 +72,15 @@ process loads it; the config decides whether it is active. Use
 GPU capability probe, application filters, video profiles, per-game profiles
 and a live summary of the effective mode.
 
-For UI work, `scripts/install-gui.sh --dev` symlinks the installed launcher to
-`gui/openfg-gui.py`; edits appear on the next launch without reinstalling.
+For UI work, `scripts/install-gui.sh --dev` symlinks the installed launchers to
+the repo copies; edits appear on the next launch without reinstalling.
+
+`openfg-tray` is a small status indicator. It reads
+`$XDG_RUNTIME_DIR/openfg/status.json` (falling back to
+`$XDG_STATE_HOME/openfg/status.json`) and shows green while generating, blue
+while idle above the gate, and gray when no game is active. Start it from the
+application menu or run `openfg-tray`; the tray menu can enable **Start at
+login**.
 
 ![OpenFG Control](docs/assets/openfg-control.png)
 

@@ -25,10 +25,13 @@ fi
 mkdir -p "$appdir" "$bindir" "$icondir" "$appl"
 if [ "$dev" -eq 1 ]; then
     ln -sfn "$repo/gui/openfg-gui.py" "$appdir/openfg-gui.py"
+    ln -sfn "$repo/gui/openfg-tray.py" "$appdir/openfg-tray.py"
 else
     install -m 0755 "$repo/gui/openfg-gui.py" "$appdir/openfg-gui.py"
+    install -m 0755 "$repo/gui/openfg-tray.py" "$appdir/openfg-tray.py"
 fi
 install -m 0644 "$repo/gui/openfg.svg" "$icondir/openfg.svg"
+install -m 0644 "$repo/gui/openfg.svg" "$appdir/openfg.svg"
 install -m 0644 "$repo/gui/chevron-down.svg" "$appdir/chevron-down.svg"
 install -m 0644 "$repo/gui/chevron-up.svg" "$appdir/chevron-up.svg"
 install -m 0644 "$repo/gui/check.svg" "$appdir/check.svg"
@@ -38,6 +41,12 @@ cat > "$bindir/openfg-gui" <<EOF
 exec python3 "$appdir/openfg-gui.py" "\$@"
 EOF
 chmod 0755 "$bindir/openfg-gui"
+
+cat > "$bindir/openfg-tray" <<EOF
+#!/usr/bin/env bash
+exec python3 "$appdir/openfg-tray.py" "\$@"
+EOF
+chmod 0755 "$bindir/openfg-tray"
 
 cat > "$appl/openfg-gui.desktop" <<EOF
 [Desktop Entry]
@@ -52,6 +61,20 @@ Categories=Settings;
 Keywords=openfg;frame;generation;gpu;vulkan;
 StartupNotify=true
 StartupWMClass=openfg-gui
+EOF
+
+cat > "$appl/openfg-tray.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=openfg Status
+GenericName=Frame Generation Status
+Comment=Show whether openfg frame generation is active
+Exec=python3 $appdir/openfg-tray.py
+Icon=openfg
+Terminal=false
+Categories=Utility;
+Keywords=openfg;frame;generation;status;tray;
+StartupNotify=false
 EOF
 
 command -v update-desktop-database >/dev/null && update-desktop-database "$appl" 2>/dev/null || true
@@ -70,7 +93,9 @@ fi
 echo
 echo "Installed GUI:"
 echo "  launcher : $bindir/openfg-gui"
+echo "  tray     : $bindir/openfg-tray"
 echo "  desktop  : $appl/openfg-gui.desktop"
+echo "  status   : $appl/openfg-tray.desktop"
 echo "  icon     : $icondir/openfg.svg"
 if [ "$dev" -eq 1 ]; then
     echo "  mode     : dev symlink -> $repo/gui/openfg-gui.py"

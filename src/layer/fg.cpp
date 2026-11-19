@@ -13,6 +13,7 @@
 #include "config/config.hpp"
 #include "display.hpp"
 #include "openfg_backend.hpp"
+#include "status.hpp"
 
 #include <vulkan/vulkan.h>
 
@@ -1301,6 +1302,8 @@ void reportPerf(FgState& state) {
             adaptive.presentLatencies.size());
     }
     logSession(state, false);
+    writeStatus(adaptive.generating ? "generating" : "idle",
+        activeConfig().multiplier, appFps, presentedFps, overhead);
 
     adaptive.reportTime = now;
     adaptive.reportPresents = 0;

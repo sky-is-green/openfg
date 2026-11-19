@@ -116,6 +116,14 @@ add_executable(openfg-config-test "tests/config_test.cpp")
 target_link_libraries(openfg-config-test PRIVATE openfg-config)
 add_test(NAME config COMMAND openfg-config-test)
 
+add_executable(openfg-status-test
+  "tests/status_test.cpp"
+  "src/layer/status.cpp")
+target_include_directories(openfg-status-test PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/src")
+target_link_libraries(openfg-status-test PRIVATE openfg-config)
+add_test(NAME status COMMAND openfg-status-test)
+
 add_executable(openfg-gpu-probe
   "tools/gpu-probe/main.cpp")
 target_include_directories(openfg-gpu-probe PRIVATE
@@ -129,7 +137,8 @@ install(TARGETS fg-lab scaler-gpu openfg-cli openfg-gpu-probe
 add_library(openfg-layer SHARED
   "src/layer/layer.cpp"
   "src/layer/fg.cpp"
-  "src/layer/display.cpp")
+  "src/layer/display.cpp"
+  "src/layer/status.cpp")
 target_include_directories(openfg-layer PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/src"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/openfg")
