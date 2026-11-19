@@ -60,7 +60,6 @@ private:
     bool presentTiming_{false};
 #ifdef OPENFG_SCALER_HAVE_WAYLAND
     wl_compositor* waylandCompositor_{};
-    wl_registry* waylandRegistry_{};
 #endif
     uint64_t presentId_{0};
     PresentPipeline pipeline_;
