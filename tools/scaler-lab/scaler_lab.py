@@ -74,7 +74,7 @@ def find_scaler_gpu(explicit):
     return Path(found) if found else None
 
 
-def run_scaler_gpu(tool, low, reference, backend):
+def run_scaler_gpu(tool, low, reference, backend, sharpness=4.0):
     """Run the Vulkan EASU/RCAS harness and return RGB float + GPU ms."""
     height, width = low.shape[:2]
     out_height, out_width = reference.shape[:2]
@@ -97,6 +97,8 @@ def run_scaler_gpu(tool, low, reference, backend):
             "--filter", backend,
             "--iterations", "3",
         ]
+        if "rcas" in backend:
+            command.extend(["--sharpness", str(sharpness)])
         result = subprocess.run(command, capture_output=True, text=True)
         if result.returncode != 0:
             raise SystemExit(
@@ -305,6 +307,8 @@ def main():
                         default="lanczos", help="Upscaling filter.")
     parser.add_argument("--scaler-gpu", type=Path,
                         help="Path to the scaler-gpu binary for GPU backends.")
+    parser.add_argument("--sharpness", type=float, default=4.0,
+                        help="RCAS sharpness for the GPU backends (default: 4).")
     downsamplers = sorted(set(METHODS) | {"box"})
     parser.add_argument("--downsample", choices=downsamplers, default="box",
                         help="Synthetic downsample filter. 'box' is nearest.")
@@ -356,7 +360,8 @@ def main():
         reference = pair["reference"]
         if gpu_tool is not None:
             upscaled, gpu_ms, elapsed_ms = run_scaler_gpu(
-                gpu_tool, pair["low"], reference, args.backend)
+                gpu_tool, pair["low"], reference, args.backend,
+                args.sharpness)
         else:
             started = time.perf_counter()
             upscaled = resize(pair["low"],
