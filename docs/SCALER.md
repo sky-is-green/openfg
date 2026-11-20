@@ -128,9 +128,9 @@ softer. `--filter easu` disables RCAS entirely for the cleanest edges.
 ## Goal
 
 Run a game at a lower internal resolution, upscale it to the display, and
-present it fullscreen with predictable latency. Spatial upscaling comes first;
-neural spatial upscaling and a capture-based temporal approximation are
-research branches.
+present it fullscreen with predictable latency. EASU and the v0 neural spatial
+upscaler are implemented; a capture-based temporal approximation remains a
+research branch.
 
 ## Non-goals
 
