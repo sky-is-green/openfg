@@ -11,8 +11,7 @@ The default backend is AMD's MIT-licensed FidelityFX Optical Flow, with an
 automatic fallback to OpenFG's original optical-flow pipeline. A static-UI
 mask keeps HUD text sharp on generated frames.
 
-> No Lossless Scaling assets, no `lsfg-vk.dll`, and no lsfg-vk source code are
-> used here. The vendored FidelityFX shaders and their notices are under
+> The vendored FidelityFX shaders and their notices are under
 > `src/openfg/shaders/ffx/`; see [THIRD_PARTY.md](THIRD_PARTY.md).
 
 **Status:** `v0.1.0-preview1` — the layer is core feature-complete and
