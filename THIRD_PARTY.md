@@ -24,8 +24,9 @@ The companion scaler uses system libraries, not vendored code:
 - SDL3 (zlib licence) for window and Vulkan-surface creation.
 - PipeWire (MIT) for capture streams.
 - D-Bus (`libdbus-1`, AFL-2.1 or GPL-2.0+) for the desktop portal.
-- ncnn (BSD-3-Clause) as an optional runtime for the neural 2x backend. It is
-  not vendored; builds without it retain the EASU/RCAS path.
+- ncnn (BSD-3-Clause) as an optional validation backend for `.param` neural
+  models. It is not vendored; the native `.ofg` neural path and the EASU/RCAS
+  path need no ncnn.
 
 They are optional build dependencies of `openfg-scaler` and do not affect the
 layer's dependency-free core.

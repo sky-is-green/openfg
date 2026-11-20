@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: MIT
+//
+// Convert a captured RGBA8 frame into a planar float buffer for the neural
+// model. The input is sampled so the same shader works for RGBA and BGRA.
+
+#version 450
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) uniform texture2D captured;
+layout(set = 0, binding = 1) uniform sampler capturedSampler;
+layout(set = 0, binding = 2) writeonly buffer Planes {
+    float values[];
+} planes;
+
+layout(push_constant) uniform Push {
+    uint width;
+    uint height;
+    uint swapRedBlue;
+    uint pad;
+} pc;
+
+void main()
+{
+    const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (pixel.x >= int(pc.width) || pixel.y >= int(pc.height))
+        return;
+
+    const vec2 uv =
+        (vec2(pixel) + vec2(0.5)) / vec2(pc.width, pc.height);
+    const vec4 rgba = texture(
+        sampler2D(captured, capturedSampler), uv);
+
+    vec3 rgb = rgba.rgb;
+    if (pc.swapRedBlue != 0)
+        rgb = rgb.bgr;
+
+    const uint spatial = pc.width * pc.height;
+    const uint index = uint(pixel.y) * pc.width + uint(pixel.x);
+    planes.values[index] = rgb.r;
+    planes.values[spatial + index] = rgb.g;
+    planes.values[2u * spatial + index] = rgb.b;
+}

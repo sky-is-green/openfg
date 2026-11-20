@@ -1,0 +1,112 @@
+// SPDX-License-Identifier: MIT
+//
+// One 3x3 convolution layer of the v0 spatial model. The shader computes all
+// output channels for one pixel, caches the input tile in shared memory and
+// optionally applies ReLU or a residual add.
+
+#version 450
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 4) in;
+
+layout(set = 0, binding = 0) readonly buffer LayerWeights {
+    float weights[];
+} layer;
+layout(set = 0, binding = 1) readonly buffer InputPlanes {
+    float values[];
+} inputPlanes;
+layout(set = 0, binding = 2) writeonly buffer OutputPlanes {
+    float values[];
+} outputPlanes;
+layout(set = 0, binding = 3) readonly buffer ResidualPlanes {
+    float values[];
+} residualPlanes;
+
+layout(push_constant) uniform Push {
+    uint width;
+    uint height;
+    uint inChannels;
+    uint outChannels;
+    uint weightOffset;
+    uint biasOffset;
+    uint flags;
+} pc;
+
+const uint kReLU = 1u;
+const uint kResidual = 2u;
+const uint kTile = 10u;
+const uint kMaxChannels = 20u;
+
+shared float tile[kMaxChannels * kTile * kTile];
+
+void main()
+{
+    const ivec2 base = ivec2(gl_WorkGroupID.xy) * 8 - ivec2(1);
+    const uint local = gl_LocalInvocationIndex;
+
+    for (uint channel = 0u; channel < pc.inChannels; ++channel) {
+        for (uint i = local; i < kTile * kTile; i += 256u) {
+            const ivec2 q = base + ivec2(i % kTile, i / kTile);
+            float value = 0.0;
+            if (q.x >= 0 && q.y >= 0 &&
+                q.x < int(pc.width) && q.y < int(pc.height)) {
+                value = inputPlanes.values[
+                    (channel * pc.height + uint(q.y)) * pc.width +
+                    uint(q.x)];
+            }
+            tile[channel * kTile * kTile + i] = value;
+        }
+    }
+    barrier();
+
+    const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (pixel.x >= int(pc.width) || pixel.y >= int(pc.height))
+        return;
+
+    const uint spatial = pc.width * pc.height;
+    const uint index = uint(pixel.y) * pc.width + uint(pixel.x);
+    const ivec2 origin = ivec2(gl_LocalInvocationID.xy);
+
+    const uint perSlice = (pc.outChannels + 3u) / 4u;
+    const uint firstChannel = gl_LocalInvocationID.z * perSlice;
+
+    // Register-block five output channels. The shared tile is loaded once
+    // per input channel and reused by all five accumulators.
+    float accum[5];
+    for (uint j = 0u; j < 5u; ++j) {
+        const uint outChannel = firstChannel + j;
+        accum[j] = outChannel < pc.outChannels
+            ? layer.weights[pc.biasOffset + outChannel]
+            : 0.0;
+    }
+
+    for (uint inChannel = 0u;
+         inChannel < pc.inChannels; ++inChannel) {
+        const uint tileBase = inChannel * kTile * kTile +
+            uint(origin.y) * kTile + uint(origin.x);
+        float taps[9];
+        for (uint k = 0u; k < 9u; ++k)
+            taps[k] = tile[tileBase + (k / 3u) * kTile + (k % 3u)];
+
+        for (uint j = 0u; j < 5u; ++j) {
+            const uint outChannel = firstChannel + j;
+            if (outChannel >= pc.outChannels)
+                continue;
+            const uint weightBase = pc.weightOffset +
+                (outChannel * pc.inChannels + inChannel) * 9u;
+            for (uint k = 0u; k < 9u; ++k)
+                accum[j] += taps[k] * layer.weights[weightBase + k];
+        }
+    }
+
+    for (uint j = 0u; j < 5u; ++j) {
+        const uint outChannel = firstChannel + j;
+        if (outChannel >= pc.outChannels)
+            continue;
+        float sum = accum[j];
+        if ((pc.flags & kReLU) != 0u)
+            sum = max(sum, 0.0);
+        if ((pc.flags & kResidual) != 0u)
+            sum += residualPlanes.values[outChannel * spatial + index];
+        outputPlanes.values[outChannel * spatial + index] = sum;
+    }
+}

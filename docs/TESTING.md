@@ -276,7 +276,22 @@ vectors. The current v0 package is a **2x** model: 720p -> 1440p is the
 intended point; 1080p -> 1440p is 1.33x and must stay on EASU; 1080p -> 4K is
 the other 2x point.
 
-Convert the package to the optional ncnn backend:
+Convert the package to the zero-copy Vulkan weight file:
+
+```sh
+python3 tools/model-ofg.py /path/to/model-package
+
+openfg-scaler --headless --source test --filter neural \
+  --model /path/to/model-package/model.ofg \
+  --input 1280x720 --output 2560x1440 --frames 3
+```
+
+The native Vulkan backend records prepare, convolution, residual and
+PixelShuffle passes in the presenter command buffer. It measured 7.0 ms p50
+at 720p -> 1440p and matches the training model to 1 LSB on the deterministic
+test pattern.
+
+The optional ncnn validation path is still available for `.param` models:
 
 ```sh
 python3 tools/model-ncnn.py /path/to/model-package \
@@ -289,6 +304,6 @@ openfg-scaler --headless --source test --filter neural \
   --input 1280x720 --output 2560x1440 --frames 3
 ```
 
-The ncnn backend is a validation backend and is not real-time at 720p yet.
+It reads the frame back through CPU memory and is not the production path.
 Do not commit model weights trained on game footage; keep the package and
 captures local unless the model card explicitly permits redistribution.

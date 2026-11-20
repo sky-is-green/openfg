@@ -20,13 +20,14 @@ Implemented in `openfg-scaler`:
 - `--crop WxH+X+Y` for window decorations and monitor sub-rectangles.
 - Headless presenter with an RGBA8 frame dump for deterministic tests.
 - `--filter passthrough` for a native/A-B and latency reference.
-- Optional `--filter neural` for a 2x ONNX/ncnn model package.
+- Optional `--filter neural` for a 2x `.ofg` model, with an ncnn `.param`
+  validation path.
 - Portal restore-token persistence (`--forget-token` to clear it).
 - Frame/CPU timing summary, per-pass GPU timestamps and optional progress
   output.
 
 Not in this slice: HDR/VRR, integer scaling, explicit PipeWire sync, the
-Gamescope capture backend and a zero-copy neural runtime. Real-game
+Gamescope capture backend and faster neural convolution kernels. Real-game
 window/focus validation is still pending.
 
 ## Repository layout
@@ -43,8 +44,10 @@ src/scaler/
   capture/test_pattern.*         deterministic synthetic source
   capture/pipewire.*             portal + PipeWire DMA-BUF source
   upscale/easu.*                 FSR1 EASU + RCAS
-  upscale/neural.*               optional ncnn 2x neural backend
-  upscale/neural_ncnn.*          ncnn boundary with no Vulkan header conflicts
+  upscale/neural.*               neural facade and .ofg/ncnn selection
+  upscale/neural_vulkan.*        zero-copy Vulkan 2x backend
+  upscale/neural_ncnn.*          ncnn inference boundary
+  upscale/neural_ncnn_backend.*  optional ncnn validation backend
   upscale/passthrough.hpp        native/A-B reference
   upscale/fsr1_constants.*       shared CPU-side constants
   present/presenter.hpp          presenter interface + factory
@@ -84,8 +87,8 @@ cmake --build build --target openfg-scaler
 The SDL3 presenter is built when `sdl3` is available through pkg-config.
 PipeWire capture is built when `libpipewire-0.3` and `dbus-1` are available;
 Wayland (`wayland-client`) enables the mouse click-through input region.
-ncnn is optional and enables `--filter neural`. The test-pattern/headless path
-needs only Vulkan.
+The native `.ofg` neural path needs only Vulkan. ncnn is optional and enables
+the `.param` validation path. The test-pattern/headless path needs only Vulkan.
 
 `--input` is the requested capture size and the test-pattern size. The portal
 may negotiate a different size (a monitor stream is usually the monitor's
@@ -111,7 +114,7 @@ These are performance modes, not quality modes:
 Spatial upscaling cannot recover missing detail, so neither mode matches a
 native 1440p render. A **quality** mode means native resolution or a
 neural/higher-quality upscaler; the EASU path is not a quality mode and the
-neural backend is not wired yet.
+v0 neural proxy is not yet a shipping quality backend.
 
 `--filter passthrough` is a diagnostic reference: it presents the captured
 frame without EASU/RCAS. Use an output equal to the capture size for a native
@@ -282,25 +285,43 @@ LPIPS `0.1168` vs Lanczos `0.1340`, DISTS `0.01114` vs `0.01141`,
 PSNR/SSIM at parity. The HUD/text crop also wins LPIPS/DISTS, but its SSIM is
 slightly below Lanczos (`0.9331` vs `0.9345`). See the model card for the
 data caveats (compressed h264, two games, mostly static scenes, approximate
-HUD masks). The app-lane EASU comparison is the missing piece; it is run with
-`tools/scaler-lab` on the same held-out pairs.
+HUD masks).
 
-The optional runtime uses ncnn Vulkan. Convert the package once:
+EASU remains a strong baseline. On the same 340 pairs, EASU+RCAS at maximum
+sharpening has LPIPS `0.0657` but PSNR/SSIM `31.627`/`0.9163`, versus the
+neural `33.455`/`0.9517` and Lanczos `33.432`/`0.9515`. On the 40-pair
+default-sharpness subset the numbers are EASU `0.1118` LPIPS / `32.277` PSNR
+/ `0.9375` SSIM, EASU+RCAS at 4 `0.1094` / `32.280` / `0.9377`, and the
+neural model `0.1250` / `32.788` / `0.9453`. EASU wins the perceptual LPIPS
+metric, while the neural model wins PSNR/SSIM; this is a sharpening/fidelity
+trade-off that needs real-game judgement. The model's defensible claim is
+"beats Lanczos on LPIPS/DISTS with PSNR/SSIM parity", not "beats EASU".
+
+The default runtime is a zero-copy Vulkan backend built into the scaler. The
+converter writes a single `model.ofg` file with float32 weights and a fixed
+header; the runtime records prepare, convolution, residual and PixelShuffle
+passes in the same command buffer as presentation. No frame data is read back.
 
 ```sh
-python3 tools/model-ncnn.py /path/to/model-package --out-dir /tmp/model-ncnn
+python3 tools/model-ofg.py /path/to/model-package
 openfg-scaler --source pipewire --capture window --filter neural \
-  --model /tmp/model-ncnn/model-opt.param \
+  --model /path/to/model-package/model.ofg \
   --input 1280x720 --crop 1280x720+0+28 \
   --output 2560x1440 --fullscreen
 ```
 
 The v0 model is 2x, so the runtime rejects 1080p -> 1440p (1.33x); use EASU
-for that path, or 720p -> 1440p / 1080p -> 4K for the model. The ncnn backend
-is a validation backend: it transfers through CPU memory and measured about
-**34 ms p50** at 720p -> 1440p on the RX 7900 XT (24-27 fps), versus the
-training lane's 2.29 ms GPU-only proxy. A zero-copy Vulkan runtime is the next
-performance step.
+for that path, or 720p -> 1440p / 1080p -> 4K for the model. The native path
+measured **7.0 ms p50 / 8.8 ms p95** of GPU compute at 720p -> 1440p on the RX
+7900 XT (about 109 fps headless) and 15.3 ms p50 at 1080p -> 4K. The output
+matches the training model to 1 LSB on the deterministic test pattern. The
+training lane's PyTorch/MIOpen proxy is 2.29 ms, so the direct-convolution
+kernel still has about 3x headroom to recover (FP16 and register tiling are
+the next steps).
+
+The optional ncnn path uses `tools/model-ncnn.py` and a `.param` model. It
+reads the frame back through CPU memory and measured about **32 ms p50** at
+720p -> 1440p; it is a validation backend, not the production path.
 
 ## Presentation
 

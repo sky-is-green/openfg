@@ -249,10 +249,17 @@ The training lane's proxy model is 2.29 ms p50 / 2.37 ms p95 GPU-only at
 720p -> 1440p (170 MB peak) and 5.12 ms p50 at 1080p -> 4K (380 MB) on the
 RX 7900 XT. Those are PyTorch/MIOpen numbers, not the scaler runtime.
 
-The first optional runtime uses ncnn Vulkan and transfers the frame through
-CPU memory. The full scaler path measured **31.9 ms p50 / 58.9 ms p95** at
-720p -> 1440p (about 27 fps) including readback, ncnn inference and upload.
-That is a validation backend, not a real-time path. The model is correct
-(ONNX-vs-ncnn max diff 0.006, p99 0.0018), but a zero-copy Vulkan/model
-runtime is required before it can meet a 60 fps budget. Do not compare the
-2.29 ms proxy with the 31.9 ms ncnn path as if they were the same measurement.
+The zero-copy Vulkan backend records all passes in the presenter command
+buffer. The GPU timestamps measured **7.0 ms p50 / 8.8 ms p95** at
+720p -> 1440p (about 109 fps headless) and **15.3 ms p50** at 1080p -> 4K
+(about 48 fps) on the same GPU. The output matched the training model to
+1 LSB on the deterministic test pattern (mean absolute difference 4.7e-5).
+This is roughly 3x slower than the MIOpen proxy because the current kernel is
+a direct FP32 convolution with small workgroups, not a tuned GEMM. FP16 and
+register tiling are the next performance steps; 1080p -> 4K is not yet a
+60 fps path.
+
+The optional ncnn validation backend transfers the frame through CPU memory.
+It measured about 32 ms p50 at 720p -> 1440p, so it remains validation-only.
+Do not compare the 2.29 ms PyTorch proxy with either runtime path as if they
+were the same measurement.

@@ -177,7 +177,7 @@ Modes are deliberately labelled by cost, not by quality:
 | **Performance** | 1080p -> 1440p | EASU + RCAS; playable, but not a native-quality image |
 | **Ultra performance** | 720p -> 1440p | 4x pixel increase; visibly soft/noisy on high-detail scenes |
 | **Native reference** | source = output, `--filter passthrough` | No spatial upscale; for A/B and latency |
-| **Quality** | native 1440p or neural | Native is not a scaler mode; the neural backend is not wired yet |
+| **Quality** | native 1440p or neural | Native is not a scaler mode; the v0 neural runtime is a local proxy, not a shipping quality backend |
 
 The PipeWire path requests DMA-BUF, fixates the negotiated DRM modifier,
 announces a single buffer block, caches imported images and falls back to
@@ -205,7 +205,7 @@ Measured on the RX 7900 XT with GravityMark 1.89 as a 1080p window, upscaled to
 
 The current EASU result matches `scaler-gpu` within 1 LSB on the self-test
 vector. 1080p is the performance option; 720p is ultra performance. Neither is
-a quality mode. Native 1440p and the future neural upscaler remain the quality
+a quality mode. Native 1440p and a production neural upscaler remain the quality
 reference. See [docs/SCALER.md](docs/SCALER.md) for interfaces, validation and
 the remaining real-game/VRR/HDR work.
 
@@ -217,6 +217,15 @@ beats Lanczos on LPIPS (`0.1168` vs `0.1340`) and DISTS (`0.01114` vs
 `0.01141`), with PSNR/SSIM at parity. The HUD/text crop also wins LPIPS/DISTS,
 but its SSIM is slightly below Lanczos (`0.9331` vs `0.9345`).
 
+EASU remains a strong baseline. On the same 340 pairs, EASU+RCAS at maximum
+sharpening has LPIPS `0.0657` but PSNR/SSIM `31.627`/`0.9163`, versus the
+neural `33.455`/`0.9517` and Lanczos `33.432`/`0.9515`. On the 40-pair
+default-sharpness subset, EASU is `0.1118` LPIPS / `32.277` PSNR / `0.9375`
+SSIM, EASU+RCAS at 4 is `0.1094` / `32.280` / `0.9377`, and the neural model
+is `0.1250` / `32.788` / `0.9453`. The neural model's defensible claim is
+"beats Lanczos on LPIPS/DISTS at PSNR/SSIM parity", not "beats EASU". The
+sharpening/fidelity trade-off needs real-game judgement.
+
 The weights are **local-only** because they were trained on game footage. The
 synthetic pretrain is the public integration artifact. The model is 2x:
 
@@ -224,20 +233,27 @@ synthetic pretrain is the public integration artifact. The model is 2x:
 - 1080p -> 4K is 2x.
 - 1080p -> 1440p is 1.33x and remains an EASU path; the runtime rejects it.
 
-The optional ncnn Vulkan backend is a validation backend, not yet a
-production runtime:
+The default runtime is a zero-copy Vulkan backend. Convert the package once:
 
 ```sh
-python3 tools/model-ncnn.py /path/to/model-package --out-dir /tmp/model-ncnn
-openfg-scaler --source test --headless --filter neural \
-  --model /tmp/model-ncnn/model-opt.param \
-  --input 1280x720 --output 2560x1440 --dump /tmp/neural.rgba
+python3 tools/model-ofg.py /path/to/model-package
+openfg-scaler --source pipewire --capture window --filter neural \
+  --model /path/to/model-package/model.ofg \
+  --input 1280x720 --crop 1280x720+0+28 \
+  --output 2560x1440 --fullscreen
 ```
 
-It measured about **34 ms p50** at 720p -> 1440p on the RX 7900 XT
-(24-27 fps), versus the training lane's 2.29 ms GPU-only PyTorch proxy,
-because the current ncnn path transfers through CPU memory and uses a generic
-convolution. A zero-copy custom Vulkan runtime is the next step.
+The backend records the convolution and PixelShuffle passes in the same
+command buffer as presentation; no frame data leaves the GPU. On the RX 7900
+XT it measured **7.0 ms p50 / 8.8 ms p95** of GPU compute at
+720p -> 1440p (about 109 fps headless), and 15.3 ms p50 at 1080p -> 4K. The
+output matched the training model to 1 LSB on the deterministic test pattern.
+The training lane's PyTorch/MIOpen proxy is 2.29 ms, so direct-convolution
+tuning (FP16, register tiling) is still future work.
+
+The optional ncnn backend remains available for validation with a `.param`
+model, but it reads the frame back through CPU memory and measured about
+32 ms p50 at 720p -> 1440p. It is not the production path.
 
 ## How it works
 
@@ -417,8 +433,10 @@ Companion scaler:
 - [ ] Integer scaling, configurable aspect policy and explicit
       `SPA_DATA_SyncObj` synchronization.
 - [ ] HDR and VRR in the capture/present path.
-- [x] ~~Neural spatial v0 runtime (optional ncnn validation backend).~~
-- [ ] Zero-copy Vulkan neural runtime and model plugin API.
+- [x] ~~Neural spatial v0 runtime: zero-copy Vulkan backend, optional ncnn
+  validation path.~~
+- [ ] Faster direct-convolution kernels (FP16/register tiling) toward the
+  2.29 ms PyTorch proxy, and a model plugin API.
 - [ ] Real-capture v1 model and broader game evaluation.
 - [ ] Measure capture-to-present latency against native and Lossless Scaling.
 
@@ -592,8 +610,9 @@ Requirements: C++20 compiler, CMake 3.20+, Ninja, `glslc` (shaderc),
 `glslangValidator` (glslang), Vulkan headers (vendored) and Python 3 for
 shader embedding. The scaler's optional dependencies are SDL3 (window
 presenter), `libpipewire-0.3` + `dbus-1` (capture), `wayland-client`
-(mouse click-through) and `ncnn` (neural backend); a build without them is
-headless/test-pattern only, and without ncnn `--filter neural` is unavailable.
+(mouse click-through) and `ncnn` (optional neural validation backend); a build
+without them is headless/test-pattern only. The native `.ofg` neural path
+needs only Vulkan; ncnn is required only for `.param` models.
 
 ```sh
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -640,9 +659,10 @@ Flatpak packages are not published yet.
   both, but X11 does not get an empty input region.
 - The scaler does not wait on explicit `SPA_DATA_SyncObj` synchronization and
   does not support HDR/VRR yet.
-- The neural v0 runtime uses ncnn and is currently ~34 ms at 720p -> 1440p;
-  it is a validation backend, not real-time. The proxy weights are local-only,
-  the model is 2x, and HUD SSIM is slightly below Lanczos.
+- The native neural v0 runtime is ~7 ms p50 at 720p -> 1440p, still about 3x
+  the PyTorch/MIOpen proxy, and 1080p -> 4K is ~15 ms (below 60 fps). The
+  proxy weights are local-only, the model is 2x, and HUD SSIM is slightly
+  below Lanczos. The ncnn `.param` path is validation-only.
 - Input-to-photon latency is not measured; only present latency and generator
   cost are.
 - The backend's Vulkan device/instance is intentionally leaked at process exit:

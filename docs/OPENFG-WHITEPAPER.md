@@ -61,9 +61,10 @@ Wayland overlay is non-focusable and passes mouse input through. The 1080p
 path is a performance mode, not a quality mode: 720p is visibly soft, and
 spatial upscaling does not match native 1440p. A first proxy 2x neural
 upscaler (20 channels, 3 residual blocks, 24,452 parameters) beats Lanczos on
-LPIPS/DISTS on the held-out game with PSNR/SSIM at parity, but its optional
-ncnn validation runtime is about 34 ms per 720p frame; a zero-copy Vulkan
-runtime is future work. This paper documents the layer
+LPIPS/DISTS on the held-out game with PSNR/SSIM at parity. Its zero-copy
+Vulkan runtime records the inference in the present command buffer and
+measured 7.0 ms p50 of GPU compute at 720p -> 1440p on the RX 7900 XT, still
+about 3x the PyTorch/MIOpen proxy. This paper documents the layer
 hooks and present protocol, both flow pipelines, the interpolation and mask
 math, pacing, activation, the scaler interfaces and DMA-BUF handshake,
 cross-GPU and HDR paths, the evaluation methodology, and the limits of the
@@ -82,6 +83,7 @@ evidence.
 | The companion scaler works | 1080p GravityMark window -> 1440p fullscreen: 60.25 fps, 0.71 ms capture-to-present p50, 0.29 ms EASU+RCAS |
 | The overlay can pass input | A background window received a mouse click through the empty Wayland input region of the fullscreen overlay |
 | The neural v0 beats Lanczos perceptually | Wilds held-out: LPIPS 0.1168 vs 0.1340, DISTS 0.01114 vs 0.01141, PSNR/SSIM parity; HUD SSIM 0.9331 vs 0.9345 |
+| The neural v0 runs without a CPU round trip | The Vulkan backend records prepare, convolution, residual and PixelShuffle passes in the present command buffer; 7.0 ms p50 at 720p -> 1440p, 1 LSB against the training model |
 
 Three layer results carry the paper:
 
@@ -991,17 +993,31 @@ with PSNR/SSIM at parity; the HUD/text crop also wins LPIPS/DISTS, but its
 SSIM is slightly below Lanczos (0.9331 vs 0.9345). The proxy weights are
 local-only because the training frames are game footage, and the data is
 compressed h264 from two games with mostly static scenes and approximate HUD
-masks. The app lane is running the missing EASU comparison on the same
-held-out pairs.
+masks. The app-lane EASU comparison is now measured on the same 340 held-out
+pairs. EASU+RCAS at maximum sharpening (0) has the lowest LPIPS (**0.0657**)
+but lower PSNR/SSIM (**31.627 dB / 0.9163**) than the neural v0
+(**33.455 dB / 0.9517**) and Lanczos (**33.432 dB / 0.9515**). That is the
+sharpening-versus-fidelity trade-off, not a clean quality win. The 40-pair
+default-sharpness subset gives EASU `0.1118` / `32.277` / `0.9375`,
+EASU+RCAS at 4 `0.1094` / `32.280` / `0.9377`, and the neural model
+`0.1250` / `32.788` / `0.9453` (LPIPS / PSNR / SSIM). The neural v0's claim
+remains "beats Lanczos on LPIPS/DISTS at PSNR/SSIM parity", not "beats EASU".
 
-The first runtime uses optional ncnn Vulkan. It validates the ONNX conversion
-(against the ONNX output, max difference 0.006, p99 0.0018) but moves the
-frame through CPU memory and uses a generic convolution: the full
-720p -> 1440p scaler path measured about **31.9 ms p50 / 58.9 ms p95**
-(27 fps), not the training lane's 2.29 ms GPU-only PyTorch proxy. The v0
-model is strictly 2x: 720p -> 1440p and 1080p -> 4K fit; 1080p -> 1440p is
-1.33x and stays on EASU. A zero-copy Vulkan runtime is the next performance
-step.
+The production runtime is a zero-copy Vulkan backend. The converter writes a
+single `model.ofg` file; the runtime samples the captured frame, records
+prepare, convolution, residual and PixelShuffle passes in the presenter
+command buffer, and leaves the result on the GPU. No activation readback or
+upload occurs. On the deterministic test pattern the result matched the
+training model to 1 LSB (mean absolute difference 4.7e-5 in RGBA8). The
+720p -> 1440p path measured **7.0 ms p50 / 8.8 ms p95** of GPU compute
+(about 109 fps headless), and 1080p -> 4K measured 15.3 ms p50 (about 48 fps).
+The training lane's PyTorch/MIOpen proxy is 2.29 ms, so direct-convolution
+tuning (FP16 and register tiling) is still future work. The optional ncnn
+validation backend remains available for `.param` models and measures about
+32 ms p50 because it transfers through CPU memory.
+
+The v0 model is strictly 2x: 720p -> 1440p and 1080p -> 4K fit; 1080p ->
+1440p is 1.33x and stays on EASU.
 
 ### 10.4 Presentation, pacing and latency
 
@@ -1073,15 +1089,17 @@ The companion scaler is not finished:
   production neural runtime remain the quality reference.
 - The v0 neural proxy is local-only, 2x, trained on compressed h264 from two
   games with mostly static scenes and approximate HUD masks. Its HUD SSIM is
-  slightly below Lanczos, and its ncnn validation runtime is not real-time
-  (about 34 ms at 720p -> 1440p).
+  slightly below Lanczos, and its native runtime is 7.0 ms p50 at
+  720p -> 1440p, still about 3x the PyTorch/MIOpen proxy; 1080p -> 4K is
+  below 60 fps.
 - Click-through mouse input is Wayland-only; keyboard focus still needs a
   real-game test.
 - No HDR, VRR, integer scaling or explicit sync-object wait.
 - The Gamescope-style nested compositor is still the recommended long-term
   backend for input, VRR/HDR and capture cost; the PipeWire path is the
   drop-in preview.
-- The neural runtime waits on a training package and fixed test vector.
+- The neural runtime is wired to the first proxy package; real-capture v1
+  weights and a real-game quality gate are still missing.
 
 ## 11. The measured results
 
@@ -1204,9 +1222,9 @@ the claim would be most useful. This section separates the two.
   verified with a background window; keyboard focus was not verified against a
   real game.
 - **The neural v0 evidence is a proxy.** It uses compressed h264 from two
-  games, mostly static test scenes and approximate HUD masks, and its ncnn
-  runtime is far slower than the PyTorch GPU-only proxy. The gains over
-  Lanczos are modest and the HUD SSIM is slightly lower. It is not a
+  games, mostly static test scenes and approximate HUD masks. Its native
+  runtime is still about 3x slower than the PyTorch/MIOpen proxy, and the
+  gains over Lanczos are modest; the HUD SSIM is slightly lower. It is not a
   real-capture v1 result.
 
 ### 12.2 What is not claimed
@@ -1260,16 +1278,17 @@ the claim would be most useful. This section separates the two.
     PipeWire ScreenCast path is the drop-in preview.
 11. **Explicit PipeWire synchronization.** Wait on `SPA_DATA_SyncObj` rather
     than relying on buffer ownership and implicit ordering.
-12. **A neural runtime and quality gate.** Consume the model package and fixed
-    test vector defined by `docs/MODEL-CONTRACT.md`, measure latency/VRAM and
-    compare against EASU and native.
+12. **A real-game neural quality gate.** The package and fixed test vector
+    are wired. Compare the native runtime against EASU and native on
+    real-game couples, and record the sharpening/fidelity trade-off.
 13. **Click-through focus and an exit path.** Validate keyboard focus in a real
     game and add an OSD/tray control so a non-focusable overlay can be stopped
     without the terminal.
-14. **A zero-copy neural runtime.** Move the model onto the scaler's Vulkan
-    device/queue and eliminate the CPU readback/upload. The current ncnn
-    validation backend is 31.9 ms p50 at 720p; the PyTorch GPU-only proxy is
-    2.29 ms. Then run the model against real-capture v1 pairs.
+14. **Faster neural kernels.** The zero-copy Vulkan backend is 7.0 ms p50 at
+    720p, still 3x the PyTorch/MIOpen proxy (2.29 ms). FP16 storage/packed
+    math and register-tiled output blocks are the next candidates; 1080p ->
+    4K is below 60 fps today. Then run the model against real-capture v1
+    pairs.
 15. **FSR3.1 frame generation as a layer backend.** The FidelityFX SDK 2.4.0
     ships MIT FSR3.1.6 frame generation with a Vulkan swapchain; it expects
     game motion vectors and depth and is a candidate for a future layer
@@ -1314,9 +1333,9 @@ openfg-gpu-probe
 
 # Validate and convert a neural model package
 python3 tools/model-contract.py /path/to/model-package --require-expected
-python3 tools/model-ncnn.py /path/to/model-package --out-dir /tmp/model-ncnn
+python3 tools/model-ofg.py /path/to/model-package
 ./build/openfg-scaler --headless --source test --filter neural \
-  --model /tmp/model-ncnn/model-opt.param \
+  --model /path/to/model-package/model.ofg \
   --input 1280x720 --output 2560x1440 --frames 3
 
 # Regenerate the figures in this paper
@@ -1355,9 +1374,9 @@ notices installed under `share/licenses/openfg/ffx/`.
 The companion scaler uses system libraries rather than vendored code: SDL3
 (zlib) for the window and Vulkan surface, PipeWire (MIT) for capture, D-Bus
 (AFL-2.1 or GPL-2.0+) for the portal, Wayland (MIT) for the click-through
-input region and ncnn (BSD-3) for the optional neural runtime. They are
-optional build dependencies and do not affect the layer's dependency-free
-core. The proxy v0 weights are local-only and not redistributed; neural
+input region and ncnn (BSD-3) for the optional `.param` neural validation
+backend. They are optional build dependencies and do not affect the layer's
+dependency-free core. The proxy v0 weights are local-only and not redistributed; neural
 weights, when released, are governed by the model package's `config.json` and
 `docs/MODEL-CONTRACT.md`. FSR4 signed binaries/weights are not used.
 

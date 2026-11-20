@@ -70,6 +70,36 @@ The v0 model is **2x**. The runtime requires `output = input * scale`:
 The scaler rejects a neural request whose output is not exactly 2x, rather
 than silently resampling the model output.
 
+## `.ofg` runtime file
+
+The zero-copy Vulkan backend reads a single `model.ofg` file produced by
+`tools/model-ofg.py`. It is little-endian and contains:
+
+```text
+offset 0   char[8]  "OFGNEUR1"
+offset 8   u32      version = 1
+offset 12  u32      scale = 2
+offset 16  u32      channels
+offset 20  u32      blocks
+offset 24  u32      input_channels = 3
+offset 28  u32      output_channels = 12   (3 * scale * scale)
+offset 32  float32[]  layer weights and biases
+```
+
+Layers are stored in this order: head, then `conv1, conv2` for each residual
+block, then tail. Each layer is `out * in * 3 * 3` weights in ONNX order
+`[out][in][3][3]`, followed by `out` bias values. The runtime requires
+`scale = 2`, 3x3 kernels, pad 1, stride 1, `channels <= 20`, and the
+PixelShuffle mapping `output[c, 2h+i, 2w+j] = tail[c*4 + i*2 + j, h, w]`.
+The ONNX `DepthToSpace` must use `CRD` mode (the mode PyTorch exports);
+`DCR` is rejected. The format is deliberately narrow for v0; a new
+architecture or scale needs a new version.
+
+The runtime allocates two device-local activation planes, uploads the weight
+buffer once and records prepare, convolution, residual-add and PixelShuffle
+passes in the presenter command buffer. No activation data is read back to the
+CPU. The optional ncnn `.param` path remains available for validation.
+
 ## Test vector
 
 - `low.png` / `input.npy`: exact input frame at the render resolution.
@@ -87,26 +117,27 @@ own expected output (within tolerance) before the app lane wires it in.
 
 1. Load `config.json`/`model-config.json`; reject unsupported scale, HDR or
    colour space.
-2. Convert the captured low-res frame to the model input layout.
-3. Run inference. The first backend is optional ncnn Vulkan:
-   `tools/model-ncnn.py <package> --out-dir <package>/ncnn` converts the
-   ONNX package to `model-opt.param`/`model-opt.bin`; run
-   `openfg-scaler --filter neural --model <package>/ncnn/model-opt.param`.
-4. Convert back to RGBA8 and present.
+2. Convert the ONNX package to `model.ofg` with `tools/model-ofg.py`.
+3. Run `openfg-scaler --filter neural --model <package>/model.ofg`. The
+   Vulkan backend samples the captured frame, records the convolution and
+   PixelShuffle passes, and leaves the result in a sampled image.
+4. Present on the swapchain. No CPU readback or upload is involved.
 5. On any error or unsupported format, fall back to EASU/RCAS or passthrough.
 
-The ncnn backend is a validation backend: it transfers the frame through CPU
-memory and is currently slower than real time at 720p. A zero-copy Vulkan
-runtime is the next performance step. The model package and weights stay
-local unless their licence explicitly allows redistribution.
+The optional ncnn backend consumes a `.param` model produced by
+`tools/model-ncnn.py`; it reads the frame back through CPU memory and is a
+validation path, not the production runtime. The model package and weights
+stay local unless their licence explicitly allows redistribution.
 
 ## Acceptance
 
 - `tools/model-contract.py --require-expected` passes.
 - Runtime test vector matches the expected output. The CPU/ONNX contract
-  tolerance is `atol=2e-3`; the current ncnn FP16 path measured max
-  `6.0e-3`, mean `3.7e-4`, p99 `1.8e-3` against the ONNX output. Record the
-  actual backend delta in the model card.
+  tolerance is `atol=2e-3`. The zero-copy Vulkan path matched the training
+  model to 1 LSB on the deterministic test pattern (mean absolute difference
+  `4.7e-5` in RGBA8). The ncnn FP16 path measured max `6.0e-3`, mean
+  `3.7e-4`, p99 `1.8e-3` against the ONNX output. Record the actual backend
+  delta in the model card.
 - The model card documents training data, limitations and licence.
 - Latency and VRAM are measured on the target GPU.
 - No game captures or checkpoints are committed to the repository.

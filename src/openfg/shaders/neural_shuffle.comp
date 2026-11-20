@@ -1,0 +1,45 @@
+// SPDX-License-Identifier: MIT
+//
+// PixelShuffle(2) from the 12-channel tail output to RGBA8. The source
+// layout is [channel * 4 + row * 2 + column][y][x] and the destination is
+// [row][column] at 2x, matching PyTorch's PixelShuffle.
+
+#version 450
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) readonly buffer Planes {
+    float values[];
+} planes;
+layout(set = 0, binding = 1, rgba8) uniform writeonly image2D outputImage;
+
+layout(push_constant) uniform Push {
+    uint width;
+    uint height;
+    uint outWidth;
+    uint outHeight;
+    uint scale;
+    uint pad0;
+    uint pad1;
+    uint pad2;
+} pc;
+
+void main()
+{
+    const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (pixel.x >= int(pc.outWidth) || pixel.y >= int(pc.outHeight))
+        return;
+
+    const ivec2 source = pixel / int(pc.scale);
+    const uint spatial = pc.width * pc.height;
+    const uint index = uint(source.y) * pc.width + uint(source.x);
+    const uint sub = uint(pixel.y % int(pc.scale)) * pc.scale +
+        uint(pixel.x % int(pc.scale));
+
+    const vec3 rgb = vec3(
+        planes.values[(0u * pc.scale * pc.scale + sub) * spatial + index],
+        planes.values[(1u * pc.scale * pc.scale + sub) * spatial + index],
+        planes.values[(2u * pc.scale * pc.scale + sub) * spatial + index]);
+
+    imageStore(outputImage, pixel, vec4(clamp(rgb, 0.0, 1.0), 1.0));
+}

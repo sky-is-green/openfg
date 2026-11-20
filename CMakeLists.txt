@@ -151,6 +151,8 @@ add_executable(openfg-scaler
   "src/scaler/vulkan.cpp"
   "src/scaler/capture/test_pattern.cpp"
   "src/scaler/upscale/easu.cpp"
+  "src/scaler/upscale/neural.cpp"
+  "src/scaler/upscale/neural_vulkan.cpp"
   "src/scaler/upscale/fsr1_constants.cpp"
   "src/scaler/present/pipeline.cpp"
   "src/scaler/present/presenter.cpp"
@@ -177,8 +179,8 @@ if(WAYLAND_FOUND)
 endif()
 if(NCNN_FOUND)
   target_sources(openfg-scaler PRIVATE
-    "src/scaler/upscale/neural.cpp"
-    "src/scaler/upscale/neural_ncnn.cpp")
+    "src/scaler/upscale/neural_ncnn.cpp"
+    "src/scaler/upscale/neural_ncnn_backend.cpp")
   target_link_libraries(openfg-scaler PRIVATE PkgConfig::NCNN)
   target_compile_definitions(openfg-scaler PRIVATE
     OPENFG_SCALER_HAVE_NCNN=1)

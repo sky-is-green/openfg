@@ -5,10 +5,8 @@
 #include "scaler/present/presenter.hpp"
 #include "scaler/scaler.hpp"
 #include "scaler/upscale/easu.hpp"
-#include "scaler/upscale/passthrough.hpp"
-#ifdef OPENFG_SCALER_HAVE_NCNN
 #include "scaler/upscale/neural.hpp"
-#endif
+#include "scaler/upscale/passthrough.hpp"
 #include "scaler/vulkan.hpp"
 
 #ifdef OPENFG_SCALER_HAVE_PIPEWIRE
@@ -79,7 +77,8 @@ void usage(const char* argv0)
         << "  --scale N                output = input * N (default: 2)\n"
         << "  --filter easu|easu+rcas|passthrough|neural\n"
         << "                           spatial filter (default: easu+rcas)\n"
-        << "  --model PATH.param       ncnn 2x model for --filter neural\n"
+        << "  --model PATH.ofg        2x model for --filter neural (.param\n"
+        << "                           selects the optional ncnn backend)\n"
         << "  --sharpness N            RCAS sharpness 0..20 (default: 4; 0=max)\n"
         << "  --fullscreen             present fullscreen instead of a window\n"
         << "  --windowed               force a window (default)\n"
@@ -241,7 +240,7 @@ Options parseOptions(int argc, char** argv)
     if (options.filter == "neural") {
         if (options.model.empty())
             throw std::runtime_error(
-                "--filter neural needs --model PATH.param");
+                "--filter neural needs --model PATH.ofg");
         if (options.output.width != options.input.width * 2 ||
             options.output.height != options.input.height * 2)
             throw std::runtime_error(
@@ -393,13 +392,8 @@ int main(int argc, char** argv)
 
         std::unique_ptr<Upscaler> upscaler;
         if (options.filter == "neural") {
-#ifdef OPENFG_SCALER_HAVE_NCNN
             upscaler = std::make_unique<NeuralUpscaler>(
                 *runtime, options.model);
-#else
-            throw std::runtime_error(
-                "this build has no ncnn support (install ncnn or use EASU)");
-#endif
         } else if (options.filter == "passthrough") {
             upscaler = std::make_unique<PassthroughUpscaler>();
         } else {
@@ -407,6 +401,9 @@ int main(int argc, char** argv)
                 *runtime, options.input, options.output,
                 options.filter == "easu+rcas", options.sharpness);
         }
+        const auto* neural =
+            dynamic_cast<const NeuralUpscaler*>(upscaler.get());
+        const bool neuralGpuTimed = neural && neural->gpuTimed();
         auto command = vkutil::createCommandBuffer(
             runtime->dld, *runtime->device, *runtime->commandPool);
 
@@ -477,7 +474,7 @@ int main(int argc, char** argv)
             const auto prepareStart = std::chrono::steady_clock::now();
             if (!upscaler->prepare(*runtime, frame, error))
                 throw std::runtime_error(error);
-            if (options.filter == "neural")
+            if (options.filter == "neural" && !neuralGpuTimed)
                 neuralTimes.push_back(
                     std::chrono::duration<double, std::milli>(
                         std::chrono::steady_clock::now() - prepareStart).count());
@@ -530,9 +527,12 @@ int main(int argc, char** argv)
                     vk::Result::eSuccess) {
                     const double period =
                         static_cast<double>(runtime->timestampPeriod);
-                    upscaleGpuTimes.push_back(
+                    const double upscaleMs =
                         static_cast<double>(timestamps[1] - timestamps[0]) *
-                        period / 1.0e6);
+                        period / 1.0e6;
+                    upscaleGpuTimes.push_back(upscaleMs);
+                    if (neuralGpuTimed)
+                        neuralTimes.push_back(upscaleMs);
                     presentGpuTimes.push_back(
                         static_cast<double>(timestamps[3] - timestamps[2]) *
                         period / 1.0e6);
@@ -585,7 +585,11 @@ int main(int argc, char** argv)
                     static_cast<double>(neuralTimes.size())
                       << " ms avg, " << percentile(neuralTimes, 0.50)
                       << " p50, " << percentile(neuralTimes, 0.95)
-                      << " p95 (readback + ncnn + upload)\n";
+                      << " p95 "
+                      << (neuralGpuTimed
+                          ? "(Vulkan compute)"
+                          : "(readback + ncnn + upload)")
+                      << "\n";
         }
         if (!captureWaits.empty()) {
             std::cout << "capture wait: "

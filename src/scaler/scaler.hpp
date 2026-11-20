@@ -46,9 +46,10 @@ public:
     virtual ~Upscaler() = default;
     virtual void resize(vk::Extent2D input, vk::Extent2D output) = 0;
 
-    /// Optional synchronous work before the present command buffer is
-    /// recorded. The default is a no-op; the neural backend reads the frame
-    /// back, runs inference and uploads its output here.
+    /// Optional work before the present command buffer is recorded. The
+    /// default is a no-op. The ncnn validation backend reads the frame back,
+    /// runs inference and uploads its output here; the Vulkan neural backend
+    /// records its inference in record() instead.
     virtual bool prepare(
         Runtime&,
         const Frame&,
