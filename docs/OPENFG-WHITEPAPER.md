@@ -1244,7 +1244,7 @@ the claim would be most useful. This section separates the two.
   not a specification.
 - **Not that the companion scaler is a quality upscaler.** 1080p -> 1440p is
   a performance mode; 720p -> 1440p is ultra performance. Native 1440p or a
-  future neural backend is the quality reference.
+  production neural backend is the quality reference.
 - **Not that the scaler is ready for every game.** Real-game window capture,
   focus, HDR/VRR, explicit sync and the Gamescope backend are open.
 
