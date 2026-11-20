@@ -22,7 +22,6 @@ namespace {
 constexpr uint32_t kRelu = 1U;
 constexpr uint32_t kResidual = 2U;
 constexpr uint32_t kMaxChannels = 20;
-constexpr uint32_t kTile = 10;
 
 struct OfgHeader {
     char magic[8];
