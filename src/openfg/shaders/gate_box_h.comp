@@ -1,0 +1,42 @@
+// SPDX-License-Identifier: MIT
+// 8x8 box filter, horizontal pass, for local variance.
+
+#version 450
+
+#include "gate_common.glsl"
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) readonly buffer Source {
+    float values[];
+} source;
+layout(set = 0, binding = 1) writeonly buffer Mean {
+    float values[];
+} mean;
+layout(set = 0, binding = 2) writeonly buffer MeanSquare {
+    float values[];
+} meanSquare;
+
+layout(push_constant) uniform Push {
+    uint width;
+    uint height;
+} pc;
+
+void main()
+{
+    const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (pixel.x >= int(pc.width) || pixel.y >= int(pc.height))
+        return;
+    float sum = 0.0;
+    float sumSquare = 0.0;
+    for (int i = -3; i <= 4; ++i) {
+        const int x = gateReflect(pixel.x + i, int(pc.width));
+        const float value = source.values[
+            uint(pixel.y) * pc.width + uint(x)];
+        sum += value;
+        sumSquare += value * value;
+    }
+    const uint index = uint(pixel.y) * pc.width + uint(pixel.x);
+    mean.values[index] = sum / 8.0;
+    meanSquare.values[index] = sumSquare / 8.0;
+}

@@ -1,0 +1,38 @@
+// SPDX-License-Identifier: MIT
+// Separable Gaussian blur, horizontal pass.
+
+#version 450
+
+#include "gate_common.glsl"
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) readonly buffer Source {
+    float values[];
+} source;
+layout(set = 0, binding = 1) writeonly buffer Target {
+    float values[];
+} target;
+
+layout(push_constant) uniform Push {
+    uint width;
+    uint height;
+    uint radius;
+    uint pad;
+    float weights[15];
+} pc;
+
+void main()
+{
+    const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (pixel.x >= int(pc.width) || pixel.y >= int(pc.height))
+        return;
+    const int radius = int(pc.radius);
+    float value = 0.0;
+    for (int i = -radius; i <= radius; ++i) {
+        const int x = gateReflect(pixel.x + i, int(pc.width));
+        value += pc.weights[i + radius] *
+            source.values[uint(pixel.y) * pc.width + uint(x)];
+    }
+    target.values[uint(pixel.y) * pc.width + uint(pixel.x)] = value;
+}

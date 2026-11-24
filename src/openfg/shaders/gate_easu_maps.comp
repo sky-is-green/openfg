@@ -1,0 +1,53 @@
+// SPDX-License-Identifier: MIT
+// EASU luma gradient and Laplacian maps.
+
+#version 450
+
+#include "gate_common.glsl"
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) readonly buffer Luma {
+    float values[];
+} luma;
+layout(set = 0, binding = 1) writeonly buffer Gradient {
+    float values[];
+} gradient;
+layout(set = 0, binding = 2) writeonly buffer Laplacian {
+    float values[];
+} laplacian;
+
+layout(push_constant) uniform Push {
+    uint width;
+    uint height;
+} pc;
+
+void main()
+{
+    const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (pixel.x >= int(pc.width) || pixel.y >= int(pc.height))
+        return;
+    const int width = int(pc.width);
+    const int height = int(pc.height);
+
+    float gx = 0.0;
+    float gy = 0.0;
+    float lap = 0.0;
+    for (int dy = -1; dy <= 1; ++dy) {
+        for (int dx = -1; dx <= 1; ++dx) {
+            const int sx = gateReflect(pixel.x + dx, width);
+            const int sy = gateReflect(pixel.y + dy, height);
+            const float value = luma.values[
+                uint(sy) * pc.width + uint(sx)];
+            gx += float(dx) * (2.0 - abs(float(dy))) * value;
+            gy += float(dy) * (2.0 - abs(float(dx))) * value;
+            const float kernel = (dx == 0 && dy == 0) ? -4.0
+                : ((dx == 0 || dy == 0) ? 1.0 : 0.0);
+            lap += kernel * value;
+        }
+    }
+
+    const uint index = uint(pixel.y) * pc.width + uint(pixel.x);
+    gradient.values[index] = sqrt(gx * gx + gy * gy);
+    laplacian.values[index] = lap;
+}

@@ -434,6 +434,9 @@ Companion scaler:
 - [ ] HDR and VRR in the capture/present path.
 - [x] ~~Neural spatial v0 runtime: zero-copy Vulkan backend, optional ncnn
   validation path.~~
+- [x] ~~Vulkan 31-feature tile-gate pass; validated against the fixed vector
+  and the 60-tile C++ reference.~~ The runtime gate/budget selector is not
+  wired yet.
 - [ ] Faster direct-convolution kernels (FP16/register tiling) toward the
   2.29 ms PyTorch proxy, and a model plugin API.
 - [ ] Real-capture v1 model and broader game evaluation.

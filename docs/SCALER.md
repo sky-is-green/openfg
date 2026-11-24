@@ -22,6 +22,8 @@ Implemented in `openfg-scaler`:
 - `--filter passthrough` for a native/A-B and latency reference.
 - Optional `--filter neural` for a 2x `.ofg` model, with an ncnn `.param`
   validation path.
+- A Vulkan tile-gate feature pass for the EASU + selective-neural hybrid
+  (`openfg-gate-test`, see [GATE.md](GATE.md)).
 - Portal restore-token persistence (`--forget-token` to clear it).
 - Frame/CPU timing summary, per-pass GPU timestamps and optional progress
   output.
@@ -48,6 +50,7 @@ src/scaler/
   upscale/neural_vulkan.*        zero-copy Vulkan 2x backend
   upscale/neural_ncnn.*          ncnn inference boundary
   upscale/neural_ncnn_backend.*  optional ncnn validation backend
+  gate/gate_features.*           Vulkan 31-feature tile-gate pass
   upscale/passthrough.hpp        native/A-B reference
   upscale/fsr1_constants.*       shared CPU-side constants
   present/presenter.hpp          presenter interface + factory

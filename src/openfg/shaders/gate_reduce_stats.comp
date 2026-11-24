@@ -1,0 +1,221 @@
+// SPDX-License-Identifier: MIT
+// Per-tile gate statistics (means, variances, fractions, anisotropy).
+
+#version 450
+
+layout(local_size_x = 256) in;
+
+layout(set = 0, binding = 0) readonly buffer LowLuma { float values[]; } lowLuma;
+layout(set = 0, binding = 1) readonly buffer LowGradient { float values[]; } lowGradient;
+layout(set = 0, binding = 2) readonly buffer LowGradientX { float values[]; } lowGradientX;
+layout(set = 0, binding = 3) readonly buffer LowGradientY { float values[]; } lowGradientY;
+layout(set = 0, binding = 4) readonly buffer LowLaplacian { float values[]; } lowLaplacian;
+layout(set = 0, binding = 5) readonly buffer LowHighFrequency { float values[]; } lowHighFrequency;
+layout(set = 0, binding = 6) readonly buffer LowLocalVariance { float values[]; } lowLocalVariance;
+layout(set = 0, binding = 7) readonly buffer LowColorStd { float values[]; } lowColorStd;
+layout(set = 0, binding = 8) readonly buffer LowSaturation { float values[]; } lowSaturation;
+layout(set = 0, binding = 9) readonly buffer EasuLuma { float values[]; } easuLuma;
+layout(set = 0, binding = 10) readonly buffer EasuGradient { float values[]; } easuGradient;
+layout(set = 0, binding = 11) readonly buffer EasuLaplacian { float values[]; } easuLaplacian;
+layout(set = 0, binding = 12) readonly buffer EasuHighFrequency { float values[]; } easuHighFrequency;
+layout(set = 0, binding = 13) readonly buffer Difference { float values[]; } difference;
+layout(set = 0, binding = 14) readonly buffer DifferenceGradient { float values[]; } differenceGradient;
+layout(set = 0, binding = 15) writeonly buffer Features { float values[]; } features;
+
+layout(push_constant) uniform Push {
+    uint width;
+    uint height;
+    uint tile;
+    uint pad;
+} pc;
+
+shared float partial[27][256];
+
+void main()
+{
+    const uint tileIndex = gl_WorkGroupID.x;
+    const uint tilesX = (pc.width + pc.tile - 1) / pc.tile;
+    const uint tileX = tileIndex % tilesX;
+    const uint tileY = tileIndex / tilesX;
+    const uint x = tileX * pc.tile;
+    const uint y = tileY * pc.tile;
+    const uint w = min(pc.tile, pc.width - x);
+    const uint h = min(pc.tile, pc.height - y);
+    const uint hx = x * 2;
+    const uint hy = y * 2;
+    const uint hw = w * 2;
+    const uint hh = h * 2;
+    const uint tid = gl_LocalInvocationID.x;
+    const uint tx = tid & 15u;
+    const uint ty = tid >> 4u;
+
+    float lowLumaSum = 0.0;
+    float lowLumaSquare = 0.0;
+    float lowDark = 0.0;
+    float lowBright = 0.0;
+    float lowGradSum = 0.0;
+    float lowGradSquare = 0.0;
+    float lowEdge = 0.0;
+    float lowGxAbs = 0.0;
+    float lowGyAbs = 0.0;
+    float lowLapSum = 0.0;
+    float lowLapSquare = 0.0;
+    float lowHfSum = 0.0;
+    float lowLocalSum = 0.0;
+    float lowLocalSquare = 0.0;
+    float lowColorSum = 0.0;
+    float lowSatSum = 0.0;
+    float lowSatSquare = 0.0;
+    float easuLumaSum = 0.0;
+    float easuLumaSquare = 0.0;
+    float easuGradSum = 0.0;
+    float easuLapSum = 0.0;
+    float easuLapSquare = 0.0;
+    float easuHfSum = 0.0;
+    float diffSum = 0.0;
+    float diffSquare = 0.0;
+    float diffGradSum = 0.0;
+    float clip = 0.0;
+
+    for (uint yy = ty; yy < h; yy += 16u) {
+        for (uint xx = tx; xx < w; xx += 16u) {
+            const uint index = (y + yy) * pc.width + x + xx;
+            const float luma = lowLuma.values[index];
+            lowLumaSum += luma;
+            lowLumaSquare += luma * luma;
+            lowDark += luma < 0.1 ? 1.0 : 0.0;
+            lowBright += luma > 0.9 ? 1.0 : 0.0;
+
+            const float grad = lowGradient.values[index];
+            lowGradSum += grad;
+            lowGradSquare += grad * grad;
+            lowEdge += grad > 0.1 ? 1.0 : 0.0;
+            lowGxAbs += abs(lowGradientX.values[index]);
+            lowGyAbs += abs(lowGradientY.values[index]);
+
+            const float lap = lowLaplacian.values[index];
+            lowLapSum += lap;
+            lowLapSquare += lap * lap;
+            lowHfSum += lowHighFrequency.values[index];
+            const float local = lowLocalVariance.values[index];
+            lowLocalSum += local;
+            lowLocalSquare += local * local;
+            lowColorSum += lowColorStd.values[index];
+            const float sat = lowSaturation.values[index];
+            lowSatSum += sat;
+            lowSatSquare += sat * sat;
+        }
+    }
+
+    for (uint yy = ty; yy < hh; yy += 16u) {
+        for (uint xx = tx; xx < hw; xx += 16u) {
+            const uint index = (hy + yy) * (pc.width * 2) + hx + xx;
+            const float luma = easuLuma.values[index];
+            easuLumaSum += luma;
+            easuLumaSquare += luma * luma;
+            easuGradSum += easuGradient.values[index];
+            const float lap = easuLaplacian.values[index];
+            easuLapSum += lap;
+            easuLapSquare += lap * lap;
+            easuHfSum += easuHighFrequency.values[index];
+            const float diff = difference.values[index];
+            diffSum += diff;
+            diffSquare += diff * diff;
+            diffGradSum += differenceGradient.values[index];
+            clip += (luma <= 0.001 || luma >= 0.999) ? 1.0 : 0.0;
+        }
+    }
+
+    const uint slot = tid;
+    partial[0][slot] = lowLumaSum;
+    partial[1][slot] = lowLumaSquare;
+    partial[2][slot] = lowDark;
+    partial[3][slot] = lowBright;
+    partial[4][slot] = lowGradSum;
+    partial[5][slot] = lowGradSquare;
+    partial[6][slot] = lowEdge;
+    partial[7][slot] = lowGxAbs;
+    partial[8][slot] = lowGyAbs;
+    partial[9][slot] = lowLapSum;
+    partial[10][slot] = lowLapSquare;
+    partial[11][slot] = lowHfSum;
+    partial[12][slot] = lowLocalSum;
+    partial[13][slot] = lowLocalSquare;
+    partial[14][slot] = lowColorSum;
+    partial[15][slot] = lowSatSum;
+    partial[16][slot] = lowSatSquare;
+    partial[17][slot] = easuLumaSum;
+    partial[18][slot] = easuLumaSquare;
+    partial[19][slot] = easuGradSum;
+    partial[20][slot] = easuLapSum;
+    partial[21][slot] = easuLapSquare;
+    partial[22][slot] = easuHfSum;
+    partial[23][slot] = diffSum;
+    partial[24][slot] = diffSquare;
+    partial[25][slot] = diffGradSum;
+    partial[26][slot] = clip;
+    barrier();
+
+    if (tid == 0u) {
+        float total[27];
+        for (uint s = 0u; s < 27u; ++s) {
+            float sum = 0.0;
+            for (uint t = 0u; t < 256u; ++t)
+                sum += partial[s][t];
+            total[s] = sum;
+        }
+        const float lowCount = float(w * h);
+        const float highCount = float(hw * hh);
+        const float lowLumaMean = total[0] / lowCount;
+        const float lowLumaStd = sqrt(max(0.0,
+            total[1] / lowCount - lowLumaMean * lowLumaMean));
+        const float lowGradMean = total[4] / lowCount;
+        const float lowGradStd = sqrt(max(0.0,
+            total[5] / lowCount - lowGradMean * lowGradMean));
+        const float lowLapMean = total[9] / lowCount;
+        const float lowLapVar = max(0.0,
+            total[10] / lowCount - lowLapMean * lowLapMean);
+        const float localMean = total[12] / lowCount;
+        const float localStd = sqrt(max(0.0,
+            total[13] / lowCount - localMean * localMean));
+        const float satMean = total[15] / lowCount;
+        const float satStd = sqrt(max(0.0,
+            total[16] / lowCount - satMean * satMean));
+        const float easuLumaMean = total[17] / highCount;
+        const float easuLumaStd = sqrt(max(0.0,
+            total[18] / highCount - easuLumaMean * easuLumaMean));
+        const float easuLapMean = total[20] / highCount;
+        const float easuLapVar = max(0.0,
+            total[21] / highCount - easuLapMean * easuLapMean);
+        const float diffMean = total[23] / highCount;
+        const float diffStd = sqrt(max(0.0,
+            total[24] / highCount - diffMean * diffMean));
+
+        const uint base = tileIndex * 31u;
+        features.values[base + 0u] = lowLumaMean;
+        features.values[base + 1u] = lowLumaStd;
+        features.values[base + 4u] = lowGradMean;
+        features.values[base + 5u] = lowGradStd;
+        features.values[base + 7u] = total[6] / lowCount;
+        features.values[base + 8u] = lowLapVar;
+        features.values[base + 9u] = total[11] / lowCount;
+        features.values[base + 11u] = localMean;
+        features.values[base + 12u] = localStd;
+        features.values[base + 13u] = total[14] / lowCount;
+        features.values[base + 14u] = satMean;
+        features.values[base + 15u] = satStd;
+        features.values[base + 16u] = total[2] / lowCount;
+        features.values[base + 17u] = total[3] / lowCount;
+        features.values[base + 18u] =
+            (total[7] / lowCount) / (total[8] / lowCount + 1e-6);
+        features.values[base + 19u] = easuLumaMean;
+        features.values[base + 20u] = easuLumaStd;
+        features.values[base + 21u] = total[19] / highCount;
+        features.values[base + 23u] = easuLapVar;
+        features.values[base + 24u] = total[22] / highCount;
+        features.values[base + 26u] = diffMean;
+        features.values[base + 28u] = diffStd;
+        features.values[base + 29u] = total[25] / highCount;
+        features.values[base + 30u] = total[26] / highCount;
+    }
+}

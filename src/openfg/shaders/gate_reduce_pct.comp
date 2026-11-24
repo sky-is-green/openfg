@@ -1,0 +1,195 @@
+// SPDX-License-Identifier: MIT
+// Per-tile gate percentiles from 4-pixel samples, with two-stage refinement.
+
+#version 450
+
+layout(local_size_x = 256) in;
+
+layout(set = 0, binding = 0) readonly buffer LowLuma { float values[]; } lowLuma;
+layout(set = 0, binding = 1) readonly buffer LowGradient { float values[]; } lowGradient;
+layout(set = 0, binding = 2) readonly buffer LowHighFrequency { float values[]; } lowHighFrequency;
+layout(set = 0, binding = 3) readonly buffer EasuGradient { float values[]; } easuGradient;
+layout(set = 0, binding = 4) readonly buffer EasuHighFrequency { float values[]; } easuHighFrequency;
+layout(set = 0, binding = 5) readonly buffer Difference { float values[]; } difference;
+layout(set = 0, binding = 6) writeonly buffer Features { float values[]; } features;
+
+layout(push_constant) uniform Push {
+    uint width;
+    uint height;
+    uint tile;
+    uint pad;
+} pc;
+
+shared uint histogram[8192];
+shared float samples[4096];
+shared uint coarseBin;
+shared uint rankInBin;
+shared float result;
+
+float computePercentile(uint count, float range, uint bins, uint rank)
+{
+    if (rank >= count)
+        return range;
+    for (uint i = gl_LocalInvocationID.x; i < 8192u; i += 256u)
+        histogram[i] = 0u;
+    barrier();
+    for (uint i = gl_LocalInvocationID.x; i < count; i += 256u) {
+        const uint bin = min(uint(clamp(samples[i] / range, 0.0, 1.0)
+            * float(bins)), bins - 1u);
+        atomicAdd(histogram[bin], 1u);
+    }
+    barrier();
+    if (gl_LocalInvocationID.x == 0u) {
+        uint cumulative = 0u;
+        for (uint bin = 0u; bin < bins; ++bin) {
+            if (cumulative + histogram[bin] > rank) {
+                coarseBin = bin;
+                rankInBin = rank - cumulative;
+                break;
+            }
+            cumulative += histogram[bin];
+        }
+    }
+    barrier();
+
+    const float low = float(coarseBin) / float(bins) * range;
+    const float high = float(coarseBin + 1u) / float(bins) * range;
+    const float span = max(high - low, 1e-12);
+    for (uint i = gl_LocalInvocationID.x; i < 8192u; i += 256u)
+        histogram[i] = 0u;
+    barrier();
+    for (uint i = gl_LocalInvocationID.x; i < count; i += 256u) {
+        const float value = samples[i];
+        if (value >= low && value <= high) {
+            const uint bin = min(uint(clamp((value - low) / span, 0.0, 1.0)
+                * float(bins)), bins - 1u);
+            atomicAdd(histogram[bin], 1u);
+        }
+    }
+    barrier();
+    if (gl_LocalInvocationID.x == 0u) {
+        uint cumulative = 0u;
+        for (uint bin = 0u; bin < bins; ++bin) {
+            cumulative += histogram[bin];
+            if (cumulative > rankInBin) {
+                result = low + (float(bin) + 0.5) / float(bins) * span;
+                break;
+            }
+        }
+    }
+    barrier();
+    const float value = result;
+    barrier();
+    return value;
+}
+
+float percentile(uint count, float range, uint bins, float quantile)
+{
+    const float position = quantile * float(count - 1u);
+    const uint lower = uint(floor(position));
+    const uint upper = uint(ceil(position));
+    const float fraction = position - float(lower);
+    const float a = computePercentile(count, range, bins, lower);
+    const float b = lower == upper ? a
+        : computePercentile(count, range, bins, upper);
+    return mix(a, b, fraction);
+}
+
+void main()
+{
+    const uint tileIndex = gl_WorkGroupID.x;
+    const uint tilesX = (pc.width + pc.tile - 1) / pc.tile;
+    const uint tileX = tileIndex % tilesX;
+    const uint tileY = tileIndex / tilesX;
+    const uint x = tileX * pc.tile;
+    const uint y = tileY * pc.tile;
+    const uint w = min(pc.tile, pc.width - x);
+    const uint h = min(pc.tile, pc.height - y);
+    const uint hx = x * 2;
+    const uint hy = y * 2;
+    const uint hw = w * 2;
+    const uint hh = h * 2;
+    const uint tid = gl_LocalInvocationID.x;
+    const uint highWidth = pc.width * 2;
+    const uint lowColumns = (w + 3u) / 4u;
+    const uint lowRows = (h + 3u) / 4u;
+    const uint lowSamples = lowColumns * lowRows;
+    const uint highColumns = (hw + 3u) / 4u;
+    const uint highRows = (hh + 3u) / 4u;
+    const uint highSamples = highColumns * highRows;
+    const uint base = tileIndex * 31u;
+
+    for (uint i = tid; i < lowSamples; i += 256u) {
+        const uint sx = i % lowColumns;
+        const uint sy = i / lowColumns;
+        samples[i] = lowLuma.values[
+            (y + sy * 4u) * pc.width + x + sx * 4u];
+    }
+    barrier();
+    const float lowLumaP10 = percentile(lowSamples, 1.0, 4096u, 0.10);
+    const float lowLumaP90 = percentile(lowSamples, 1.0, 4096u, 0.90);
+    if (tid == 0u) {
+        features.values[base + 2u] = lowLumaP10;
+        features.values[base + 3u] = lowLumaP90;
+    }
+    barrier();
+
+    for (uint i = tid; i < lowSamples; i += 256u) {
+        const uint sx = i % lowColumns;
+        const uint sy = i / lowColumns;
+        samples[i] = lowGradient.values[
+            (y + sy * 4u) * pc.width + x + sx * 4u];
+    }
+    barrier();
+    const float lowGradP90 = percentile(lowSamples, 8.0, 8192u, 0.90);
+    if (tid == 0u)
+        features.values[base + 6u] = lowGradP90;
+    barrier();
+
+    for (uint i = tid; i < lowSamples; i += 256u) {
+        const uint sx = i % lowColumns;
+        const uint sy = i / lowColumns;
+        samples[i] = lowHighFrequency.values[
+            (y + sy * 4u) * pc.width + x + sx * 4u];
+    }
+    barrier();
+    const float lowHfP90 = percentile(lowSamples, 8.0, 8192u, 0.90);
+    if (tid == 0u)
+        features.values[base + 10u] = lowHfP90;
+    barrier();
+
+    for (uint i = tid; i < highSamples; i += 256u) {
+        const uint sx = i % highColumns;
+        const uint sy = i / highColumns;
+        samples[i] = easuGradient.values[
+            (hy + sy * 4u) * highWidth + hx + sx * 4u];
+    }
+    barrier();
+    const float easuGradP90 = percentile(highSamples, 8.0, 8192u, 0.90);
+    if (tid == 0u)
+        features.values[base + 22u] = easuGradP90;
+    barrier();
+
+    for (uint i = tid; i < highSamples; i += 256u) {
+        const uint sx = i % highColumns;
+        const uint sy = i / highColumns;
+        samples[i] = easuHighFrequency.values[
+            (hy + sy * 4u) * highWidth + hx + sx * 4u];
+    }
+    barrier();
+    const float easuHfP90 = percentile(highSamples, 8.0, 8192u, 0.90);
+    if (tid == 0u)
+        features.values[base + 25u] = easuHfP90;
+    barrier();
+
+    for (uint i = tid; i < highSamples; i += 256u) {
+        const uint sx = i % highColumns;
+        const uint sy = i / highColumns;
+        samples[i] = difference.values[
+            (hy + sy * 4u) * highWidth + hx + sx * 4u];
+    }
+    barrier();
+    const float diffP90 = percentile(highSamples, 8.0, 8192u, 0.90);
+    if (tid == 0u)
+        features.values[base + 27u] = diffP90;
+}

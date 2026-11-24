@@ -114,6 +114,16 @@ add_executable(openfg-cli
   "tools/openfg-cli/main.cpp")
 target_link_libraries(openfg-cli PRIVATE openfg-config)
 
+add_executable(openfg-gate-test
+  "tools/gate-test/main.cpp"
+  "src/scaler/gate/gate_features.cpp"
+  "src/scaler/vulkan.cpp")
+target_include_directories(openfg-gate-test PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/src"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/openfg"
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/openfg/shaders")
+target_link_libraries(openfg-gate-test PRIVATE openfg vkutil openfg-config)
+
 enable_testing()
 add_executable(openfg-config-test "tests/config_test.cpp")
 target_link_libraries(openfg-config-test PRIVATE openfg-config)
@@ -135,7 +145,7 @@ target_include_directories(openfg-gpu-probe PRIVATE
 target_link_libraries(openfg-gpu-probe PRIVATE openfg vkutil)
 
 install(TARGETS fg-lab scaler-gpu openfg-cli openfg-gpu-probe
-  RUNTIME DESTINATION bin)
+  openfg-gate-test RUNTIME DESTINATION bin)
 
 find_package(PkgConfig QUIET)
 if(PkgConfig_FOUND)

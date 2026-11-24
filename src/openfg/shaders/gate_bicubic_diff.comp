@@ -1,0 +1,56 @@
+// SPDX-License-Identifier: MIT
+// Catmull-Rom 2x luma comparison between the low input and the EASU output.
+
+#version 450
+
+#include "gate_common.glsl"
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+layout(set = 0, binding = 0) readonly buffer LowLuma {
+    float values[];
+} lowLuma;
+layout(set = 0, binding = 1) readonly buffer EasuLuma {
+    float values[];
+} easuLuma;
+layout(set = 0, binding = 2) writeonly buffer Difference {
+    float values[];
+} difference;
+
+layout(push_constant) uniform Push {
+    uint lowWidth;
+    uint lowHeight;
+    uint highWidth;
+    uint highHeight;
+} pc;
+
+void main()
+{
+    const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    if (pixel.x >= int(pc.highWidth) || pixel.y >= int(pc.highHeight))
+        return;
+
+    const float sy = (float(pixel.y) + 0.5) * 0.5 - 0.5;
+    const float sx = (float(pixel.x) + 0.5) * 0.5 - 0.5;
+    const int y0 = int(floor(sy));
+    const int x0 = int(floor(sx));
+
+    float value = 0.0;
+    float weightSum = 0.0;
+    for (int dy = -1; dy <= 2; ++dy) {
+        const float wy = gateCubic(sy - float(y0 + dy));
+        const int yy = gateClamp(y0 + dy, int(pc.lowHeight));
+        for (int dx = -1; dx <= 2; ++dx) {
+            const float wx = gateCubic(sx - float(x0 + dx));
+            const int xx = gateClamp(x0 + dx, int(pc.lowWidth));
+            const float weight = wx * wy;
+            value += weight * lowLuma.values[
+                uint(yy) * pc.lowWidth + uint(xx)];
+            weightSum += weight;
+        }
+    }
+
+    const uint index = uint(pixel.y) * pc.highWidth + uint(pixel.x);
+    difference.values[index] = abs(
+        easuLuma.values[index] - value / weightSum);
+}
